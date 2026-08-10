@@ -22,6 +22,9 @@ permissions:
   packages: write
   id-token: write
 
+env:
+  IMAGE_OWNER: lh99tw
+
 jobs:
   deploy:
     if: ${{ inputs.confirm == 'DEPLOY' }}
@@ -34,7 +37,7 @@ jobs:
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
+          username: ${{ env.IMAGE_OWNER }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build and push web
         uses: docker/build-push-action@v7
@@ -42,14 +45,14 @@ jobs:
           context: .
           file: Dockerfile.web
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/five-days-web:${{ github.sha }}
+          tags: ghcr.io/${{ env.IMAGE_OWNER }}/five-days-web:${{ github.sha }}
       - name: Build and push game server
         uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile.game
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/five-days-game-server:${{ github.sha }}
+          tags: ghcr.io/${{ env.IMAGE_OWNER }}/five-days-game-server:${{ github.sha }}
       - name: Authenticate to AWS with GitHub OIDC
         uses: aws-actions/configure-aws-credentials@v6
         with:
@@ -86,7 +89,7 @@ jobs:
           LIGHTSAIL_HOST: ${{ secrets.LIGHTSAIL_HOST }}
           LIGHTSAIL_DEPLOY_USER: ${{ secrets.LIGHTSAIL_DEPLOY_USER }}
           IMAGE_SHA: ${{ github.sha }}
-          IMAGE_OWNER: ${{ github.repository_owner }}
+          IMAGE_OWNER: ${{ env.IMAGE_OWNER }}
           GHCR_READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RUN_MIGRATION: ${{ inputs.run_migration }}
         run: |
