@@ -8,7 +8,7 @@ STATIC_IP_NAME="${STATIC_IP_NAME:-five-days-mvp-ip}"
 KEY_PAIR_NAME="${KEY_PAIR_NAME:-five-days-deploy}"
 BUNDLE_ID="${BUNDLE_ID:-small_3_0}"
 BLUEPRINT_ID="${BLUEPRINT_ID:-ubuntu_24_04}"
-REPOSITORY="${GITHUB_REPOSITORY:-LH99Tw/Krafton-jungle-project3}"
+OIDC_SUBJECT="${GITHUB_OIDC_SUBJECT:-repo:LH99Tw@161941871/Krafton-jungle-project3@1329446983:environment:staging}"
 ROLE_NAME="${GITHUB_ROLE_NAME:-FiveDaysGitHubDeploy}"
 : "${BILLING_ALERT_EMAIL:?Set BILLING_ALERT_EMAIL for the AWS Budget notifications}"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -108,15 +108,17 @@ if ! aws_cli iam get-open-id-connect-provider --open-id-connect-provider-arn "$p
 fi
 
 trust_file="$(mktemp)"
-jq -n --arg provider "$provider_arn" --arg repository "$REPOSITORY" '{
+jq -n --arg provider "$provider_arn" --arg subject "$OIDC_SUBJECT" '{
   Version:"2012-10-17",
   Statement:[{
     Effect:"Allow",
     Principal:{Federated:$provider},
     Action:"sts:AssumeRoleWithWebIdentity",
     Condition:{
-      StringEquals:{"token.actions.githubusercontent.com:aud":"sts.amazonaws.com"},
-      StringLike:{"token.actions.githubusercontent.com:sub":("repo:"+$repository+":*")}
+      StringEquals:{
+        "token.actions.githubusercontent.com:aud":"sts.amazonaws.com",
+        "token.actions.githubusercontent.com:sub":$subject
+      }
     }
   }]
 }' > "$trust_file"
