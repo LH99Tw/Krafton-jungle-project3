@@ -26,10 +26,11 @@ aws --profile five-days --region ap-northeast-2 sts get-caller-identity
 - GitHub Actions가 실행 중인 runner IP만 임시로 열 수 있는 최소 권한 OIDC 역할
 
 ```bash
+export BILLING_ALERT_EMAIL=<BILLING_ALERT_EMAIL>
 AWS_PROFILE_NAME=five-days ./deploy/aws/bootstrap-lightsail.sh | tee deploy/.secrets/bootstrap-output.json
 ```
 
-출력의 `staticIp`, `roleArn`, `webHost`, `gameHost`를 다음 단계에서 사용합니다. 무료 자격을 확인하기 전에는 이 스크립트를 실행하지 않습니다.
+출력의 `staticIp`, `roleArn`, `webHost`, `gameHost`를 다음 단계에서 사용합니다. 스크립트는 월 실제 비용 5·10·20달러 이메일 경보가 포함된 20달러 월간 Budget 하나도 생성합니다. 무료 자격을 확인하기 전에는 이 스크립트를 실행하지 않습니다.
 
 ## 3. Cognito와 서버 환경 파일
 

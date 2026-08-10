@@ -10,6 +10,7 @@ BUNDLE_ID="${BUNDLE_ID:-small_3_0}"
 BLUEPRINT_ID="${BLUEPRINT_ID:-ubuntu_24_04}"
 REPOSITORY="${GITHUB_REPOSITORY:-LH99Tw/Krafton-jungle-project3}"
 ROLE_NAME="${GITHUB_ROLE_NAME:-FiveDaysGitHubDeploy}"
+: "${BILLING_ALERT_EMAIL:?Set BILLING_ALERT_EMAIL for the AWS Budget notifications}"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SECRET_DIR="$PROJECT_ROOT/deploy/.secrets"
 SSH_KEY_FILE="$SECRET_DIR/five-days-deploy"
@@ -20,6 +21,26 @@ aws_cli() {
 
 account_id="$(aws_cli sts get-caller-identity --query Account --output text)"
 operator_cidr="${SSH_CIDR:-$(curl --fail --silent https://checkip.amazonaws.com)/32}"
+
+if ! aws_cli budgets describe-budget --account-id "$account_id" --budget-name five-days-monthly >/dev/null 2>&1; then
+  budget_file="$(mktemp)"
+  notifications_file="$(mktemp)"
+  jq -n '{
+    BudgetName:"five-days-monthly",
+    BudgetLimit:{Amount:"20",Unit:"USD"},
+    TimeUnit:"MONTHLY",
+    BudgetType:"COST"
+  }' > "$budget_file"
+  jq -n --arg email "$BILLING_ALERT_EMAIL" '[5,10,20] | map({
+    Notification:{NotificationType:"ACTUAL",ComparisonOperator:"GREATER_THAN",Threshold:.,ThresholdType:"ABSOLUTE_VALUE"},
+    Subscribers:[{SubscriptionType:"EMAIL",Address:$email}]
+  })' > "$notifications_file"
+  aws_cli budgets create-budget \
+    --account-id "$account_id" \
+    --budget "file://$budget_file" \
+    --notifications-with-subscribers "file://$notifications_file"
+  find "$budget_file" "$notifications_file" -delete
+fi
 
 install -d -m 0700 "$SECRET_DIR"
 if [ ! -f "$SSH_KEY_FILE" ]; then
