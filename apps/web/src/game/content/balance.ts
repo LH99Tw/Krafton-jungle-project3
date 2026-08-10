@@ -6,7 +6,7 @@ export const WORLD = {
   base: { x: 1400, y: 6600, radius: 82, maxHp: 500 },
   arena: { x: 11050, y: 1250, radius: 800 },
   gates: [
-    { id: "meadow", name: "들판의 균열", x: 3900, y: 5950, zone: 1, hp: 90 },
+    { id: "meadow", name: "들판의 균열", x: 4600, y: 5950, zone: 1, hp: 90 },
     { id: "forest", name: "오염 숲의 균열", x: 7200, y: 4100, zone: 2, hp: 170 },
     { id: "castle", name: "마왕성 외곽의 균열", x: 10250, y: 2400, zone: 3, hp: 260 },
   ],
