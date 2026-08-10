@@ -1,0 +1,93 @@
+name: Deploy Lightsail
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+concurrency:
+  group: lightsail-staging
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.web
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/five-days-web:${{ github.sha }}
+      - name: Build and push game server
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.game
+          push: true
+          tags: ghcr.io/${{ github.repository_owner }}/five-days-game-server:${{ github.sha }}
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.LIGHTSAIL_SSH_PRIVATE_KEY }}
+          LIGHTSAIL_HOST: ${{ secrets.LIGHTSAIL_HOST }}
+        run: |
+          install -m 0700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 0600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$LIGHTSAIL_HOST" >> ~/.ssh/known_hosts
+      - name: Deploy SHA images
+        env:
+          LIGHTSAIL_HOST: ${{ secrets.LIGHTSAIL_HOST }}
+          LIGHTSAIL_DEPLOY_USER: ${{ secrets.LIGHTSAIL_DEPLOY_USER }}
+          IMAGE_SHA: ${{ github.sha }}
+          IMAGE_OWNER: ${{ github.repository_owner }}
+          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+        run: |
+          ssh "$LIGHTSAIL_DEPLOY_USER@$LIGHTSAIL_HOST" \
+            IMAGE_SHA="$IMAGE_SHA" IMAGE_OWNER="$IMAGE_OWNER" GHCR_READ_TOKEN="$GHCR_READ_TOKEN" \
+            'bash -s' <<'REMOTE'
+          set -euo pipefail
+          cd /opt/five-days
+          previous_web=$(awk -F= '/^WEB_IMAGE=/{print $2}' .release 2>/dev/null || true)
+          previous_game=$(awk -F= '/^GAME_IMAGE=/{print $2}' .release 2>/dev/null || true)
+          printf 'WEB_IMAGE=%s\nGAME_IMAGE=%s\n' "$previous_web" "$previous_game" > .previous-release
+          printf '%s' "$GHCR_READ_TOKEN" | docker login ghcr.io -u "$IMAGE_OWNER" --password-stdin
+          web_image="ghcr.io/$IMAGE_OWNER/five-days-web:$IMAGE_SHA"
+          game_image="ghcr.io/$IMAGE_OWNER/five-days-game-server:$IMAGE_SHA"
+          printf 'WEB_IMAGE=%s\nGAME_IMAGE=%s\n' "$web_image" "$game_image" > .release
+          set -a
+          . ./.env
+          . ./.release
+          set +a
+          docker compose pull web game-server migrate
+          docker compose --profile migration run --rm migrate
+          docker compose up -d --remove-orphans
+          for attempt in $(seq 1 12); do
+            if curl --fail --silent "https://$WEB_HOST/api/health/ready" >/dev/null && \
+               curl --fail --silent "https://$GAME_HOST/health/ready" >/dev/null; then
+              exit 0
+            fi
+            sleep 5
+          done
+          docker compose logs --since=10m --tail=200 web game-server
+          if [ -n "$previous_web" ] && [ -n "$previous_game" ]; then
+            printf 'WEB_IMAGE=%s\nGAME_IMAGE=%s\n' "$previous_web" "$previous_game" > .release
+            export WEB_IMAGE="$previous_web" GAME_IMAGE="$previous_game"
+            docker compose up -d web game-server
+          fi
+          exit 1
+          REMOTE

@@ -1,0 +1,15 @@
+FROM node:22.22.0-alpine
+WORKDIR /workspace
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps/game-server/package.json apps/game-server/package.json
+COPY packages/auth/package.json packages/auth/package.json
+COPY packages/db/package.json packages/db/package.json
+COPY packages/game-core/package.json packages/game-core/package.json
+COPY packages/protocol/package.json packages/protocol/package.json
+RUN pnpm install --frozen-lockfile
+COPY apps/game-server apps/game-server
+COPY packages packages
+USER node
+EXPOSE 2567
+CMD ["pnpm", "--filter", "@five-days/game-server", "start"]

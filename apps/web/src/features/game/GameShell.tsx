@@ -13,6 +13,7 @@ import {
   type UpgradeChoice,
 } from "@/src/game/domain/types";
 import { gameBridge } from "@/src/game/runtime/GameBridge";
+import { colyseusTransport, type NetworkStatus } from "@/src/game/transport/ColyseusTransport";
 import { Guestbook } from "../guestbook/Guestbook";
 import { GameHud } from "./GameHud";
 import { ResultOverlay } from "./ResultOverlay";
@@ -22,6 +23,7 @@ export type Viewer = {
   userId: string;
   displayName: string;
   email: string;
+  csrfToken: string;
 } | null;
 
 type Screen = "briefing" | "playing";
@@ -36,35 +38,52 @@ export function GameShell({ viewer }: { viewer: Viewer }) {
   const [snapshot, setSnapshot] = useState<GameSnapshot>(EMPTY_SNAPSHOT);
   const [upgradeChoices, setUpgradeChoices] = useState<UpgradeChoice[]>([]);
   const [result, setResult] = useState<GameResult | null>(null);
+  const [networkStatus, setNetworkStatus] = useState<NetworkStatus>("idle");
+  const [networkError, setNetworkError] = useState("");
 
   useEffect(() => {
     const offSnapshot = gameBridge.on("snapshot", setSnapshot);
     const offUpgrade = gameBridge.on("upgrade", setUpgradeChoices);
     const offResult = gameBridge.on("result", (gameResult) => {
       setResult(gameResult);
-      if (viewer) {
-        void fetch("/api/runs", {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(gameResult),
-        }).catch(() => undefined);
-      }
     });
     return () => {
       offSnapshot();
       offUpgrade();
       offResult();
+      colyseusTransport.disconnect();
     };
-  }, [viewer]);
+  }, []);
 
-  const beginRun = useCallback(() => {
+  const beginRun = useCallback(async () => {
+    const gameServerUrl = process.env.NEXT_PUBLIC_GAME_SERVER_URL;
+    if (gameServerUrl) {
+      if (!viewer) {
+        window.location.href = "/api/auth/login?returnTo=%2F";
+        return;
+      }
+      setNetworkStatus("connecting");
+      setNetworkError("");
+      try {
+        await colyseusTransport.connect({
+          serverUrl: gameServerUrl,
+          csrfToken: viewer.csrfToken,
+          options: { heroClass: selectedClass, sessionMode, difficulty },
+        });
+        setNetworkStatus("connected");
+      } catch (error) {
+        setNetworkStatus("error");
+        setNetworkError(error instanceof Error ? error.message : "게임 서버에 연결하지 못했습니다.");
+        return;
+      }
+    }
     setSnapshot(EMPTY_SNAPSHOT);
     setUpgradeChoices([]);
     setResult(null);
     setActiveOptions({ heroClass: selectedClass, sessionMode, difficulty });
     setRunKey((value) => value + 1);
     setScreen("playing");
-  }, [difficulty, selectedClass, sessionMode]);
+  }, [difficulty, selectedClass, sessionMode, viewer]);
 
   const retryRun = useCallback(() => {
     setSnapshot(EMPTY_SNAPSHOT);
@@ -74,6 +93,8 @@ export function GameShell({ viewer }: { viewer: Viewer }) {
   }, []);
 
   const returnToBriefing = useCallback(() => {
+    colyseusTransport.disconnect();
+    setNetworkStatus("disconnected");
     setScreen("briefing");
     setActiveOptions(null);
     setResult(null);
@@ -96,6 +117,7 @@ export function GameShell({ viewer }: { viewer: Viewer }) {
   if (screen === "playing" && activeOptions) {
     return (
       <main className="play-screen">
+        <div className="network-status" role="status">게임 서버 · {networkStatus === "connected" ? "연결됨" : networkStatus}</div>
         <GameCanvas key={runKey} options={activeOptions} />
         <GameHud
           snapshot={snapshot}
@@ -236,10 +258,11 @@ export function GameShell({ viewer }: { viewer: Viewer }) {
             <span>출전 클래스</span><strong>{selectedDefinition.name}</strong>
             <span>예상 작전</span><strong>{modeLabel}</strong>
           </div>
-          <button className="primary-launch" type="button" onClick={beginRun}>
+          <button className="primary-launch" type="button" onClick={() => void beginRun()} disabled={networkStatus === "connecting"}>
             <span>원정 시작</span>
             <small>WASD · Q/E · SPACE</small>
           </button>
+          {networkError ? <p role="alert">{networkError}</p> : null}
         </div>
       </section>
 

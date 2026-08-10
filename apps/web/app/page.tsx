@@ -1,14 +1,13 @@
-import { getChatGPTUser } from "./chatgpt-auth";
+import { getCsrfToken, getSessionUser } from "./auth/session";
 import { GameShell } from "@/src/features/game/GameShell";
 
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const user = await getChatGPTUser();
+  const user = await getSessionUser();
   const viewer = user
-    ? { userId: user.userId, displayName: user.displayName, email: user.email }
+    ? { userId: user.id, displayName: user.displayName, email: user.email, csrfToken: await getCsrfToken() ?? "" }
     : null;
 
   return <GameShell viewer={viewer} />;
 }
-

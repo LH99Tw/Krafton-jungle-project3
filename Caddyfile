@@ -1,0 +1,9 @@
+{$WEB_HOST:localhost} {
+  encode zstd gzip
+  reverse_proxy web:3000
+}
+
+{$GAME_HOST:game.localhost} {
+  encode zstd gzip
+  reverse_proxy game-server:2567
+}

@@ -39,7 +39,10 @@ export function Guestbook({ viewer }: { viewer: Viewer }) {
     setStatus("기록 중…");
     const response = await fetch("/api/guestbook", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        "x-csrf-token": viewer.csrfToken,
+      },
       body: JSON.stringify({ content }),
     });
     if (!response.ok) {
@@ -67,7 +70,7 @@ export function Guestbook({ viewer }: { viewer: Viewer }) {
             placeholder={viewer ? `${viewer.displayName}의 원정 기록을 남기세요.` : "로그인 후 기록을 남길 수 있습니다."}
             disabled={!viewer}
           />
-          <div><small>{content.length} / 180 · {status}</small>{viewer ? <button type="submit" disabled={content.trim().length < 2}>기록 남기기</button> : <a href="/signin-with-chatgpt?return_to=%2F">ChatGPT로 로그인</a>}</div>
+          <div><small>{content.length} / 180 · {status}</small>{viewer ? <button type="submit" disabled={content.trim().length < 2}>기록 남기기</button> : <a href="/api/auth/login?returnTo=%2F">Google로 로그인</a>}</div>
         </form>
       </div>
       <div className="guestbook-list">

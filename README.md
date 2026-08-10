@@ -2,6 +2,12 @@
 
 로그라이트·디펜스·RPG·타이쿤을 결합한 데스크톱 웹 게임 미니 프로젝트입니다.
 
+## 구현 상태와 목표 기술 스택
+
+현재 플레이 가능한 프로토타입은 Phaser 3, React, Vinext, Cloudflare Worker/D1 기반이며 게임 판정은 브라우저에서 실행됩니다. 목표 백엔드는 표준 Next.js Node 서버, Colyseus 서버 권위 Room, Drizzle ORM, PostgreSQL, Cognito + Google OAuth로 전환하는 구조입니다.
+
+목표 설계와 구현 순서는 [`Document/backend_node_colyseus_postgresql.md`](./Document/backend_node_colyseus_postgresql.md), AWS 무료 범위를 고려한 MVP 배포·운영 절차는 [`Document/aws_lightsail_deployment.md`](./Document/aws_lightsail_deployment.md)를 참고하세요.
+
 ## 저장소 구성
 
 ```text
@@ -16,6 +22,9 @@ apps/
 
 Document/                    기획·설계·협업 문서
 ├─ 3인_개발_역할분담_보고서.md    시스템/레벨/백엔드 협업 보고서
+├─ backend_node_colyseus_postgresql.md
+│                                Node·Colyseus·PostgreSQL 목표 설계
+├─ aws_lightsail_deployment.md    AWS Lightsail 배포·운영 런북
 ├─ 협업_데이터_계약_초안.txt      공통 ID·명령·스냅숏 계약
 ├─ 게임기획서_고도화_초안.md      고도화된 게임 기획서
 ├─ 프로토타입_제안서.md            제작 범위와 완료 기준

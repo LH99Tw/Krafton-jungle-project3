@@ -1,0 +1,23 @@
+{
+  "name": "@five-days/game-core",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc --noEmit",
+    "lint": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@five-days/protocol": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.19",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3"
+  }
+}

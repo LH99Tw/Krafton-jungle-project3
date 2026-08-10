@@ -1,0 +1,26 @@
+{
+  "name": "five-days-to-demon-king",
+  "version": "0.2.0",
+  "private": true,
+  "packageManager": "pnpm@11.16.0",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "scripts": {
+    "local:setup": "node scripts/setup-local.mjs",
+    "local:up": "docker compose -f compose.local.yml up -d postgres",
+    "local:down": "docker compose -f compose.local.yml down",
+    "dev": "dotenv -e .env.local -- pnpm --parallel --filter @five-days/web --filter @five-days/game-server dev",
+    "dev:web": "dotenv -e .env.local -- pnpm --filter @five-days/web dev",
+    "dev:game": "dotenv -e .env.local -- pnpm --filter @five-days/game-server dev",
+    "build": "pnpm -r --filter './packages/**' --filter @five-days/game-server --filter @five-days/web build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "db:generate": "pnpm --filter @five-days/db db:generate",
+    "db:migrate": "dotenv -e .env.local -- pnpm --filter @five-days/db db:migrate"
+  },
+  "devDependencies": {
+    "dotenv-cli": "11.0.0"
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "name": "@five-days/game-server",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc --noEmit",
+    "start": "tsx src/index.ts",
+    "lint": "tsc --noEmit",
+    "test": "tsx --test test/*.test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@colyseus/schema": "4.0.30",
+    "@colyseus/core": "0.17.49",
+    "@colyseus/ws-transport": "0.17.13",
+    "@five-days/auth": "workspace:*",
+    "@five-days/db": "workspace:*",
+    "@five-days/game-core": "workspace:*",
+    "@five-days/protocol": "workspace:*",
+    "express": "5.1.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@types/express": "5.0.3",
+    "@types/node": "22.19.19",
+    "tsx": "4.21.0",
+    "typescript": "5.9.3"
+  }
+}

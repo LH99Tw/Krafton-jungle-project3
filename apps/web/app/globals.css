@@ -802,6 +802,19 @@ button {
   isolation: isolate;
 }
 
+.network-status {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 35;
+  padding: 7px 10px;
+  border: 1px solid rgba(183, 218, 201, 0.22);
+  background: rgba(9, 16, 17, 0.82);
+  color: #bdeed3;
+  font: 10px ui-monospace, monospace;
+  letter-spacing: 0.08em;
+}
+
 .game-canvas,
 .game-canvas canvas {
   width: 100%;
@@ -1104,4 +1117,3 @@ button {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
 }
-
