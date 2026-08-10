@@ -3,7 +3,7 @@ set -euo pipefail
 
 INSTANCE_NAME="${INSTANCE_NAME:-five-days-mvp}"
 DEPLOY_USER="${DEPLOY_USER:-deploy}"
-SSH_KEY_FILE="${SSH_KEY_FILE:-deploy/.secrets/five-days-deploy}"
+SSH_KEY_FILE="${SSH_KEY_FILE:-deploy/.secrets/five-days-lightsail.pem}"
 : "${LIGHTSAIL_HOST:?Set LIGHTSAIL_HOST to the static IPv4 address}"
 : "${AWS_DEPLOY_ROLE_ARN:?Set AWS_DEPLOY_ROLE_ARN to the bootstrap output}"
 

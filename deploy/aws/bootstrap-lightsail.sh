@@ -13,7 +13,7 @@ ROLE_NAME="${GITHUB_ROLE_NAME:-FiveDaysGitHubDeploy}"
 : "${BILLING_ALERT_EMAIL:?Set BILLING_ALERT_EMAIL for the AWS Budget notifications}"
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SECRET_DIR="$PROJECT_ROOT/deploy/.secrets"
-SSH_KEY_FILE="$SECRET_DIR/five-days-deploy"
+SSH_KEY_FILE="$SECRET_DIR/five-days-lightsail.pem"
 
 aws_cli() {
   aws --profile "$AWS_PROFILE_NAME" --region "$AWS_REGION_NAME" "$@"
@@ -43,20 +43,22 @@ if ! aws_cli budgets describe-budget --account-id "$account_id" --budget-name fi
 fi
 
 install -d -m 0700 "$SECRET_DIR"
-if [ ! -f "$SSH_KEY_FILE" ]; then
-  ssh-keygen -q -t ed25519 -N '' -C five-days-deploy -f "$SSH_KEY_FILE"
-fi
-
 if ! aws_cli lightsail get-key-pair --key-pair-name "$KEY_PAIR_NAME" >/dev/null 2>&1; then
-  public_key_base64="$(base64 < "$SSH_KEY_FILE.pub" | tr -d '\n')"
-  aws_cli lightsail import-key-pair \
+  umask 077
+  aws_cli lightsail create-key-pair \
     --key-pair-name "$KEY_PAIR_NAME" \
-    --public-key-base64 "$public_key_base64" >/dev/null
+    --query privateKeyBase64 \
+    --output text > "$SSH_KEY_FILE"
+  chmod 0600 "$SSH_KEY_FILE"
 fi
+[ -f "$SSH_KEY_FILE" ] || {
+  echo "Lightsail key pair exists, but its local private key is missing: $SSH_KEY_FILE" >&2
+  exit 1
+}
 
 if ! aws_cli lightsail get-instance --instance-name "$INSTANCE_NAME" >/dev/null 2>&1; then
   user_data_file="$(mktemp)"
-  public_key="$(cat "$SSH_KEY_FILE.pub")"
+  public_key="$(ssh-keygen -y -f "$SSH_KEY_FILE")"
   sed "s|__DEPLOY_PUBLIC_KEY__|$public_key|" "$PROJECT_ROOT/deploy/aws/lightsail-user-data.sh" > "$user_data_file"
   aws_cli lightsail create-instances \
     --instance-names "$INSTANCE_NAME" \

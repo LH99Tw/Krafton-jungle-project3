@@ -71,8 +71,8 @@ jobs:
           LIGHTSAIL_HOST: ${{ secrets.LIGHTSAIL_HOST }}
         run: |
           install -m 0700 -d ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
-          chmod 0600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_rsa
+          chmod 0600 ~/.ssh/id_rsa
           ssh-keyscan -H "$LIGHTSAIL_HOST" >> ~/.ssh/known_hosts
       - name: Upload deployment topology
         env:
