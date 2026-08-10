@@ -150,6 +150,10 @@ export class GameScene extends Phaser.Scene {
     graphics.fillStyle(0x17231f).fillRect(0, 0, WORLD.width, WORLD.height);
     // Base Camp: Compact Stone Grey (#787D8A) cobblestone floor area
     this.drawStoneFloor(graphics, 600, 6000, 1600, 1200);
+
+    // Zone 01 (Sunny Meadow): 3-Way Maze, Hedge/Tree Walls, and Blue Crystal Flower Shrines
+    this.drawSunnyMeadowMaze(graphics);
+
     graphics.fillStyle(0x203733, 0.94).fillRect(3200, 2850, 5250, 3200);
     graphics.fillStyle(0x2e2038, 0.95).fillRect(6600, 1300, 6200, 3600);
     graphics.fillStyle(0x17111e, 0.98).fillCircle(WORLD.arena.x, WORLD.arena.y, WORLD.arena.radius + 150);
@@ -245,6 +249,102 @@ export class GameScene extends Phaser.Scene {
         }
       }
     }
+  }
+
+  private drawSunnyMeadowMaze(graphics: Phaser.GameObjects.Graphics): void {
+    const originX = 3000;
+    const originY = 5200;
+    const mazeW = 2000;
+    const mazeH = 1600;
+
+    // Meadow Grass Ground (#243b2c)
+    graphics.fillStyle(0x243b2c, 0.95).fillRect(originX, originY, mazeW, mazeH);
+
+    // 1. Paved Stone Walkways for 3-Way Maze Paths
+    const drawWalkway = (x: number, y: number, w: number, h: number) => {
+      graphics.fillStyle(0x353a44, 0.9).fillRect(x - 4, y - 4, w + 8, h + 8);
+      graphics.fillStyle(0x7b8494, 0.96).fillRect(x, y, w, h);
+      graphics.lineStyle(1, 0x9ca6b8, 0.35);
+      for (let px = x; px < x + w; px += 40) {
+        for (let py = y; py < y + h; py += 40) {
+          graphics.strokeRect(px + 2, py + 2, 36, 36);
+        }
+      }
+    };
+
+    // Entrance path from Base Camp
+    drawWalkway(3000, 5900, 400, 100);
+
+    // 3-Way Junction Plaza (Crossroads) at (3400, 5600)
+    drawWalkway(3400, 5600, 200, 700);
+
+    // Branch 1 (Upper Branch)
+    drawWalkway(3400, 5400, 800, 100);
+    drawWalkway(4200, 5200, 100, 300);
+    drawWalkway(4200, 5200, 700, 100);
+
+    // Branch 2 (Center Main Branch)
+    drawWalkway(3600, 5900, 1300, 100);
+
+    // Branch 3 (Lower Branch)
+    drawWalkway(3400, 6400, 800, 100);
+    drawWalkway(4200, 6400, 100, 300);
+    drawWalkway(4200, 6600, 700, 100);
+
+    // 2. Hedge / Tree Maze Walls (#1d3822 dark green foliage & trees matching reference image)
+    const drawHedgeWall = (x: number, y: number, w: number, h: number) => {
+      graphics.fillStyle(0x162c1a, 0.98).fillRect(x, y, w, h);
+      graphics.fillStyle(0x274a2e, 0.95).fillRect(x + 4, y + 4, w - 8, h - 8);
+      for (let tx = x + 25; tx < x + w; tx += 50) {
+        for (let ty = y + 25; ty < y + h; ty += 50) {
+          graphics.fillStyle(0x1e3f26, 0.9).fillCircle(tx, ty, 24);
+          graphics.fillStyle(0x32613d, 0.85).fillCircle(tx - 4, ty - 4, 18);
+          graphics.fillStyle(0x498758, 0.7).fillCircle(tx - 6, ty - 6, 10);
+        }
+      }
+    };
+
+    // Hedge walls creating 3-way maze corridors
+    drawHedgeWall(3000, 5200, 400, 650);
+    drawHedgeWall(3000, 6050, 400, 750);
+
+    drawHedgeWall(3600, 5200, 550, 150);
+    drawHedgeWall(3600, 5550, 550, 300);
+    drawHedgeWall(3600, 6050, 550, 300);
+    drawHedgeWall(3600, 6550, 550, 250);
+
+    drawHedgeWall(4350, 5350, 550, 500);
+    drawHedgeWall(4350, 6050, 550, 500);
+
+    // 3. Glowing Blue Crystal Flower Pedestals (Matching reference screenshot)
+    const drawBlueFlowerPedestal = (px: number, py: number) => {
+      graphics.fillStyle(0x525966).fillRect(px - 14, py - 14, 28, 28);
+      graphics.fillStyle(0x8a94a6).fillRect(px - 11, py - 11, 22, 22);
+      graphics.fillStyle(0xccd5e3).fillRect(px - 9, py - 9, 18, 4);
+
+      this.add.circle(px, py, 26, 0x00e5ff, 0.22).setDepth(-8);
+      this.add.circle(px, py, 14, 0x33f0ff, 0.38).setDepth(-7);
+
+      graphics.fillStyle(0x00aaff).fillTriangle(px - 10, py, px + 10, py, px, py - 14);
+      graphics.fillStyle(0x33d6ff).fillTriangle(px - 8, py - 4, px + 8, py - 4, px, py + 10);
+      graphics.fillStyle(0xffffff).fillCircle(px, py - 2, 4);
+    };
+
+    // Shrines along the 3-way maze paths & junctions
+    const flowerLocations = [
+      { x: 3430, y: 5520 },
+      { x: 3570, y: 5520 },
+      { x: 3430, y: 6320 },
+      { x: 3570, y: 6320 },
+      { x: 4180, y: 5350 },
+      { x: 4180, y: 6450 },
+      { x: 3900, y: 5850 },
+      { x: 3900, y: 6050 },
+      { x: 4850, y: 5850 },
+      { x: 4850, y: 6050 },
+    ];
+
+    flowerLocations.forEach((loc) => drawBlueFlowerPedestal(loc.x, loc.y));
   }
 
   private createGroups(): void {
