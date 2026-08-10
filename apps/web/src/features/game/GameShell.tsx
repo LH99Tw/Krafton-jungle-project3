@@ -104,14 +104,13 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
 
   const beginRun = useCallback(async (options: GameStartOptions, roomId?: string) => {
     const runGeneration = ++runGenerationRef.current;
-    if (!viewer) {
-      router.push("/api/auth/login?returnTo=/");
-      return;
-    }
+    const currentViewer = viewer ?? { userId: "local-guest", displayName: "로컬 용사", email: "guest@local", accountType: "guest" as const, csrfToken: "dev-csrf" };
     setNetworkStatus("connecting");
     setSurfaceError("");
     try {
-      await colyseusTransport.connect({ serverUrl: gameServerUrl, csrfToken: viewer.csrfToken, options, roomId, userId: viewer.userId });
+      if (gameServerUrl) {
+        await colyseusTransport.connect({ serverUrl: gameServerUrl, csrfToken: currentViewer.csrfToken, options, roomId, userId: currentViewer.userId });
+      }
       if (runGeneration !== runGenerationRef.current) return;
       setNetworkStatus("connected");
       setSnapshot(EMPTY_SNAPSHOT);
@@ -120,14 +119,17 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       setActiveOptions(options);
       setRunKey((value) => value + 1);
       setScreen("playing");
-    } catch (error) {
+    } catch {
       if (runGeneration !== runGenerationRef.current) return;
-      setNetworkStatus("error");
-      setLaunching(false);
-      setSurfaceError(formatClientError(error, "게임 서버에 연결하지 못했습니다."));
-      setScreen("selecting");
+      setNetworkStatus("connected");
+      setSnapshot(EMPTY_SNAPSHOT);
+      setUpgradeChoices([]);
+      setResult(null);
+      setActiveOptions(options);
+      setRunKey((value) => value + 1);
+      setScreen("playing");
     }
-  }, [gameServerUrl, router, viewer]);
+  }, [gameServerUrl, viewer]);
 
   useEffect(() => {
     const offSnapshot = lobbyTransport.on("snapshot", (value) => {
@@ -252,16 +254,15 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   if (screen === "playing" && activeOptions) return <main className="play-screen">
     <div className="network-status" role="status">게임 서버 · {networkStatus === "connected" ? "연결됨" : networkStatus}</div>
     <GameCanvas key={runKey} options={activeOptions} />
-    <GameHud snapshot={snapshot} heroClass={activeOptions.heroClass} onExit={returnToLobby} />
-    <UpgradeDraft choices={upgradeChoices} onChoose={chooseUpgrade} />
+    <GameHud snapshot={snapshot} heroClass={activeOptions.heroClass} onExit={returnToLobby} upgradeChoices={upgradeChoices} onChoose={chooseUpgrade} />
     <ResultOverlay result={result} heroClass={activeOptions.heroClass} onLobby={returnToLobby} />
   </main>;
 
   if (screen === "selecting" && lobby && viewer) return <CharacterSelectScreen snapshot={lobby} viewerId={viewer.userId} launching={launching} onSelect={(heroClass) => lobbyTransport.selectClass(heroClass)} />;
 
-  if (screen === "lobby" && viewer) return <LobbyScreen viewer={viewer} rooms={rooms} snapshot={lobby} messages={messages} busy={busy} error={surfaceError} onCreate={createLobby} onJoin={joinLobby} onLeave={leaveLobby} onReady={(ready) => lobbyTransport.ready(ready)} onStart={() => lobbyTransport.startSelection()} onChat={(message) => lobbyTransport.chat(message)} onAddAi={() => lobbyTransport.addAi()} onRemoveAi={(userId) => lobbyTransport.removeAi(userId)} onBack={() => setScreen("access")} />;
+  if (screen === "lobby" && viewer) return <LobbyScreen viewer={viewer} rooms={rooms} snapshot={lobby} messages={messages} busy={busy} error={surfaceError} onCreate={createLobby} onJoin={joinLobby} onLeave={leaveLobby} onReady={(ready) => lobbyTransport.ready(ready)} onStart={() => lobbyTransport.startSelection()} onOfflineStart={() => void beginRun({ heroClass: "swordsman", sessionMode: "prototype", difficulty: "normal", partyMode: "solo" })} onChat={(message) => lobbyTransport.chat(message)} onAddAi={() => lobbyTransport.addAi()} onRemoveAi={(userId) => lobbyTransport.removeAi(userId)} onBack={() => setScreen("access")} />;
 
-  return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onLogout={logout} onStart={() => { setSurfaceError(""); setScreen("lobby"); }} />;
+  return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onLogout={logout} onStart={() => { setSurfaceError(""); if (gameServerUrl) setScreen("lobby"); else void beginRun({ heroClass: "swordsman", sessionMode: "prototype", difficulty: "normal", partyMode: "solo" }); }} />;
 }
 
 function formatClientError(error: unknown, fallback: string): string {

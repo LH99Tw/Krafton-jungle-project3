@@ -4,11 +4,11 @@ import { useMemo, useState, type FormEvent } from "react";
 import type { LobbyChatMessage, LobbyListing } from "@five-days/protocol";
 import type { LobbySnapshot } from "@/src/game/transport/LobbyTransport";
 import type { Viewer } from "../game/GameShell";
-import { FantasyButton } from "@/src/components/ui/FantasyButton";
-import { FantasyFrame } from "@/src/components/ui/FantasyFrame";
-import { FantasySectionHeading } from "@/src/components/ui/FantasySectionHeading";
+import { FantasyButton } from "../../components/ui/FantasyButton";
+import { FantasyFrame } from "../../components/ui/FantasyFrame";
+import { FantasySectionHeading } from "../../components/ui/FantasySectionHeading";
 
-export function LobbyScreen({ viewer, rooms, snapshot, messages, busy, error, onCreate, onJoin, onLeave, onReady, onStart, onChat, onAddAi, onRemoveAi, onBack }: {
+export function LobbyScreen({ viewer, rooms, snapshot, messages, busy, error, onCreate, onJoin, onLeave, onReady, onStart, onOfflineStart, onChat, onAddAi, onRemoveAi, onBack }: {
   viewer: NonNullable<Viewer>;
   rooms: LobbyListing[];
   snapshot: LobbySnapshot | null;
@@ -20,6 +20,7 @@ export function LobbyScreen({ viewer, rooms, snapshot, messages, busy, error, on
   onLeave: () => Promise<void>;
   onReady: (ready: boolean) => void;
   onStart: () => void;
+  onOfflineStart?: () => void;
   onChat: (message: string) => void;
   onAddAi: () => void;
   onRemoveAi: (userId: string) => void;
@@ -66,7 +67,19 @@ export function LobbyScreen({ viewer, rooms, snapshot, messages, busy, error, on
           <div className="room-table" role="listbox" aria-label="공개 방 목록">
             <div className="room-table-head"><span>작전실</span><span>세션</span><span>난이도</span><span>인원</span></div>
             <div className="room-list-scroll">
-              {rooms.length === 0 ? <div className="room-empty"><strong>열린 원정대가 없습니다.</strong><span>새 원정대를 만들고 첫 번째 신호를 보내세요.</span></div> : rooms.map((room, index) => (
+              {rooms.length === 0 ? (
+                <div className="room-empty">
+                  <strong>열린 원정대가 없습니다.</strong>
+                  <span>혼자 싱글 원정을 시작하거나 새 원정대를 꾸리세요.</span>
+                  {onOfflineStart ? (
+                    <div style={{ marginTop: "16px" }}>
+                      <FantasyButton variant="primary" size="large" type="button" onClick={onOfflineStart}>
+                        ⚔️ 혼자 바로 원정 시작하기
+                      </FantasyButton>
+                    </div>
+                  ) : null}
+                </div>
+              ) : rooms.map((room, index) => (
                 <button className={`${selectedRoomId === room.roomId ? "is-selected" : ""} ${snapshot?.roomId === room.roomId ? "is-current" : ""}`} type="button" role="option" aria-selected={selectedRoomId === room.roomId} key={room.roomId} onClick={() => !snapshot && setSelectedRoomId(room.roomId)}>
                   <span><i>{String(index + 1).padStart(2, "0")}</i><strong>{room.roomName}</strong><small>{room.phase === "waiting" ? "모집 중" : room.phase === "selecting" ? "선택 중" : "게임 중"}</small></span>
                   <span>{room.sessionMode === "prototype" ? "8분" : "25분"}</span>

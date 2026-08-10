@@ -13,12 +13,12 @@ const ROOM_LABELS: Record<RoomMapCell["type"], string> = {
   boss: "보스",
 };
 
-export function RoomMiniMap({ rooms, zone }: { rooms: RoomMapCell[]; zone: number }) {
+export function RoomMiniMap({ rooms, zone, embed = false }: { rooms: RoomMapCell[]; zone: number; embed?: boolean }) {
   const visibleRooms = rooms.filter((room) => room.zone === zone && room.visited);
   const byCoordinate = new Map(visibleRooms.map((room) => [`${room.x}:${room.y}`, room]));
 
-  return (
-    <section className="room-map hud-panel" aria-label={`구역 ${zone} 탐색 지도`}>
+  const content = (
+    <>
       <div className="hud-panel-title"><span>ZONE {String(zone).padStart(2, "0")} · ROOM MAP</span><b>{visibleRooms.length}/15</b></div>
       <div className="room-map-grid">
         {Array.from({ length: 25 }, (_, index) => {
@@ -38,6 +38,14 @@ export function RoomMiniMap({ rooms, zone }: { rooms: RoomMapCell[]; zone: numbe
         })}
       </div>
       <div className="room-map-legend"><span><i className="legend-current" />현재</span><span><i className="legend-cleared" />정복</span><span><i className="legend-hidden" />히든</span></div>
+    </>
+  );
+
+  if (embed) return <div className="embedded-room-map">{content}</div>;
+
+  return (
+    <section className="room-map hud-panel" aria-label={`구역 ${zone} 탐색 지도`}>
+      {content}
     </section>
   );
 }

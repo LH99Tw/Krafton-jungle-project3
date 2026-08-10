@@ -5,6 +5,8 @@ import { BUILDINGS } from "@/src/game/content/balance";
 import type { GameSnapshot, HeroClassId } from "@/src/game/domain/types";
 import { gameBridge } from "@/src/game/runtime/GameBridge";
 import { RoomMiniMap } from "./RoomMiniMap";
+import { UpgradeDraft } from "./UpgradeDraft";
+import type { UpgradeChoice, UpgradeId } from "@/src/game/domain/types";
 
 function formatTime(seconds: number): string {
   const safe = Math.max(0, Math.ceil(seconds));
@@ -19,10 +21,14 @@ export function GameHud({
   snapshot,
   heroClass,
   onExit,
+  upgradeChoices = [],
+  onChoose = () => {},
 }: {
   snapshot: GameSnapshot;
   heroClass: HeroClassId;
   onExit: () => void;
+  upgradeChoices?: UpgradeChoice[];
+  onChoose?: (id: UpgradeId) => void;
 }) {
   const definition = CLASS_DEFINITIONS[heroClass];
   const phaseWarning = snapshot.phase === "night" || snapshot.phase === "boss";
@@ -73,10 +79,13 @@ export function GameHud({
         </div>
       </section>
 
-      <RoomMiniMap rooms={snapshot.roomMap} zone={snapshot.currentZone} />
-
-      <section className="resource-panel hud-panel" aria-label="기지 건설">
+      <section className="team-gold-panel hud-panel" aria-label="팀 골드">
         <div className="resource-row"><span>TEAM GOLD</span><strong>{snapshot.gold}<small>G</small></strong></div>
+      </section>
+
+      <section className="bottom-right-panel hud-panel" aria-label="탐색 지도 및 기지 내구도">
+        <RoomMiniMap rooms={snapshot.roomMap} zone={snapshot.currentZone} embed={true} />
+
         <div className="base-health">
           <span><b>베이스 내구도</b><small>{Math.ceil(snapshot.baseHp)} / {snapshot.baseMaxHp}</small></span>
           <span className="base-bar" style={barStyle(snapshot.baseHp, snapshot.baseMaxHp)} />
@@ -128,7 +137,7 @@ export function GameHud({
         </div>
       )}
 
-      <div className="player-status">
+      <div className={`player-status ${upgradeChoices.length > 0 ? "has-upgrade-draft" : ""}`}>
         <div className={`player-portrait player-portrait--${heroClass}`}><span>{definition.name.slice(0, 1)}</span><small>LV.{snapshot.level}</small></div>
         <div className="status-bars">
           <div className="hp-line"><span>HP</span><i style={barStyle(snapshot.hp, snapshot.maxHp)} /><b>{Math.ceil(snapshot.hp)} / {snapshot.maxHp}</b></div>
@@ -142,6 +151,8 @@ export function GameHud({
         </div>
         <div className="power-score"><span>TEAM POWER</span><strong>{snapshot.teamPower}</strong></div>
       </div>
+
+      <UpgradeDraft choices={upgradeChoices} onChoose={onChoose} />
     </div>
   );
 }
