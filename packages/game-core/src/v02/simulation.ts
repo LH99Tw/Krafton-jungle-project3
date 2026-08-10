@@ -1,0 +1,594 @@
+import type { HeroClassId } from "@five-days/protocol";
+import {
+  EQUIPMENT_RARITIES,
+  type EquipmentSlot,
+  type PersonalHiddenDrop,
+} from "./equipment";
+import {
+  generateThreeZoneMap,
+  type RoomId,
+  type RoomType,
+  type ThreeZoneMap,
+  type ZoneId,
+  type ZoneMap,
+} from "./map";
+import type { AugmentDefinition, AugmentStacks } from "./progression";
+import { createSeededRandom, hashSeed } from "./random";
+
+export const ROOM_WIDTH = 1_280;
+export const ROOM_HEIGHT = 720;
+export const ROOM_EDGE_INSET = 28;
+export const WAYPOINT_RADIUS = 92;
+export const WAYPOINT_HOLD_SECONDS = 5;
+export const INVADER_ROOM_STEP_SECONDS = 2.5;
+export const BOSS_ROOM_ID = "boss:arena" as const;
+
+export type CoreRoomId = RoomId | typeof BOSS_ROOM_ID;
+export type CoreRoomKind = RoomType | "boss";
+export type CoreEnemyKind = "static" | "hidden" | "gate" | "invader" | "boss";
+export type CoreEnemyBehavior = "static" | "gate" | "invader" | "boss";
+export type CoreWaypointKind = "start" | "central" | "gate" | "boss";
+
+export type CoreRoom = {
+  id: CoreRoomId;
+  zone: ZoneId;
+  gridX: number;
+  gridY: number;
+  kind: CoreRoomKind;
+  depth: number;
+  connections: readonly CoreRoomId[];
+  discovered: boolean;
+  cleared: boolean;
+};
+
+export type CoreDoor = {
+  id: string;
+  zone: ZoneId;
+  fromRoomId: RoomId;
+  toRoomId: RoomId;
+  open: boolean;
+  locked: boolean;
+};
+
+export type CoreEnemy = {
+  id: string;
+  kind: CoreEnemyKind;
+  behavior: CoreEnemyBehavior;
+  roomId: CoreRoomId;
+  spawnRoomId: CoreRoomId;
+  x: number;
+  y: number;
+  spawnX: number;
+  spawnY: number;
+  hp: number;
+  maxHp: number;
+  damage: number;
+  speed: number;
+  attackRange: number;
+  attackCooldown: number;
+  xpReward: number;
+  goldReward: number;
+  alive: boolean;
+  aggroed: boolean;
+  targetId: string | null;
+  lastHitBy: string | null;
+  path: readonly CoreRoomId[];
+  pathIndex: number;
+  coarseProgress: number;
+  /** Remaining deterministic simulation seconds before a normal static respawn. */
+  respawnRemaining: number | null;
+};
+
+export type CoreWaypoint = {
+  id: string;
+  roomId: RoomId;
+  zone: ZoneId;
+  kind: CoreWaypointKind;
+  x: number;
+  y: number;
+  destinationId: string;
+  active: boolean;
+  requiredPlayers: number;
+  holdingPlayers: number;
+  holdProgress: number;
+  holdDurationMs: number;
+};
+
+export type CoreDrop = PersonalHiddenDrop & {
+  roomId: CoreRoomId;
+  x: number;
+  y: number;
+  claimed: boolean;
+};
+
+export type CoreEquipmentLoadout = Record<EquipmentSlot, PersonalHiddenDrop | null>;
+
+export type CoreEquipmentBonuses = {
+  attackBonus: number;
+  maxHpBonus: number;
+  defenseBonus: number;
+  attackSpeedBonus: number;
+};
+
+export type CoreUpgradeDraft = {
+  draftId: string;
+  level: number;
+  active: true;
+  expiresAt: 0;
+  choices: readonly AugmentDefinition[];
+};
+
+export type SimulationPlayer = {
+  userId: string;
+  heroClass: HeroClassId;
+  roomId: CoreRoomId;
+  x: number;
+  y: number;
+  aim: number;
+  hp: number;
+  maxHp: number;
+  alive: boolean;
+  connected: boolean;
+  equipment: CoreEquipmentLoadout;
+  upgrades: AugmentStacks;
+};
+
+export type RuntimeWorld = {
+  maps: ThreeZoneMap;
+  rooms: Map<CoreRoomId, CoreRoom>;
+  doors: Map<string, CoreDoor>;
+  enemies: Map<string, CoreEnemy>;
+  waypoints: Map<string, CoreWaypoint>;
+};
+
+export type TravelIntent = {
+  requestedBy: string;
+  waypointId: string;
+  destinationId: string;
+  elapsed: number;
+};
+
+export type ClassCombatRule = {
+  hp: number;
+  speed: number;
+  power: number;
+  attackDamage: number;
+  attackRange: number;
+  attackInterval: number;
+  coneHalfAngle: number;
+};
+
+export const CLASS_COMBAT_RULES: Readonly<Record<HeroClassId, ClassCombatRule>> = {
+  swordsman: {
+    hp: 150,
+    speed: 230,
+    power: 115,
+    attackDamage: 11,
+    attackRange: 118,
+    attackInterval: 0.44,
+    coneHalfAngle: Math.PI * 55 / 180,
+  },
+  archer: {
+    hp: 105,
+    speed: 255,
+    power: 120,
+    attackDamage: 7,
+    attackRange: 460,
+    attackInterval: 0.36,
+    coneHalfAngle: Math.PI / 6,
+  },
+  mage: {
+    hp: 95,
+    speed: 240,
+    power: 125,
+    attackDamage: 9,
+    attackRange: 390,
+    attackInterval: 0.62,
+    coneHalfAngle: Math.PI / 6,
+  },
+};
+
+const DIFFICULTY_MULTIPLIER = {
+  easy: { hp: 0.82, damage: 0.78 },
+  normal: { hp: 1, damage: 1 },
+  hard: { hp: 1.25, damage: 1.18 },
+} as const;
+
+const ENEMY_RULES: Readonly<Record<Exclude<CoreEnemyKind, "invader" | "boss">, {
+  hp: number;
+  damage: number;
+  speed: number;
+  attackRange: number;
+  xp: number;
+  gold: number;
+}>> = {
+  static: { hp: 34, damage: 7, speed: 72, attackRange: 38, xp: 18, gold: 5 },
+  hidden: { hp: 110, damage: 14, speed: 82, attackRange: 155, xp: 54, gold: 18 },
+  gate: { hp: 190, damage: 0, speed: 0, attackRange: 0, xp: 75, gold: 24 },
+};
+
+export function createRuntimeWorld(
+  seed: string | number,
+  difficulty: "easy" | "normal" | "hard",
+): RuntimeWorld {
+  const maps = generateThreeZoneMap(seed);
+  const rooms = new Map<CoreRoomId, CoreRoom>();
+  const doors = new Map<string, CoreDoor>();
+  const enemies = new Map<string, CoreEnemy>();
+  const waypoints = new Map<string, CoreWaypoint>();
+
+  for (const zoneMap of maps.zones) {
+    for (const room of zoneMap.rooms) {
+      rooms.set(room.id, {
+        id: room.id,
+        zone: room.zone,
+        gridX: room.x,
+        gridY: room.y,
+        kind: room.type,
+        depth: room.depthScore,
+        connections: room.connections,
+        discovered: room.id === maps.zones[0].startRoomId,
+        cleared: room.type === "start" || room.type === "resource" || room.type === "empty" || room.type === "central-waypoint",
+      });
+      for (const connection of room.connections) {
+        if (room.id.localeCompare(connection) >= 0) continue;
+        const id = doorId(room.id, connection);
+        doors.set(id, {
+          id,
+          zone: room.zone,
+          fromRoomId: room.id,
+          toRoomId: connection,
+          open: true,
+          locked: false,
+        });
+      }
+
+      const kind = enemyKindForRoom(room.type);
+      if (kind) {
+        const enemy = createSeededRoomEnemy(seed, room.id, room.zone, kind, difficulty);
+        enemies.set(enemy.id, enemy);
+      }
+    }
+    createZoneWaypoints(zoneMap, waypoints);
+  }
+
+  rooms.set(BOSS_ROOM_ID, {
+    id: BOSS_ROOM_ID,
+    zone: 3,
+    gridX: 5,
+    gridY: 0,
+    kind: "boss",
+    depth: 0,
+    connections: [],
+    discovered: false,
+    cleared: false,
+  });
+
+  return { maps, rooms, doors, enemies, waypoints };
+}
+
+export function createBossEnemy(seed: string | number, difficulty: "easy" | "normal" | "hard"): CoreEnemy {
+  const multiplier = DIFFICULTY_MULTIPLIER[difficulty];
+  const hp = Math.round(650 * multiplier.hp);
+  return {
+    id: `enemy:boss:${hashSeed(`boss:${seed}`).toString(16)}`,
+    kind: "boss",
+    behavior: "boss",
+    roomId: BOSS_ROOM_ID,
+    spawnRoomId: BOSS_ROOM_ID,
+    x: ROOM_WIDTH / 2,
+    y: ROOM_HEIGHT * 0.3,
+    spawnX: ROOM_WIDTH / 2,
+    spawnY: ROOM_HEIGHT * 0.3,
+    hp,
+    maxHp: hp,
+    damage: Math.round(18 * multiplier.damage),
+    speed: 0,
+    attackRange: 0,
+    attackCooldown: 0,
+    xpReward: 0,
+    goldReward: 0,
+    alive: true,
+    aggroed: false,
+    targetId: null,
+    lastHitBy: null,
+    path: [],
+    pathIndex: 0,
+    coarseProgress: 0,
+    respawnRemaining: null,
+  };
+}
+
+export function createInvaderEnemy(
+  seed: string | number,
+  zone: ZoneId,
+  spawnIndex: number,
+  maps: ThreeZoneMap,
+  difficulty: "easy" | "normal" | "hard",
+): CoreEnemy {
+  const random = createSeededRandom(`invader:${seed}:${zone}:${spawnIndex}`);
+  const multiplier = DIFFICULTY_MULTIPLIER[difficulty];
+  const path = createInvaderPath(zone, maps);
+  const hp = Math.round((22 + zone * 8) * multiplier.hp);
+  return {
+    id: `enemy:invader:${zone}:${spawnIndex}:${hashSeed(`${seed}:${random.next()}`).toString(16)}`,
+    kind: "invader",
+    behavior: "invader",
+    roomId: path[0] as CoreRoomId,
+    spawnRoomId: path[0] as CoreRoomId,
+    x: ROOM_WIDTH / 2,
+    y: ROOM_HEIGHT / 2,
+    spawnX: ROOM_WIDTH / 2,
+    spawnY: ROOM_HEIGHT / 2,
+    hp,
+    maxHp: hp,
+    damage: Math.round((7 + zone * 2) * multiplier.damage),
+    speed: 0,
+    attackRange: 0,
+    attackCooldown: 0,
+    xpReward: 10 + zone * 3,
+    goldReward: 4 + zone,
+    alive: true,
+    aggroed: false,
+    targetId: "base",
+    lastHitBy: null,
+    path,
+    pathIndex: 0,
+    coarseProgress: 0,
+    respawnRemaining: null,
+  };
+}
+
+/** Gate-to-start paths are concatenated from the spawn zone down to zone one. */
+export function createInvaderPath(zone: ZoneId, maps: ThreeZoneMap): readonly CoreRoomId[] {
+  const result: CoreRoomId[] = [];
+  for (let current = zone; current >= 1; current -= 1) {
+    const zoneMap = maps.zones[current - 1] as ZoneMap;
+    const segment = shortestRoomPath(zoneMap, zoneMap.gateRoomId, zoneMap.startRoomId);
+    if (result.length > 0 && result[result.length - 1] === segment[0]) result.push(...segment.slice(1));
+    else result.push(...segment);
+  }
+  return result;
+}
+
+export function shortestRoomPath(map: ZoneMap, from: RoomId, to: RoomId): RoomId[] {
+  const previous = new Map<RoomId, RoomId | null>([[from, null]]);
+  const queue: RoomId[] = [from];
+  while (queue.length > 0) {
+    const current = queue.shift() as RoomId;
+    if (current === to) break;
+    const room = map.rooms.find((candidate) => candidate.id === current);
+    for (const next of room?.connections ?? []) {
+      if (previous.has(next)) continue;
+      previous.set(next, current);
+      queue.push(next);
+    }
+  }
+  if (!previous.has(to)) throw new Error(`No path from ${from} to ${to}`);
+  const reversed: RoomId[] = [];
+  let cursor: RoomId | null = to;
+  while (cursor) {
+    reversed.push(cursor);
+    cursor = previous.get(cursor) ?? null;
+  }
+  return reversed.reverse();
+}
+
+export function movePlayerRoomLocal(
+  player: Pick<SimulationPlayer, "roomId" | "x" | "y">,
+  deltaX: number,
+  deltaY: number,
+  rooms: ReadonlyMap<CoreRoomId, CoreRoom>,
+): boolean {
+  if (player.roomId === BOSS_ROOM_ID) {
+    player.x = clamp(player.x + deltaX, ROOM_EDGE_INSET, ROOM_WIDTH - ROOM_EDGE_INSET);
+    player.y = clamp(player.y + deltaY, ROOM_EDGE_INSET, ROOM_HEIGHT - ROOM_EDGE_INSET);
+    return false;
+  }
+
+  const current = rooms.get(player.roomId);
+  if (!current) return false;
+  const nextX = player.x + deltaX;
+  const nextY = player.y + deltaY;
+  const horizontalOverflow = nextX < 0 ? -1 : nextX > ROOM_WIDTH ? 1 : 0;
+  const verticalOverflow = nextY < 0 ? -1 : nextY > ROOM_HEIGHT ? 1 : 0;
+  const direction = Math.abs(deltaX) >= Math.abs(deltaY) && horizontalOverflow !== 0
+    ? { x: horizontalOverflow, y: 0 }
+    : verticalOverflow !== 0
+      ? { x: 0, y: verticalOverflow }
+      : horizontalOverflow !== 0
+        ? { x: horizontalOverflow, y: 0 }
+        : null;
+
+  if (direction) {
+    const connected = current.connections
+      .map((id) => rooms.get(id))
+      .find((room) => room && room.gridX - current.gridX === direction.x && room.gridY - current.gridY === direction.y);
+    if (connected) {
+      player.roomId = connected.id;
+      player.x = direction.x > 0
+        ? ROOM_EDGE_INSET
+        : direction.x < 0
+          ? ROOM_WIDTH - ROOM_EDGE_INSET
+          : clamp(nextX, ROOM_EDGE_INSET, ROOM_WIDTH - ROOM_EDGE_INSET);
+      player.y = direction.y > 0
+        ? ROOM_EDGE_INSET
+        : direction.y < 0
+          ? ROOM_HEIGHT - ROOM_EDGE_INSET
+          : clamp(nextY, ROOM_EDGE_INSET, ROOM_HEIGHT - ROOM_EDGE_INSET);
+      return true;
+    }
+  }
+
+  player.x = clamp(nextX, ROOM_EDGE_INSET, ROOM_WIDTH - ROOM_EDGE_INSET);
+  player.y = clamp(nextY, ROOM_EDGE_INSET, ROOM_HEIGHT - ROOM_EDGE_INSET);
+  return false;
+}
+
+/** Nearest alive enemy inside the player's room, range and cursor-facing cone. */
+export function selectNearestConeEnemy(
+  player: Pick<SimulationPlayer, "roomId" | "x" | "y" | "aim">,
+  enemies: Iterable<CoreEnemy>,
+  attackRange: number,
+  coneHalfAngle: number,
+): CoreEnemy | null {
+  let selected: CoreEnemy | null = null;
+  let selectedDistance = Number.POSITIVE_INFINITY;
+  for (const enemy of enemies) {
+    if (!enemy.alive || enemy.roomId !== player.roomId) continue;
+    const dx = enemy.x - player.x;
+    const dy = enemy.y - player.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance > attackRange) continue;
+    const angularError = Math.abs(wrapAngle(Math.atan2(dy, dx) - player.aim));
+    if (angularError > coneHalfAngle) continue;
+    if (distance < selectedDistance || (distance === selectedDistance && enemy.id.localeCompare(selected?.id ?? "") < 0)) {
+      selected = enemy;
+      selectedDistance = distance;
+    }
+  }
+  return selected;
+}
+
+export function isPlayerOnWaypoint(player: SimulationPlayer, waypoint: CoreWaypoint): boolean {
+  return player.roomId === waypoint.roomId && Math.hypot(player.x - waypoint.x, player.y - waypoint.y) <= WAYPOINT_RADIUS;
+}
+
+export function createEmptyEquipment(): CoreEquipmentLoadout {
+  return { weapon: null, armor: null, accessory: null };
+}
+
+export function equipmentBonuses(loadout: CoreEquipmentLoadout): CoreEquipmentBonuses {
+  const weaponMultiplier = loadout.weapon?.statMultiplier ?? 0;
+  const armorMultiplier = loadout.armor?.statMultiplier ?? 0;
+  const accessoryMultiplier = loadout.accessory?.statMultiplier ?? 0;
+  return {
+    attackBonus: Math.round(20 * weaponMultiplier),
+    maxHpBonus: Math.round(80 * armorMultiplier),
+    defenseBonus: Math.round(8 * armorMultiplier),
+    attackSpeedBonus: Math.round(30 * accessoryMultiplier),
+  };
+}
+
+export function equipmentPower(item: PersonalHiddenDrop | null): number {
+  if (!item) return 0;
+  const rarity = EQUIPMENT_RARITIES[item.rarity];
+  return Math.round(rarity.statMultiplier * 100 + rarity.specialOptionCount * 18);
+}
+
+export function augmentAttackBonus(stacks: AugmentStacks): number {
+  return (stacks.power ?? 0) * 3;
+}
+
+export function makeDraftId(seed: string | number, playerId: string, level: number, draftIndex: number): string {
+  return `draft:${level}:${hashSeed(`${seed}:${playerId}:${level}:${draftIndex}`).toString(16)}`;
+}
+
+export function waypointId(roomId: RoomId, kind: CoreWaypointKind): string {
+  return `waypoint:${roomId}:${kind}`;
+}
+
+export function doorId(left: RoomId, right: RoomId): string {
+  return `door:${[left, right].sort().join("|")}`;
+}
+
+function createZoneWaypoints(zoneMap: ZoneMap, waypoints: Map<string, CoreWaypoint>): void {
+  const start = zoneMap.rooms.find((room) => room.id === zoneMap.startRoomId);
+  const central = zoneMap.rooms.find((room) => room.type === "central-waypoint");
+  const gate = zoneMap.rooms.find((room) => room.id === zoneMap.gateRoomId);
+  if (!start || !central || !gate) throw new Error(`Zone ${zoneMap.zone} is missing a waypoint room`);
+
+  const startId = waypointId(start.id, "start");
+  const centralId = waypointId(central.id, "central");
+  const gateKind: CoreWaypointKind = zoneMap.zone === 3 ? "boss" : "gate";
+  const gateId = waypointId(gate.id, gateKind);
+  const nextStartId = zoneMap.zone < 3
+    ? waypointId(`zone-${zoneMap.zone + 1}:0,4` as RoomId, "start")
+    : BOSS_ROOM_ID;
+
+  waypoints.set(startId, createWaypoint(startId, start.id, zoneMap.zone, "start", centralId, zoneMap.zone === 1));
+  waypoints.set(centralId, createWaypoint(centralId, central.id, zoneMap.zone, "central", startId, false));
+  waypoints.set(gateId, createWaypoint(gateId, gate.id, zoneMap.zone, gateKind, nextStartId, false));
+}
+
+function createWaypoint(
+  id: string,
+  roomId: RoomId,
+  zone: ZoneId,
+  kind: CoreWaypointKind,
+  destinationId: string,
+  active: boolean,
+): CoreWaypoint {
+  return {
+    id,
+    roomId,
+    zone,
+    kind,
+    x: ROOM_WIDTH / 2,
+    y: ROOM_HEIGHT / 2,
+    destinationId,
+    active,
+    requiredPlayers: 0,
+    holdingPlayers: 0,
+    holdProgress: 0,
+    holdDurationMs: WAYPOINT_HOLD_SECONDS * 1_000,
+  };
+}
+
+function createSeededRoomEnemy(
+  seed: string | number,
+  roomId: RoomId,
+  zone: ZoneId,
+  kind: "static" | "hidden" | "gate",
+  difficulty: "easy" | "normal" | "hard",
+): CoreEnemy {
+  const random = createSeededRandom(`enemy:${seed}:${roomId}:${kind}`);
+  const base = ENEMY_RULES[kind];
+  const difficultyRule = DIFFICULTY_MULTIPLIER[difficulty];
+  const zoneScale = 1 + (zone - 1) * 0.28;
+  const hp = Math.round(base.hp * zoneScale * difficultyRule.hp);
+  const x = kind === "gate" ? ROOM_WIDTH * 0.76 : ROOM_WIDTH * (0.35 + random.next() * 0.3);
+  const y = kind === "gate" ? ROOM_HEIGHT * 0.24 : ROOM_HEIGHT * (0.3 + random.next() * 0.4);
+  return {
+    id: `enemy:${kind}:${roomId}:${hashSeed(`${seed}:${roomId}`).toString(16)}`,
+    kind,
+    behavior: kind === "gate" ? "gate" : "static",
+    roomId,
+    spawnRoomId: roomId,
+    x,
+    y,
+    spawnX: x,
+    spawnY: y,
+    hp,
+    maxHp: hp,
+    damage: Math.round(base.damage * zoneScale * difficultyRule.damage),
+    speed: base.speed,
+    attackRange: base.attackRange,
+    attackCooldown: 0,
+    xpReward: Math.round(base.xp * zoneScale),
+    goldReward: Math.round(base.gold * zoneScale),
+    alive: true,
+    aggroed: false,
+    targetId: null,
+    lastHitBy: null,
+    path: [],
+    pathIndex: 0,
+    coarseProgress: 0,
+    respawnRemaining: null,
+  };
+}
+
+function enemyKindForRoom(type: RoomType): "static" | "hidden" | "gate" | null {
+  if (type === "static-monster") return "static";
+  if (type === "hidden-monster") return "hidden";
+  if (type === "gate") return "gate";
+  return null;
+}
+
+function wrapAngle(value: number): number {
+  return Math.atan2(Math.sin(value), Math.cos(value));
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, value));
+}

@@ -63,6 +63,9 @@ importers:
       '@five-days/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@five-days/game-core':
+        specifier: workspace:*
+        version: link:../../packages/game-core
       '@five-days/protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -124,6 +127,9 @@ importers:
 
   packages/auth:
     dependencies:
+      '@five-days/protocol':
+        specifier: workspace:*
+        version: link:../protocol
       jose:
         specifier: 6.2.8
         version: 6.2.8

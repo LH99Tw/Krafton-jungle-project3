@@ -31,13 +31,16 @@ export type Viewer = {
 
 type Screen = "access" | "lobby" | "selecting" | "playing";
 
-export function GameShell({ viewer: initialViewer, gameServerUrl, autoStartOptions }: {
+export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytestEnabled, autoStartOptions }: {
   viewer: Viewer;
   gameServerUrl: string;
+  publicPlaytestEnabled: boolean;
   autoStartOptions: GameStartOptions | null;
 }) {
   const router = useRouter();
   const autoStartAttempted = useRef(false);
+  const snapshotRef = useRef<GameSnapshot>(EMPTY_SNAPSHOT);
+  const runGenerationRef = useRef(0);
   const [viewer, setViewer] = useState<Viewer>(initialViewer);
   const [screen, setScreen] = useState<Screen>("access");
   const [activeOptions, setActiveOptions] = useState<GameStartOptions | null>(null);
@@ -54,13 +57,53 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, autoStartOptio
   const [launching, setLaunching] = useState(false);
 
   useEffect(() => {
-    const offSnapshot = gameBridge.on("snapshot", setSnapshot);
+    const offSnapshot = gameBridge.on("snapshot", (nextSnapshot) => {
+      snapshotRef.current = nextSnapshot;
+      setSnapshot(nextSnapshot);
+    });
     const offUpgrade = gameBridge.on("upgrade", setUpgradeChoices);
     const offResult = gameBridge.on("result", setResult);
-    return () => { offSnapshot(); offUpgrade(); offResult(); colyseusTransport.disconnect(); };
+    const offNetwork = colyseusTransport.subscribe((state) => {
+      setNetworkStatus(state.phase === "lobby" ? "waiting" : "connected");
+      if (state.phase === "ended") {
+        const finalSnapshot = snapshotRef.current;
+        setResult({
+          state: state.resultState === "victory" ? "victory" : "defeat",
+          reason: state.resultReason || "원정이 종료되었습니다.",
+          elapsed: state.elapsed || finalSnapshot.elapsed,
+          day: state.day,
+          level: state.teamLevel,
+          teamPower: state.players.reduce((total, player) => total + player.teamPower, 0),
+          stats: { ...state.stats },
+        });
+      }
+    });
+    const offNetworkEvent = colyseusTransport.subscribeEvents((event) => {
+      if (event.type === "reconnecting") setNetworkStatus("reconnecting");
+      if (event.type === "reconnected") setNetworkStatus("connected");
+      if (event.type === "disconnected") setNetworkStatus("disconnected");
+      if (event.type === "result") {
+        const current = snapshotRef.current;
+        setResult({
+          state: event.state === "victory" ? "victory" : "defeat",
+          reason: event.message ?? "원정이 종료되었습니다.",
+          elapsed: current.elapsed,
+          day: current.day,
+          level: current.level,
+          teamPower: current.teamPower,
+          stats: { ...current.stats },
+        });
+      }
+    });
+    return () => {
+      runGenerationRef.current += 1;
+      offSnapshot(); offUpgrade(); offResult(); offNetwork(); offNetworkEvent();
+      colyseusTransport.disconnect();
+    };
   }, []);
 
   const beginRun = useCallback(async (options: GameStartOptions, roomId?: string) => {
+    const runGeneration = ++runGenerationRef.current;
     if (!viewer) {
       router.push("/api/auth/login?returnTo=/");
       return;
@@ -68,7 +111,8 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, autoStartOptio
     setNetworkStatus("connecting");
     setSurfaceError("");
     try {
-      await colyseusTransport.connect({ serverUrl: gameServerUrl, csrfToken: viewer.csrfToken, options, roomId });
+      await colyseusTransport.connect({ serverUrl: gameServerUrl, csrfToken: viewer.csrfToken, options, roomId, userId: viewer.userId });
+      if (runGeneration !== runGenerationRef.current) return;
       setNetworkStatus("connected");
       setSnapshot(EMPTY_SNAPSHOT);
       setUpgradeChoices([]);
@@ -77,6 +121,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, autoStartOptio
       setRunKey((value) => value + 1);
       setScreen("playing");
     } catch (error) {
+      if (runGeneration !== runGenerationRef.current) return;
       setNetworkStatus("error");
       setLaunching(false);
       setSurfaceError(error instanceof Error ? error.message : "게임 서버에 연결하지 못했습니다.");
@@ -103,7 +148,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, autoStartOptio
       const heroClass = event.playerClasses[viewer.userId] as HeroClassId | undefined;
       if (!heroClass) return setSurfaceError("확정된 캐릭터 정보를 찾지 못했습니다.");
       setLaunching(true);
-      window.setTimeout(() => void beginRun({ heroClass, sessionMode: event.sessionMode, difficulty: event.difficulty }, event.gameRoomId), 1100);
+      window.setTimeout(() => void beginRun({ heroClass, sessionMode: event.sessionMode, difficulty: event.difficulty, partyMode: "coop" }, event.gameRoomId), 1100);
     });
     return () => { offSnapshot(); offChat(); offHistory(); offError(); offDisconnected(); offStart(); void lobbyTransport.leave(); };
   }, [beginRun, viewer]);
@@ -153,6 +198,10 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, autoStartOptio
   }, []);
 
   const guestLogin = useCallback(async (displayName: string) => {
+    if (!publicPlaytestEnabled) {
+      setSurfaceError("현재 공개 게스트 테스트가 비활성화되어 있습니다.");
+      return;
+    }
     setBusy(true); setSurfaceError("");
     try {
       const response = await fetch("/api/auth/guest", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ displayName }) });
@@ -161,19 +210,20 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, autoStartOptio
       setViewer({ ...value.viewer, csrfToken: value.csrfToken });
     } catch (error) { setSurfaceError(error instanceof Error ? error.message : "게스트 접속에 실패했습니다."); }
     finally { setBusy(false); }
-  }, []);
+  }, [publicPlaytestEnabled]);
 
   const returnToLobby = useCallback(() => {
+    runGenerationRef.current += 1;
     colyseusTransport.disconnect();
     lobbyTransport.returnFromGame();
-    setNetworkStatus("disconnected"); setResult(null); setUpgradeChoices([]); setSnapshot(EMPTY_SNAPSHOT); setActiveOptions(null); setLaunching(false);
+    setNetworkStatus("disconnected"); setResult(null); setUpgradeChoices([]); snapshotRef.current = EMPTY_SNAPSHOT; setSnapshot(EMPTY_SNAPSHOT); setActiveOptions(null); setLaunching(false);
     setScreen(lobby ? "lobby" : "access");
   }, [lobby]);
 
   const chooseUpgrade = useCallback((upgradeId: UpgradeChoice["id"]) => {
     gameBridge.command({ type: "choose-upgrade", upgradeId });
-    setUpgradeChoices([]);
-  }, []);
+    if (!activeOptions?.networked) setUpgradeChoices([]);
+  }, [activeOptions?.networked]);
 
   if (screen === "playing" && activeOptions) return <main className="play-screen">
     <div className="network-status" role="status">게임 서버 · {networkStatus === "connected" ? "연결됨" : networkStatus}</div>

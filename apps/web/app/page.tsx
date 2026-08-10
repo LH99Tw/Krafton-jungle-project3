@@ -16,6 +16,7 @@ export default async function Home({ searchParams }: {
   return <GameShell
     viewer={viewer}
     gameServerUrl={process.env.GAME_SERVER_PUBLIC_URL ?? "ws://localhost:2567"}
+    publicPlaytestEnabled={process.env.PUBLIC_PLAYTEST_ENABLED === "true" || process.env.NODE_ENV !== "production"}
     autoStartOptions={parseAutoStartOptions(query)}
   />;
 }
@@ -29,5 +30,6 @@ function parseAutoStartOptions(query: Record<string, string | string[] | undefin
   const difficulty = ["easy", "normal", "hard"].includes(String(query.difficulty))
     ? query.difficulty as GameStartOptions["difficulty"]
     : "normal";
-  return { heroClass, sessionMode, difficulty };
+  const partyMode = query.party === "coop" ? "coop" : "solo";
+  return { heroClass, sessionMode, difficulty, partyMode };
 }
