@@ -1,16 +1,16 @@
 import type { Phase, SessionMode } from "../domain/types";
 
 export const WORLD = {
-  width: 2560,
-  height: 1600,
-  base: { x: 280, y: 1320, radius: 82, maxHp: 500 },
-  arena: { x: 2210, y: 250, radius: 300 },
+  width: 12800,
+  height: 8000,
+  base: { x: 1400, y: 6600, radius: 82, maxHp: 500 },
+  arena: { x: 11050, y: 1250, radius: 800 },
   gates: [
-    { id: "meadow", name: "들판의 균열", x: 780, y: 1190, zone: 1, hp: 90 },
-    { id: "forest", name: "오염 숲의 균열", x: 1440, y: 820, zone: 2, hp: 170 },
-    { id: "castle", name: "마왕성 외곽의 균열", x: 2050, y: 480, zone: 3, hp: 260 },
+    { id: "meadow", name: "들판의 균열", x: 3900, y: 5950, zone: 1, hp: 90 },
+    { id: "forest", name: "오염 숲의 균열", x: 7200, y: 4100, zone: 2, hp: 170 },
+    { id: "castle", name: "마왕성 외곽의 균열", x: 10250, y: 2400, zone: 3, hp: 260 },
   ],
-  buildBounds: { minX: 80, maxX: 640, minY: 1030, maxY: 1520 },
+  buildBounds: { minX: 720, maxX: 2080, minY: 6120, maxY: 7080 },
   gridSize: 40,
 } as const;
 

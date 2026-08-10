@@ -148,31 +148,32 @@ export class GameScene extends Phaser.Scene {
   private createWorld(): void {
     const graphics = this.add.graphics();
     graphics.fillStyle(0x17231f).fillRect(0, 0, WORLD.width, WORLD.height);
-    graphics.fillStyle(0x25392b, 0.95).fillRect(0, 920, 960, 680);
-    graphics.fillStyle(0x203733, 0.94).fillRect(640, 570, 1050, 640);
-    graphics.fillStyle(0x2e2038, 0.95).fillRect(1320, 260, 1240, 720);
-    graphics.fillStyle(0x17111e, 0.98).fillCircle(WORLD.arena.x, WORLD.arena.y, WORLD.arena.radius + 60);
+    // Base Camp: Compact Stone Grey (#787D8A) cobblestone floor area
+    this.drawStoneFloor(graphics, 600, 6000, 1600, 1200);
+    graphics.fillStyle(0x203733, 0.94).fillRect(3200, 2850, 5250, 3200);
+    graphics.fillStyle(0x2e2038, 0.95).fillRect(6600, 1300, 6200, 3600);
+    graphics.fillStyle(0x17111e, 0.98).fillCircle(WORLD.arena.x, WORLD.arena.y, WORLD.arena.radius + 150);
     graphics.lineStyle(2, 0x3c594d, 0.42);
-    for (let x = 0; x <= WORLD.width; x += 40) graphics.lineBetween(x, 0, x, WORLD.height);
-    for (let y = 0; y <= WORLD.height; y += 40) graphics.lineBetween(0, y, WORLD.width, y);
-    graphics.lineStyle(4, 0x7e4d93, 0.7).strokeCircle(WORLD.arena.x, WORLD.arena.y, WORLD.arena.radius);
-    graphics.lineStyle(2, 0xb277c7, 0.24).strokeCircle(WORLD.arena.x, WORLD.arena.y, WORLD.arena.radius - 24);
-    graphics.fillStyle(0x3b2a44, 0.7).fillCircle(980, 1010, 80).fillCircle(1720, 650, 100);
-    graphics.fillStyle(0x456a57, 0.5).fillCircle(470, 1130, 120).fillCircle(780, 1430, 150);
+    for (let x = 0; x <= WORLD.width; x += 100) graphics.lineBetween(x, 0, x, WORLD.height);
+    for (let y = 0; y <= WORLD.height; y += 100) graphics.lineBetween(0, y, WORLD.width, y);
+    graphics.lineStyle(6, 0x7e4d93, 0.7).strokeCircle(WORLD.arena.x, WORLD.arena.y, WORLD.arena.radius);
+    graphics.lineStyle(3, 0xb277c7, 0.24).strokeCircle(WORLD.arena.x, WORLD.arena.y, WORLD.arena.radius - 60);
+    graphics.fillStyle(0x3b2a44, 0.7).fillCircle(4900, 5050, 300).fillCircle(8600, 3250, 400);
+    graphics.fillStyle(0x456a57, 0.5).fillCircle(2350, 5650, 450).fillCircle(3900, 7150, 500);
     graphics.setDepth(-20);
 
-    this.addZoneLabel(260, 1475, "BASE CAMP", "베이스캠프", "#bdeed3");
-    this.addZoneLabel(760, 1360, "ZONE 01", "햇살 들판", "#d6e28d");
-    this.addZoneLabel(1400, 1020, "ZONE 02", "오염된 숲", "#85c8ae");
-    this.addZoneLabel(1990, 650, "ZONE 03", "마왕성 외곽", "#c998db");
-    this.addZoneLabel(2210, 80, "FINAL", "마왕의 제단", "#ff9ed1");
+    this.addZoneLabel(WORLD.base.x, WORLD.base.y + 250, "BASE CAMP", "베이스캠프", "#bdeed3");
+    this.addZoneLabel(WORLD.gates[0].x, WORLD.gates[0].y + 150, "ZONE 01", "햇살 들판", "#d6e28d");
+    this.addZoneLabel(WORLD.gates[1].x, WORLD.gates[1].y + 150, "ZONE 02", "오염된 숲", "#85c8ae");
+    this.addZoneLabel(WORLD.gates[2].x, WORLD.gates[2].y + 150, "ZONE 03", "마왕성 외곽", "#c998db");
+    this.addZoneLabel(WORLD.arena.x, WORLD.arena.y - WORLD.arena.radius - 50, "FINAL", "마왕의 제단", "#ff9ed1");
 
-    const path = this.add.graphics().lineStyle(6, 0xd7cf9b, 0.22);
+    const path = this.add.graphics().lineStyle(10, 0xd7cf9b, 0.22);
     path.beginPath();
-    path.moveTo(WORLD.base.x + 70, WORLD.base.y - 10);
-    path.lineTo(780, 1190);
-    path.lineTo(1440, 820);
-    path.lineTo(2050, 480);
+    path.moveTo(WORLD.base.x + 200, WORLD.base.y - 30);
+    path.lineTo(WORLD.gates[0].x, WORLD.gates[0].y);
+    path.lineTo(WORLD.gates[1].x, WORLD.gates[1].y);
+    path.lineTo(WORLD.gates[2].x, WORLD.gates[2].y);
     path.lineTo(WORLD.arena.x, WORLD.arena.y);
     path.strokePath();
     path.setDepth(-10);
@@ -204,6 +205,46 @@ export class GameScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setAlpha(0.82)
       .setDepth(-5);
+  }
+
+  private drawStoneFloor(graphics: Phaser.GameObjects.Graphics, minX: number, minY: number, width: number, height: number): void {
+    // Mortar Black base (#1E1E24)
+    graphics.fillStyle(0x1e1e24, 0.98).fillRect(minX, minY, width, height);
+
+    const tileSize = 20; // 1/4 of 80px for fine pixel stone floor
+    const border = 2;
+    for (let x = minX; x < minX + width; x += tileSize) {
+      for (let y = minY; y < minY + height; y += tileSize) {
+        const row = Math.floor((y - minY) / tileSize);
+        const offsetX = (row % 2 === 0) ? 0 : tileSize / 2;
+        const tileX = x + offsetX;
+        const tileW = tileSize - border;
+        const tileH = tileSize - border;
+
+        const hash = (Math.floor(x / 20) * 17 + Math.floor(y / 20) * 31) % 10;
+        let color = 0x787d8a; // Stone Grey (#787D8A)
+        if (hash < 3) color = 0x4a4d55; // Deep Slate Grey (#4A4D55)
+        else if (hash < 6) color = 0x787d8a; // Stone Grey (#787D8A)
+        else if (hash < 8) color = 0xb0b7c6; // Dry Cobble Highlight (#B0B7C6)
+        else color = 0x5c4a3c; // Earthy Clay Brown (#5C4A3C)
+
+        // Draw fine stone brick
+        graphics.fillStyle(color, 0.94).fillRect(tileX, y, tileW, tileH);
+
+        // Highlight top & left border (#B0B7C6)
+        graphics.fillStyle(0xb0b7c6, 0.35).fillRect(tileX, y, tileW, 1).fillRect(tileX, y, 1, tileH);
+
+        // Shadow bottom & right border (#1E1E24)
+        graphics.fillStyle(0x1e1e24, 0.55).fillRect(tileX, y + tileH - 1, tileW, 1).fillRect(tileX + tileW - 1, y, 1, tileH);
+
+        // Moss / Lichen accents (#6A8F3D / #3E5C30)
+        if (hash === 2 || hash === 7) {
+          graphics.fillStyle(0x6a8f3d, 0.55).fillRect(tileX + 3, y + 3, 4, 3);
+        } else if (hash === 5) {
+          graphics.fillStyle(0x3e5c30, 0.65).fillRect(tileX + tileW - 5, y + tileH - 5, 4, 4);
+        }
+      }
+    }
   }
 
   private createGroups(): void {
@@ -300,8 +341,7 @@ export class GameScene extends Phaser.Scene {
     });
     this.physics.add.overlap(this.enemies, this.player, (enemy) => {
       const sprite = enemy as Phaser.Physics.Arcade.Sprite;
-      const data = sprite.getData("enemy") as EnemyData | undefined;
-      if (!sprite.active || !data) return;
+      const data = this.enemyData(sprite);
       if (data.kind === "gate" || data.kind === "boss") return;
       if (this.time.now - data.lastHitAt >= 850) {
         data.lastHitAt = this.time.now;
@@ -311,9 +351,9 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.collider(this.enemies, this.structures, (enemy, structure) => {
       const enemySprite = enemy as Phaser.Physics.Arcade.Sprite;
       const structureSprite = structure as Phaser.Physics.Arcade.Image;
-      const enemyData = enemySprite.getData("enemy") as EnemyData | undefined;
+      const enemyData = this.enemyData(enemySprite);
       const structureData = structureSprite.getData("structure") as StructureData | undefined;
-      if (!enemySprite.active || !enemyData || !structureData || enemyData.kind === "gate" || enemyData.kind === "boss") return;
+      if (!structureData || enemyData.kind === "gate" || enemyData.kind === "boss") return;
       if (this.time.now - enemyData.lastHitAt < 750) return;
       enemyData.lastHitAt = this.time.now;
       structureData.hp -= Math.max(1, enemyData.damage - structureData.level);
