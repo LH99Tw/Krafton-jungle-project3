@@ -154,8 +154,12 @@ export class GameScene extends Phaser.Scene {
     // Zone 01 (Sunny Meadow): 3-Way Maze, Hedge/Tree Walls, and Blue Crystal Flower Shrines
     this.drawSunnyMeadowMaze(graphics);
 
-    graphics.fillStyle(0x203733, 0.94).fillRect(3200, 2850, 5250, 3200);
-    graphics.fillStyle(0x2e2038, 0.95).fillRect(6600, 1300, 6200, 3600);
+    // Zone 02 (Corrupted Forest): Reddish Soil, Autumn Coral Trees, Torches & Blue Oasis Pond
+    this.drawCorruptedForest(graphics);
+
+    // Zone 03 (Outer Demon Castle): Magma Lakes, Carved Rune Walls & Demon Statues
+    this.drawCastleOutskirts(graphics);
+
     graphics.fillStyle(0x17111e, 0.98).fillCircle(WORLD.arena.x, WORLD.arena.y, WORLD.arena.radius + 150);
     graphics.lineStyle(2, 0x3c594d, 0.42);
     for (let x = 0; x <= WORLD.width; x += 100) graphics.lineBetween(x, 0, x, WORLD.height);
@@ -345,6 +349,201 @@ export class GameScene extends Phaser.Scene {
     ];
 
     flowerLocations.forEach((loc) => drawBlueFlowerPedestal(loc.x, loc.y));
+  }
+
+  private drawCorruptedForest(graphics: Phaser.GameObjects.Graphics): void {
+    const originX = 5800;
+    const originY = 2600;
+    const forestW = 3800;
+    const forestH = 3200;
+
+    // 1. Reddish-Orange Corrupted Soil Base Ground (#3e2620 base, #8e3b22 / #cb5b37 patches - Matching Screenshot 1)
+    graphics.fillStyle(0x3e2620, 0.96).fillRect(originX, originY, forestW, forestH);
+
+    // Corrupted reddish-orange soil patches
+    const drawSoilPatch = (x: number, y: number, w: number, h: number) => {
+      graphics.fillStyle(0x8e3b22, 0.92).fillRect(x, y, w, h);
+      graphics.fillStyle(0xcb5b37, 0.88).fillRect(x + 6, y + 6, w - 12, h - 12);
+      graphics.fillStyle(0xe7643b, 0.6).fillCircle(x + w * 0.3, y + h * 0.4, w * 0.2);
+      graphics.fillStyle(0xe7643b, 0.6).fillCircle(x + w * 0.7, y + h * 0.6, w * 0.15);
+    };
+
+    // Paved Golden-Orange Trail through the Corrupted Forest (#bd8448 / #dba15c - Matching Screenshot 2)
+    const drawForestTrail = (x: number, y: number, w: number, h: number) => {
+      graphics.fillStyle(0x523624, 0.9).fillRect(x - 4, y - 4, w + 8, h + 8);
+      graphics.fillStyle(0xbd8448, 0.95).fillRect(x, y, w, h);
+      graphics.fillStyle(0xdba15c, 0.7).fillRect(x + 4, y + 4, w - 8, h - 8);
+    };
+
+    drawSoilPatch(originX + 200, originY + 200, forestW - 400, forestH - 400);
+
+    drawForestTrail(5800, 5900, 1400, 140);
+    drawForestTrail(7000, 4100, 200, 1900); // Vertical trail to Forest Rift
+    drawForestTrail(7000, 4100, 1800, 140); // Horizontal trail towards Zone 3
+
+    // 2. Autumnal Coral/Red Trees & Dark Rock Walls (Matching Screenshot 2)
+    const drawAutumnTree = (tx: number, ty: number, radius: number) => {
+      graphics.fillStyle(0x3d2319).fillRect(tx - 6, ty, 12, radius * 0.8);
+      graphics.fillStyle(0x7a2918, 0.95).fillCircle(tx, ty - 10, radius);
+      graphics.fillStyle(0xad3f28, 0.92).fillCircle(tx - 4, ty - 14, radius * 0.8);
+      graphics.fillStyle(0xd95a3d, 0.85).fillCircle(tx - 7, ty - 18, radius * 0.55);
+      graphics.fillStyle(0xf0805d, 0.70).fillCircle(tx - 9, ty - 22, radius * 0.35);
+    };
+
+    const treeCoords = [
+      { x: 6100, y: 5750, r: 45 }, { x: 6300, y: 5720, r: 55 }, { x: 6500, y: 5760, r: 48 },
+      { x: 6700, y: 5730, r: 52 }, { x: 6900, y: 5750, r: 42 },
+      { x: 6100, y: 6120, r: 50 }, { x: 6400, y: 6150, r: 58 }, { x: 6700, y: 6110, r: 46 },
+      { x: 6850, y: 4400, r: 55 }, { x: 6850, y: 4700, r: 48 }, { x: 6850, y: 5000, r: 52 },
+      { x: 7350, y: 4400, r: 50 }, { x: 7350, y: 4700, r: 56 }, { x: 7350, y: 5000, r: 44 },
+      { x: 7350, y: 3950, r: 60 }, { x: 7650, y: 3950, r: 52 }, { x: 7950, y: 3950, r: 58 },
+    ];
+    treeCoords.forEach((t) => drawAutumnTree(t.x, t.y, t.r));
+
+    // 3. Underground Blue Oasis Pond with Giant Lotus Flowers (Matching Screenshot 2!)
+    const drawOasisPond = (cx: number, cy: number, pWidth: number, pHeight: number) => {
+      graphics.fillStyle(0x543725).fillRect(cx - 10, cy - 10, pWidth + 20, pHeight + 20);
+      graphics.fillStyle(0x73513a).fillRect(cx - 5, cy - 5, pWidth + 10, pHeight + 10);
+
+      graphics.fillStyle(0x1a5276, 0.95).fillRect(cx, cy, pWidth, pHeight);
+      graphics.fillStyle(0x2d82b7, 0.88).fillRect(cx + 8, cy + 8, pWidth - 16, pHeight - 16);
+      graphics.fillStyle(0x4cb5f5, 0.65).fillRect(cx + 16, cy + 16, pWidth - 32, pHeight - 32);
+
+      const drawLotus = (lx: number, ly: number) => {
+        graphics.fillStyle(0x2e8548, 0.9).fillCircle(lx, ly, 22);
+        graphics.fillStyle(0x48b868, 0.8).fillCircle(lx - 2, ly - 2, 16);
+        graphics.fillStyle(0xd96f30).fillTriangle(lx - 10, ly + 4, lx + 10, ly + 4, lx, ly - 14);
+        graphics.fillStyle(0xf09854).fillTriangle(lx - 7, ly - 2, lx + 7, ly - 2, lx, ly + 8);
+        graphics.fillStyle(0xfff3ad).fillCircle(lx, ly - 2, 4);
+      };
+
+      drawLotus(cx + 40, cy + 50);
+      drawLotus(cx + pWidth - 60, cy + 70);
+      drawLotus(cx + 70, cy + pHeight - 50);
+      drawLotus(cx + pWidth - 50, cy + pHeight - 60);
+    };
+
+    // Oasis Pond near the Forest Rift Gate at (7450, 4150)
+    drawOasisPond(7450, 4150, 360, 240);
+
+    // 4. Warm Fiery Torches with Orange Light Aura (Matching Screenshot 1 & 2!)
+    const drawTorch = (tx: number, ty: number) => {
+      graphics.fillStyle(0x3d281a).fillRect(tx - 3, ty - 6, 6, 24);
+      graphics.fillStyle(0x8c7462).fillRect(tx - 5, ty - 8, 10, 4);
+
+      this.add.circle(tx, ty - 12, 48, 0xff7700, 0.22).setDepth(-8);
+      this.add.circle(tx, ty - 12, 26, 0xffaa00, 0.38).setDepth(-7);
+
+      graphics.fillStyle(0xff5500).fillTriangle(tx - 6, ty - 6, tx + 6, ty - 6, tx, ty - 20);
+      graphics.fillStyle(0xffaa00).fillTriangle(tx - 4, ty - 8, tx + 4, ty - 8, tx, ty - 18);
+      graphics.fillStyle(0xffee77).fillCircle(tx, ty - 12, 3);
+    };
+
+    const torchLocations = [
+      { x: 5950, y: 5830 }, { x: 6350, y: 5830 }, { x: 6750, y: 5830 },
+      { x: 6930, y: 5500 }, { x: 6930, y: 5100 }, { x: 6930, y: 4700 },
+      { x: 7150, y: 3980 }, { x: 7420, y: 3980 }, { x: 7850, y: 3980 },
+      { x: 7420, y: 4420 }, { x: 7830, y: 4420 },
+    ];
+    torchLocations.forEach((t) => drawTorch(t.x, t.y));
+  }
+
+  private drawCastleOutskirts(graphics: Phaser.GameObjects.Graphics): void {
+    const originX = 9000;
+    const originY = 1000;
+    const castleW = 3800;
+    const castleH = 3200;
+
+    // 1. Dark Volcanic Ash & Obsidian Base Ground (#16131c)
+    graphics.fillStyle(0x16131c, 0.98).fillRect(originX, originY, castleW, castleH);
+
+    // 2. Molten Magma Lakes & Lava Streams (#ff3300, #ff8800, #ffdd00 - Matching Screenshots 2 & 3!)
+    const drawLavaPool = (lx: number, ly: number, lw: number, lh: number) => {
+      graphics.fillStyle(0x421915, 0.95).fillRect(lx - 8, ly - 8, lw + 16, lh + 16);
+      graphics.fillStyle(0xd62800, 0.98).fillRect(lx, ly, lw, lh);
+      graphics.fillStyle(0xff6600, 0.92).fillRect(lx + 8, ly + 8, lw - 16, lh - 16);
+      graphics.fillStyle(0xffcc00, 0.85).fillRect(lx + 16, ly + 16, lw - 32, lh - 32);
+
+      this.add.circle(lx + lw / 2, ly + lh / 2, Math.max(lw, lh) * 0.7, 0xff5500, 0.2).setDepth(-8);
+    };
+
+    drawLavaPool(9200, 1400, 700, 350);
+    drawLavaPool(10400, 1200, 800, 400);
+    drawLavaPool(9500, 2900, 600, 600);
+    drawLavaPool(10800, 2700, 900, 450);
+
+    // 3. Dark Slate Fortress Tile Walkway (마왕성 통로)
+    const drawCastlePavement = (x: number, y: number, w: number, h: number) => {
+      graphics.fillStyle(0x1b2029, 0.98).fillRect(x - 4, y - 4, w + 8, h + 8);
+      graphics.fillStyle(0x353e4f, 0.96).fillRect(x, y, w, h);
+      graphics.lineStyle(2, 0x4f5c73, 0.45);
+      for (let px = x; px < x + w; px += 40) {
+        for (let py = y; py < y + h; py += 40) {
+          graphics.strokeRect(px + 2, py + 2, 36, 36);
+        }
+      }
+    };
+
+    drawCastlePavement(8800, 4100, 1600, 140);
+    drawCastlePavement(10150, 2400, 200, 1840);
+    drawCastlePavement(10150, 2400, 1200, 140);
+
+    // 4. Carved Ancient Rune Walls with Glowing Blue Orbs (Matching Screenshot 1!)
+    const drawRuneWall = (wx: number, wy: number, ww: number, wh: number) => {
+      graphics.fillStyle(0x151f1c, 0.98).fillRect(wx, wy, ww, wh);
+      graphics.fillStyle(0x283834, 0.95).fillRect(wx + 4, wy + 4, ww - 8, wh - 8);
+      graphics.lineStyle(2, 0x3d544f, 0.7).strokeRect(wx + 6, wy + 6, ww - 12, wh - 12);
+
+      for (let ox = wx + 35; ox < wx + ww; ox += 70) {
+        for (let oy = wy + 35; oy < wy + wh; oy += 70) {
+          this.add.circle(ox, oy, 16, 0x00c8ff, 0.35).setDepth(-8);
+          graphics.fillStyle(0x0f1715).fillCircle(ox, oy, 11);
+          graphics.fillStyle(0x0099ff).fillCircle(ox, oy, 8);
+          graphics.fillStyle(0x99e5ff).fillCircle(ox - 2, oy - 2, 3);
+        }
+      }
+    };
+
+    drawRuneWall(8800, 3850, 1350, 230);
+    drawRuneWall(8800, 4260, 1350, 230);
+    drawRuneWall(9900, 2250, 230, 1580);
+    drawRuneWall(10370, 2250, 230, 1580);
+
+    // 5. Demon Gargoyle Statues (Matching Screenshot 4!)
+    const drawDemonStatue = (sx: number, sy: number) => {
+      graphics.fillStyle(0x212730).fillRect(sx - 18, sy - 18, 36, 36);
+      graphics.fillStyle(0x3e4754).fillRect(sx - 14, sy - 14, 28, 28);
+      graphics.fillStyle(0x576375).fillTriangle(sx - 12, sy + 6, sx + 12, sy + 6, sx, sy - 16);
+      graphics.fillStyle(0x7c8ba1).fillTriangle(sx - 14, sy - 4, sx - 4, sy - 4, sx - 9, sy - 18);
+      graphics.fillStyle(0x7c8ba1).fillTriangle(sx + 4, sy - 4, sx + 14, sy - 4, sx + 9, sy - 18);
+      graphics.fillStyle(0xff2200).fillCircle(sx - 4, sy - 6, 2);
+      graphics.fillStyle(0xff2200).fillCircle(sx + 4, sy - 6, 2);
+    };
+
+    const statueLocations = [
+      { x: 9950, y: 3950 }, { x: 10400, y: 3950 },
+      { x: 9950, y: 3200 }, { x: 10400, y: 3200 },
+      { x: 9950, y: 2500 }, { x: 10400, y: 2500 },
+    ];
+    statueLocations.forEach((st) => drawDemonStatue(st.x, st.y));
+
+    // 6. Fiery Castle Torches along the Walls (Matching Screenshots 1 & 4!)
+    const drawCastleTorch = (cx: number, cy: number) => {
+      graphics.fillStyle(0x212730).fillRect(cx - 4, cy - 8, 8, 26);
+      this.add.circle(cx, cy - 14, 50, 0xff6600, 0.25).setDepth(-8);
+      this.add.circle(cx, cy - 14, 28, 0xffaa00, 0.40).setDepth(-7);
+      graphics.fillStyle(0xff3300).fillTriangle(cx - 6, cy - 6, cx + 6, cy - 6, cx, cy - 22);
+      graphics.fillStyle(0xffcc00).fillTriangle(cx - 4, cy - 8, cx + 4, cy - 8, cx, cy - 20);
+      graphics.fillStyle(0xffffff).fillCircle(cx, cy - 14, 3);
+    };
+
+    const torchLocs = [
+      { x: 9100, y: 3820 }, { x: 9500, y: 3820 },
+      { x: 9100, y: 4280 }, { x: 9500, y: 4280 },
+      { x: 10120, y: 3600 }, { x: 10120, y: 3000 },
+      { x: 10420, y: 3600 }, { x: 10420, y: 3000 },
+    ];
+    torchLocs.forEach((t) => drawCastleTorch(t.x, t.y));
   }
 
   private createGroups(): void {
