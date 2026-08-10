@@ -29,7 +29,7 @@ import {
   equipmentPower,
   isPlayerOnWaypoint,
   makeDraftId,
-  movePlayerRoomLocal,
+  movePlayerWorld,
   selectNearestConeEnemy,
   waypointId,
   type CoreDoor,
@@ -43,6 +43,7 @@ import {
   type CoreWaypoint,
   type TravelIntent,
 } from "./v02/simulation";
+import { bossWorldRect, roomWorldCenter, roomWorldRect } from "./v02/world";
 
 export * from "./v02";
 
@@ -166,11 +167,13 @@ export class GameCore {
     }
 
     const rules = CLASS_COMBAT_RULES[input.heroClass];
+    const startRoom = this.maps.zones[0].rooms.find((room) => room.id === this.maps.zones[0].startRoomId);
+    const startCenter = roomWorldCenter({ x: startRoom?.x ?? 0, y: startRoom?.y ?? 0 });
     const player: CorePlayer = {
       ...input,
       roomId: this.maps.zones[0].startRoomId,
-      x: ROOM_WIDTH / 2 + this.players.size * 36,
-      y: ROOM_HEIGHT / 2,
+      x: startCenter.x + this.players.size * 36,
+      y: startCenter.y,
       aim: 0,
       hp: rules.hp,
       maxHp: rules.hp,
@@ -248,7 +251,7 @@ export class GameCore {
       player.autoAttackCooldown = Math.max(0, player.autoAttackCooldown - delta);
       if (!player.alive) continue;
       const rules = CLASS_COMBAT_RULES[player.heroClass];
-      const transitioned = movePlayerRoomLocal(
+      const transitioned = movePlayerWorld(
         player,
         player.inputX * rules.speed * delta,
         player.inputY * rules.speed * delta,
@@ -391,9 +394,13 @@ export class GameCore {
         ? door.fromRoomId
         : null;
     if (!destination) return false;
+    const destinationRoom = this.rooms.get(destination);
+    const center = destinationRoom
+      ? roomWorldCenter({ x: destinationRoom.gridX, y: destinationRoom.gridY })
+      : { x: ROOM_WIDTH / 2, y: ROOM_HEIGHT / 2 };
     player.roomId = destination;
-    player.x = ROOM_WIDTH / 2;
-    player.y = ROOM_HEIGHT / 2;
+    player.x = center.x;
+    player.y = center.y;
     this.discoverRoom(destination);
     return true;
   }
@@ -424,12 +431,14 @@ export class GameCore {
     return this.beginTravel(userId, source, baseWaypointId);
   }
 
-  movePlayerToRoom(userId: string, roomId: CoreRoomId, x = ROOM_WIDTH / 2, y = ROOM_HEIGHT / 2): boolean {
+  movePlayerToRoom(userId: string, roomId: CoreRoomId, _x?: number, _y?: number): boolean {
     const player = this.players.get(userId);
-    if (!player || !this.rooms.has(roomId)) return false;
+    const room = this.rooms.get(roomId);
+    if (!player || !room) return false;
+    const center = roomWorldCenter({ x: room.gridX, y: room.gridY });
     player.roomId = roomId;
-    player.x = clamp(x, 0, ROOM_WIDTH);
-    player.y = clamp(y, 0, ROOM_HEIGHT);
+    player.x = center.x;
+    player.y = center.y;
     this.discoverRoom(roomId);
     this.refreshCurrentZone();
     return true;
@@ -533,11 +542,13 @@ export class GameCore {
       const current = player.equipment[item.slot];
       if (equipmentPower(item) > equipmentPower(current)) this.equipItem(player, item);
       else {
+        const room = this.rooms.get(roomId);
+        const center = room ? roomWorldCenter({ x: room.gridX, y: room.gridY }) : { x: ROOM_WIDTH / 2, y: ROOM_HEIGHT / 2 };
         this.drops.set(item.id, {
           ...item,
           roomId,
-          x: ROOM_WIDTH / 2,
-          y: ROOM_HEIGHT / 2,
+          x: center.x,
+          y: center.y,
           claimed: false,
         });
       }
@@ -638,10 +649,11 @@ export class GameCore {
 
   private completeTravel(destinationId: string, players: readonly CorePlayer[]): void {
     if (destinationId === BOSS_ROOM_ID) {
+      const boss = bossWorldRect();
       for (const player of players) {
         player.roomId = BOSS_ROOM_ID;
-        player.x = ROOM_WIDTH / 2;
-        player.y = ROOM_HEIGHT * 0.72;
+        player.x = boss.x + boss.width / 2;
+        player.y = boss.y + boss.height * 0.72;
       }
       this.discoverRoom(BOSS_ROOM_ID);
       this.currentZone = 3;
@@ -736,8 +748,12 @@ export class GameCore {
     const distance = Math.hypot(dx, dy);
     if (distance <= 0) return;
     const step = Math.min(distance, enemy.speed * delta);
-    enemy.x = clamp(enemy.x + dx / distance * step, 0, ROOM_WIDTH);
-    enemy.y = clamp(enemy.y + dy / distance * step, 0, ROOM_HEIGHT);
+    const room = this.rooms.get(enemy.spawnRoomId);
+    const bounds = room ? roomWorldRect({ x: room.gridX, y: room.gridY }) : null;
+    const nextX = enemy.x + dx / distance * step;
+    const nextY = enemy.y + dy / distance * step;
+    enemy.x = bounds ? clamp(nextX, bounds.x, bounds.x + bounds.width) : nextX;
+    enemy.y = bounds ? clamp(nextY, bounds.y, bounds.y + bounds.height) : nextY;
     enemy.roomId = enemy.spawnRoomId;
   }
 

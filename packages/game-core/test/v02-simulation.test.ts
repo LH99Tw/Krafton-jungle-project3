@@ -6,6 +6,7 @@ import {
   GameCore,
   ROOM_HEIGHT,
   ROOM_WIDTH,
+  roomWorldRect,
   waypointId,
   type CoreEnemy,
 } from "../src/index";
@@ -27,7 +28,7 @@ test("constructs a deterministic authoritative world and starts players in the d
   assert.deepEqual(player.equipment, { weapon: null, armor: null, accessory: null });
 });
 
-test("keeps movement room-local and crosses only a connected door", () => {
+test("keeps movement continuous and crosses only through a connecting corridor", () => {
   const core = startedCore("door-transition");
   const player = core.players.get("p1")!;
   const start = core.rooms.get(player.roomId)!;
@@ -35,20 +36,23 @@ test("keeps movement room-local and crosses only a connected door", () => {
     room.zone === 1 && room.gridX === start.gridX + 1 && room.gridY === start.gridY)!;
   assert.ok(start.connections.includes(right.id));
 
-  player.x = ROOM_WIDTH - 1;
-  player.y = ROOM_HEIGHT / 2;
+  const startRect = roomWorldRect({ x: start.gridX, y: start.gridY });
+  // Walk east from the start-room edge through the corridor into the next room.
+  player.x = startRect.x + ROOM_WIDTH - 2;
+  player.y = startRect.y + ROOM_HEIGHT / 2;
   assert.equal(core.applyInput("p1", input(0, 1, 0)), true);
-  core.update(0.1);
+  for (let index = 0; index < 40; index += 1) core.update(0.1);
   assert.equal(player.roomId, right.id);
-  assert.ok(player.x < ROOM_WIDTH / 4);
+  assert.ok(player.x > startRect.x + ROOM_WIDTH, "player walked through the corridor into the next room");
   assert.ok(core.discoveredRooms.has(right.id));
 
-  player.x = ROOM_WIDTH / 2;
-  player.y = ROOM_HEIGHT - 1;
+  // An unconnected boundary clamps instead of leaving the room.
+  player.x = startRect.x + ROOM_WIDTH / 2;
+  player.y = startRect.y + ROOM_HEIGHT - 1;
   core.applyInput("p1", input(1, 0, 1));
-  core.update(0.1);
-  assert.equal(player.roomId, right.id, "an unconnected boundary must clamp instead of teleporting");
-  assert.ok(player.y <= ROOM_HEIGHT);
+  for (let index = 0; index < 40; index += 1) core.update(0.1);
+  assert.equal(player.roomId, start.id, "an unconnected boundary must clamp instead of leaving");
+  assert.ok(player.y <= startRect.y + ROOM_HEIGHT);
 });
 
 test("server auto attack picks the nearest enemy inside the cursor cone", () => {
