@@ -137,7 +137,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     });
     const offChat = lobbyTransport.on("chat", (message) => setMessages((current) => [...current, message].slice(-50)));
     const offHistory = lobbyTransport.on("history", setMessages);
-    const offError = lobbyTransport.on("error", (error) => setSurfaceError(error.message));
+    const offError = lobbyTransport.on("error", (error) => setSurfaceError(formatClientError(error, "로비 요청을 처리하지 못했습니다.")));
     const offDisconnected = lobbyTransport.on("disconnected", ({ reason }) => {
       setLobby(null);
       setSurfaceError(reason);
