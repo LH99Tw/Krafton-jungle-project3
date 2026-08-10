@@ -185,6 +185,7 @@ export class ColyseusTransport {
     });
     if (!ticketResponse.ok) throw new Error("게임 접속 티켓을 발급하지 못했습니다.");
     const ticket = await ticketResponse.json() as TicketResponse;
+    if (!ticket.token || ticket.token.split(".").length !== 3) throw new Error("유효하지 않은 게임 접속 티켓입니다.");
     const client = new Client(input.serverUrl);
     this.client = client;
     client.auth.token = ticket.token;

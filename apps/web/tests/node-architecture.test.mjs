@@ -37,7 +37,7 @@ test("exposes server session, game ticket, health, and read-only run endpoints",
 
 test("retains the Phaser game while adding the Colyseus transport", async () => {
   const required = [
-    "src/game/runtime/GameScene.ts",
+    "src/game/runtime/room/RoomGameScene.ts",
     "src/game/transport/ColyseusTransport.ts",
     "src/features/game/GameShell.tsx",
   ];

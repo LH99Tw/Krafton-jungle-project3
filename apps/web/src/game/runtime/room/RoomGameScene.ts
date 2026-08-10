@@ -33,15 +33,12 @@ import { colyseusTransport } from "../../transport/ColyseusTransport";
 import { gameBridge, type GameCommand } from "../GameBridge";
 import {
   BASE_CORE,
-  ROOM_VIEW,
-  clampToRoom,
-  directionBetween,
-  doorLayouts,
-  doorPosition,
+  buildRenderWorld,
+  clampToWorld,
   isInsideBuildBounds,
   snapToBuildGrid,
-  type DoorLayout,
   type RenderableRoom,
+  type RenderZoneWorld,
 } from "./layout";
 import { RoomRenderer, classColor } from "./RoomRenderer";
 
@@ -129,7 +126,8 @@ export class RoomGameScene extends Phaser.Scene {
   private readonly equipment = new Map<EquipmentSummary["slot"], EquippedRuntime>();
   private currentZone: ZoneId = 1;
   private currentRoomId: string;
-  private currentDoors: DoorLayout[] = [];
+  private zoneWorld!: RenderZoneWorld;
+  private renderedWaypointKey = "";
   private localPhase: Phase = "day";
   private localDay = 1;
   private phaseRemaining: number;
@@ -141,7 +139,6 @@ export class RoomGameScene extends Phaser.Scene {
   private qReadyAt = 0;
   private eReadyAt = 0;
   private dashReadyAt = 0;
-  private transitionReadyAt = 0;
   private snapshotAccumulator = 0;
   private passiveGoldAccumulator = 0;
   private nightDamageAccumulator = 0;
@@ -182,11 +179,14 @@ export class RoomGameScene extends Phaser.Scene {
   }
 
   create(): void {
-    this.physics.world.setBounds(0, 0, ROOM_VIEW.width, ROOM_VIEW.height);
+    this.renderZoneWorld(this.currentZone);
+    this.physics.world.setBounds(0, 0, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
     this.roomRenderer = new RoomRenderer(this);
     this.roomRenderer.create();
-    this.player = this.roomRenderer.createHero(this.options.heroClass, 360, 535);
+    const startCenter = this.zoneWorld.rooms.find((entry) => entry.room.id === this.currentRoomId)?.center ?? { x: 0, y: 0 };
+    this.player = this.roomRenderer.createHero(this.options.heroClass, startCenter.x, startCenter.y);
     this.player.setVisible(!this.options.networked);
+    this.configureCamera();
     this.configureInput();
     this.commandDisconnect = gameBridge.connect((command) => this.handleCommand(command));
 
@@ -196,13 +196,41 @@ export class RoomGameScene extends Phaser.Scene {
       if (initialSnapshot) this.syncNetworkState(initialSnapshot);
       else this.renderNetworkPlaceholder();
     } else {
-      this.enterLocalRoom(this.currentRoomId, null);
+      this.enterLocalRoom(this.currentRoomId, null, true);
     }
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
     this.events.once(Phaser.Scenes.Events.DESTROY, () => this.cleanup());
     gameBridge.emit("ready", undefined);
     this.emitSnapshot();
+  }
+
+  private configureCamera(): void {
+    this.cameras.main.setBounds(0, 0, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
+    this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
+    this.cameras.main.setZoom(1);
+    this.cameras.main.setBackgroundColor(0x0a0d0b);
+    this.cameras.main.fadeIn(350, 12, 20, 16);
+  }
+
+  /** Rebuilds and redraws the continuous world for a zone and re-anchors the camera. */
+  private renderZoneWorld(zone: ZoneId, waypointRoomId?: string): void {
+    const zoneMap = this.worldMap.zones[zone - 1];
+    const rooms = zoneMap.rooms.map((room): RenderableRoom => ({
+      id: room.id,
+      zone: room.zone,
+      x: room.x,
+      y: room.y,
+      type: room.type,
+      connections: [...room.connections],
+    }));
+    this.zoneWorld = buildRenderWorld(rooms, zone === 3);
+    this.physics.world.setBounds(0, 0, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
+    this.cameras.main?.setBounds(0, 0, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
+    this.roomRenderer?.renderWorld(this.zoneWorld, {
+      showBuildGrid: zone === 1,
+      waypointRooms: waypointRoomId ? new Set([waypointRoomId]) : new Set(),
+    });
   }
 
   update(time: number, delta: number): void {
@@ -228,7 +256,6 @@ export class RoomGameScene extends Phaser.Scene {
     this.updateStaticRespawn(time);
     this.updatePassiveGold(safeDeltaMs);
     this.updateTravel(safeDeltaMs / 1000);
-    this.checkDoorTransition(time);
 
     this.snapshotAccumulator += safeDeltaMs;
     if (this.snapshotAccumulator >= 120) {
@@ -272,7 +299,7 @@ export class RoomGameScene extends Phaser.Scene {
     });
   }
 
-  private enterLocalRoom(roomId: string, sourceRoomId: string | null): void {
+  private enterLocalRoom(roomId: string, sourceRoomId: string | null, keepPosition = false): void {
     this.clearTransientEntities();
     const zone = this.zoneMap();
     const room = zone.rooms.find((candidate) => candidate.id === roomId);
@@ -280,24 +307,20 @@ export class RoomGameScene extends Phaser.Scene {
     this.currentRoomId = room.id;
     this.currentZone = room.zone;
     this.visitedRooms.add(room.id);
-    this.currentDoors = doorLayouts(room, zone.rooms);
+
     const waypointActive = room.type === "start"
       || room.type === "central-waypoint"
       || (room.type === "gate" && this.clearedGateZones.has(room.zone));
-    this.roomRenderer.renderRoom(room, this.currentDoors, {
-      showBuildGrid: room.type === "start" && room.zone === 1,
-      waypointActive,
-    });
+    const waypointKey = `${room.zone}:${waypointActive ? room.id : ""}`;
+    if (waypointKey !== this.renderedWaypointKey) {
+      this.renderedWaypointKey = waypointKey;
+      this.renderZoneWorld(room.zone, waypointActive ? room.id : undefined);
+    }
 
-    if (sourceRoomId) {
-      const source = zone.rooms.find((candidate) => candidate.id === sourceRoomId);
-      const entryDirection = source ? directionBetween(room, source) : null;
-      const spawn = entryDirection ? doorPosition(entryDirection) : { spawnX: 640, spawnY: 560 };
-      this.player.setPosition(spawn.spawnX, spawn.spawnY);
-    } else if (room.type === "start" && room.zone === 1) {
-      this.player.setPosition(360, 535);
-    } else {
-      this.player.setPosition(640, 560);
+    if (!keepPosition) {
+      const center = this.zoneWorld.rooms.find((entry) => entry.room.id === room.id)?.center
+        ?? { x: 0, y: 0 };
+      this.player.setPosition(center.x, center.y);
     }
     this.player.setVisible(true).setActive(true).setVelocity(0);
 
@@ -313,22 +336,25 @@ export class RoomGameScene extends Phaser.Scene {
       this.clearedRooms.delete(room.id);
     }
     if (!this.clearedRooms.has(room.id)) this.spawnRoomContent(room);
-    else if (room.type !== "gate") this.message = "정복한 방입니다. 연결된 문으로 이동할 수 있습니다.";
+    else if (room.type !== "gate") this.message = "정복한 방입니다. 연결된 통로로 이동할 수 있습니다.";
   }
 
   private spawnRoomContent(room: ZoneRoom): void {
+    const entry = this.zoneWorld.rooms.find((candidate) => candidate.room.id === room.id);
+    const cx = entry?.center.x ?? 0;
+    const cy = entry?.center.y ?? 0;
     if (room.type === "static-monster") {
       const count = 2 + room.zone;
       for (let index = 0; index < count; index += 1) {
         const angle = (Math.PI * 2 * index) / count;
-        this.spawnEnemy("static", 640 + Math.cos(angle) * 155, 340 + Math.sin(angle) * 115, room.zone);
+        this.spawnEnemy("static", cx + Math.cos(angle) * 155, cy + Math.sin(angle) * 115, room.zone);
       }
       this.message = "정적 몬스터는 먼저 공격하기 전까지 움직이지 않습니다.";
     } else if (room.type === "hidden-monster") {
-      this.spawnEnemy("hidden", 640, 330, room.zone);
+      this.spawnEnemy("hidden", cx, cy - 30, room.zone);
       this.message = "숨겨진 수호자 · 강력한 원거리 공격을 경계하세요.";
     } else if (room.type === "gate") {
-      this.spawnEnemy("gate", 640, 330, room.zone);
+      this.spawnEnemy("gate", cx, cy - 30, room.zone);
       this.message = `구역 ${room.zone} 게이트를 파괴하면 웨이포인트가 활성화됩니다.`;
     } else {
       this.clearedRooms.add(room.id);
@@ -382,9 +408,27 @@ export class RoomGameScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this.keys.SPACE) && time >= this.dashReadyAt) this.useDash(aim);
     if (Phaser.Input.Keyboard.JustDown(this.keys.B) && this.localPhase !== "boss") this.requestWaypointAction("recall");
 
-    const clamped = clampToRoom(this.player.x, this.player.y);
+    const clamped = clampToWorld(this.zoneWorld.bounds, this.player.x, this.player.y);
     this.player.setPosition(clamped.x, clamped.y);
     if (!this.isLocalBuildRoom() || !isInsideBuildBounds(this.player.x, this.player.y)) this.buildMode = null;
+    this.updateLocalRoomPresence();
+  }
+
+  /**
+   * Seamless room transition: when the player walks into a new room's world
+   * rectangle (possibly through a connecting corridor), enter that room without
+   * repositioning, so movement feels continuous.
+   */
+  private updateLocalRoomPresence(): void {
+    if (this.currentRoomId === "boss" || this.ended) return;
+    const entry = this.zoneWorld.rooms.find((candidate) => {
+      const rect = candidate.rect;
+      return this.player.x >= rect.x && this.player.x < rect.x + rect.width
+        && this.player.y >= rect.y && this.player.y < rect.y + rect.height;
+    });
+    if (entry && entry.room.id !== this.currentRoomId) {
+      this.enterLocalRoom(entry.room.id, this.currentRoomId, true);
+    }
   }
 
   private updateAutoAttack(time: number): void {
@@ -452,7 +496,7 @@ export class RoomGameScene extends Phaser.Scene {
     const direction = new Phaser.Math.Vector2(body.velocity.x, body.velocity.y);
     if (direction.lengthSq() < 1) direction.setToPolar(aim, 1);
     direction.normalize().scale(145);
-    const point = clampToRoom(this.player.x + direction.x, this.player.y + direction.y);
+    const point = clampToWorld(this.zoneWorld.bounds, this.player.x + direction.x, this.player.y + direction.y);
     this.player.setPosition(point.x, point.y).setAlpha(0.35);
     this.time.delayedCall(220, () => this.player.active && this.player.setAlpha(1));
   }
@@ -496,7 +540,7 @@ export class RoomGameScene extends Phaser.Scene {
         enemy.lastAttackAt = time;
         this.damagePlayer(enemy.damage);
       }
-      const clamped = clampToRoom(enemy.sprite.x, enemy.sprite.y, 22);
+      const clamped = clampToWorld(this.zoneWorld.bounds, enemy.sprite.x, enemy.sprite.y, 22);
       enemy.sprite.setPosition(clamped.x, clamped.y);
     }
   }
@@ -682,33 +726,16 @@ export class RoomGameScene extends Phaser.Scene {
     this.clearTransientEntities();
     this.localPhase = "boss";
     this.currentRoomId = "boss";
-    const bossRoom: RenderableRoom = { id: "boss", zone: 3, x: 4, y: 0, type: "boss", connections: [] };
-    this.roomRenderer.renderRoom(bossRoom, [], { showBuildGrid: false, waypointActive: false });
+    this.renderedWaypointKey = "";
+    // The boss arena is its own continuous room at world origin.
+    const bossRoom: RenderableRoom = { id: "boss", zone: 3, x: 0, y: 0, type: "boss", connections: [] };
+    this.zoneWorld = buildRenderWorld([bossRoom], false);
+    this.physics.world.setBounds(0, 0, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
+    this.cameras.main.setBounds(0, 0, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
+    this.roomRenderer.renderWorld(this.zoneWorld, { showBuildGrid: false, waypointRooms: new Set() });
     this.player.setPosition(640, 580);
     this.spawnEnemy("boss", 640, 300, 3);
     this.message = "마왕전 개시 · 조준점 방향으로 공격을 집중하세요.";
-  }
-
-  private checkDoorTransition(time: number): void {
-    if (time < this.transitionReadyAt || this.currentRoomId === "boss") return;
-    if (this.enemies.some((enemy) => enemy.sprite.active)) return;
-    for (const door of this.currentDoors) {
-      const touching = door.direction === "north"
-        ? this.player.y <= ROOM_VIEW.top + 25 && Math.abs(this.player.x - door.x) <= ROOM_VIEW.doorHalfSize
-        : door.direction === "south"
-          ? this.player.y >= ROOM_VIEW.bottom - 25 && Math.abs(this.player.x - door.x) <= ROOM_VIEW.doorHalfSize
-          : door.direction === "east"
-            ? this.player.x >= ROOM_VIEW.right - 25 && Math.abs(this.player.y - door.y) <= ROOM_VIEW.doorHalfSize
-            : this.player.x <= ROOM_VIEW.left + 25 && Math.abs(this.player.y - door.y) <= ROOM_VIEW.doorHalfSize;
-      const pressing = door.direction === "north" ? this.keys.W.isDown
-        : door.direction === "south" ? this.keys.S.isDown
-          : door.direction === "east" ? this.keys.D.isDown : this.keys.A.isDown;
-      if (!touching || !pressing) continue;
-      const source = this.currentRoomId;
-      this.transitionReadyAt = time + 350;
-      this.enterLocalRoom(door.destinationId, source);
-      return;
-    }
   }
 
   private updatePassiveGold(deltaMs: number): void {
@@ -923,27 +950,14 @@ export class RoomGameScene extends Phaser.Scene {
   }
 
   private renderNetworkPlaceholder(): void {
-    const room = this.worldMap.zones[0].rooms.find((candidate) => candidate.id === this.worldMap.zones[0].startRoomId) as ZoneRoom;
-    this.roomRenderer.renderRoom(room, doorLayouts(room, this.worldMap.zones[0].rooms), { showBuildGrid: false, waypointActive: false });
+    this.renderZoneWorld(1);
     this.message = "서버 방 상태를 기다리는 중입니다.";
   }
 
   private renderNetworkRoom(snapshot: NetworkWorldSnapshot, local: PartyMemberSnapshot): void {
-    const serverRoom = snapshot.rooms.find((room) => room.id === local.roomId);
-    const fallbackZone = this.worldMap.zones[this.currentZone - 1];
-    const fallbackRoom = fallbackZone.rooms.find((room) => room.id === local.roomId) ?? fallbackZone.rooms[0];
-    const room: RenderableRoom = serverRoom
-      ? { ...serverRoom, connections: serverRoom.connections }
-      : fallbackRoom;
-    const roomPool: RenderableRoom[] = snapshot.rooms.length > 0
-      ? snapshot.rooms.filter((candidate) => candidate.zone === room.zone).map((candidate) => ({ ...candidate, connections: candidate.connections }))
-      : [...fallbackZone.rooms];
-    this.currentDoors = doorLayouts(room, roomPool);
-    const waypointActive = snapshot.waypoints.some((waypoint) => waypoint.roomId === room.id && waypoint.active);
-    this.roomRenderer.renderRoom(room, this.currentDoors, {
-      showBuildGrid: room.type === "start" && room.zone === 1,
-      waypointActive,
-    });
+    const zone = normalizeZone(this.currentZone);
+    const waypointActive = snapshot.waypoints.some((waypoint) => waypoint.roomId === local.roomId && waypoint.active);
+    this.renderZoneWorld(zone, waypointActive ? local.roomId : undefined);
   }
 
   private syncNetworkPlayers(players: PartyMemberSnapshot[], localRoomId: string): void {
@@ -960,7 +974,7 @@ export class RoomGameScene extends Phaser.Scene {
         ? this.player
         : this.remotePlayers.get(member.userId) ?? this.roomRenderer.createHero(member.heroClass, member.x, member.y, 0.82);
       if (!isLocal && !this.remotePlayers.has(member.userId)) this.remotePlayers.set(member.userId, sprite);
-      const point = clampToRoom(member.x, member.y);
+      const point = clampToWorld(this.zoneWorld.bounds, member.x, member.y);
       sprite.setPosition(point.x, point.y).setVisible(member.roomId === localRoomId && member.connected).setActive(member.connected);
       sprite.setAlpha(isLocal ? 1 : 0.82);
     }
@@ -982,7 +996,7 @@ export class RoomGameScene extends Phaser.Scene {
             : enemy.kind === "invader" || enemy.behavior === "invader" ? "invader" : "static";
       const sprite = this.networkEnemies.get(enemy.id) ?? this.roomRenderer.createEnemy(kind, enemy.x, enemy.y);
       if (!this.networkEnemies.has(enemy.id)) this.networkEnemies.set(enemy.id, sprite);
-      const point = clampToRoom(enemy.x, enemy.y);
+      const point = clampToWorld(this.zoneWorld.bounds, enemy.x, enemy.y);
       sprite.setPosition(point.x, point.y).setVisible(enemy.roomId === localRoomId && enemy.alive).setActive(enemy.alive);
     }
   }
@@ -1112,7 +1126,9 @@ export class RoomGameScene extends Phaser.Scene {
     const boss = networkEnemyList.find((enemy) => (enemy.kind === "boss" || enemy.behavior === "boss") && enemy.alive);
     const currentRoom = roomMap.find((room) => room.id === local?.roomId);
     const activeWaypoint = state?.waypoints.find((waypoint) => waypoint.roomId === local?.roomId && waypoint.active);
-    const waypointNearby = Boolean(activeWaypoint && local && Phaser.Math.Distance.Between(local.x, local.y, 640, 360) <= 95);
+    const waypointCenter = activeWaypoint ? this.waypointWorldCenter(activeWaypoint.roomId) : undefined;
+    const waypointNearby = Boolean(activeWaypoint && local && waypointCenter
+      && Phaser.Math.Distance.Between(local.x, local.y, waypointCenter.x, waypointCenter.y) <= 95);
     const destinationWaypoint = state?.waypoints.find((waypoint) => waypoint.id === activeWaypoint?.destinationId);
     const destinationRoomId = destinationWaypoint?.roomId ?? activeWaypoint?.destinationId;
     const waypointDestination = roomMap.find((room) => room.id === destinationRoomId);
@@ -1231,8 +1247,9 @@ export class RoomGameScene extends Phaser.Scene {
 
   private isNearGateWaypoint(): boolean {
     const room = this.currentRoom();
+    const center = this.currentRoomCenter();
     return Boolean(room?.type === "gate" && this.clearedGateZones.has(room.zone)
-      && Phaser.Math.Distance.Between(this.player.x, this.player.y, 640, 360) <= 95);
+      && center && Phaser.Math.Distance.Between(this.player.x, this.player.y, center.x, center.y) <= 95);
   }
 
   private isNearActiveWaypoint(): boolean {
@@ -1240,7 +1257,16 @@ export class RoomGameScene extends Phaser.Scene {
     const active = room?.type === "start"
       || room?.type === "central-waypoint"
       || (room?.type === "gate" && this.clearedGateZones.has(room.zone));
-    return Boolean(active && Phaser.Math.Distance.Between(this.player.x, this.player.y, 640, 360) <= 95);
+    const center = this.currentRoomCenter();
+    return Boolean(active && center && Phaser.Math.Distance.Between(this.player.x, this.player.y, center.x, center.y) <= 95);
+  }
+
+  private currentRoomCenter(): { x: number; y: number } | undefined {
+    return this.zoneWorld.rooms.find((entry) => entry.room.id === this.currentRoomId)?.center;
+  }
+
+  private waypointWorldCenter(roomId: string): { x: number; y: number } | undefined {
+    return this.zoneWorld.rooms.find((entry) => entry.room.id === roomId)?.center;
   }
 
   private aimAngle(): number {

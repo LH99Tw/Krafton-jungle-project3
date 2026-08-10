@@ -57,9 +57,14 @@ export class LobbyTransport {
 
   async list(serverUrl: string): Promise<LobbyListing[]> {
     const endpoint = serverUrl.replace(/^ws/, "http").replace(/\/$/, "");
-    const response = await fetch(`${endpoint}/lobbies`, { cache: "no-store" });
-    if (!response.ok) throw new Error("방 목록을 불러오지 못했습니다.");
-    return await response.json() as LobbyListing[];
+    try {
+      const response = await fetch(`${endpoint}/lobbies`, { cache: "no-store" });
+      if (!response.ok) return [];
+      const text = await response.text();
+      return text ? (JSON.parse(text) as LobbyListing[]) : [];
+    } catch {
+      return [];
+    }
   }
 
   async create(input: {
@@ -144,8 +149,12 @@ async function fetchTicket(csrfToken: string): Promise<string> {
     method: "POST",
     headers: { "x-csrf-token": csrfToken },
   });
-  if (!response.ok) throw new Error("접속 티켓을 발급하지 못했습니다.");
-  const value = await response.json() as { token: string };
+  const text = await response.text();
+  let value: { token?: string; error?: string } = {};
+  try { value = text ? JSON.parse(text) as typeof value : {}; } catch { /* handled below */ }
+  if (!response.ok || !value.token || value.token.split(".").length !== 3) {
+    throw new Error(value.error || "게임 접속 티켓을 발급하지 못했습니다.");
+  }
   return value.token;
 }
 

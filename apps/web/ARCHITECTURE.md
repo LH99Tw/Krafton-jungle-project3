@@ -48,7 +48,7 @@ packages/db/                  PostgreSQL Drizzle
 packages/auth/                암호·OAuth 보조·game-ticket
 ```
 
-`createGame.ts`는 `RoomGameScene`만 scene 목록에 등록합니다. 기존 `GameScene.ts`는 저장소에는 남아 있지만 현재 실행 경로가 아닙니다. `content`와 로컬 mode 수치는 서버 원본이 아니며, network mode의 원본은 GameCore/Colyseus state입니다.
+`createGame.ts`는 `RoomGameScene`만 scene 목록에 등록합니다. `content`의 UI 표시값과 로컬 mode 수치는 서버 원본이 아니며, network mode의 원본은 GameCore/Colyseus state입니다.
 
 ## 3. 인증과 접속
 
@@ -125,7 +125,7 @@ protocol v2가 정의하는 명령:
 | 항목 | 로컬 모드 | network mode 현재 | network mode 목표 |
 |---|---|---|---|
 | 이동 | Phaser | server 좌표·room 적용 | server+선택적 예측/보정 |
-| phase | local SessionDirector | server phase 적용 | server only |
+| phase | local simulation 없음 | server phase 적용 | server only |
 | 파티 | 단일 사용자 | server players 렌더링 | server players |
 | 맵 | local 5×5 room graph | server 발견 room/door를 RoomRenderer와 미니맵에 적용 | 보간·3-client 검증 |
 | 적·전투 | Phaser local | server enemy/HP/alive만 소비, 로컬 tick 없음 | server skill/pattern+표현 event |

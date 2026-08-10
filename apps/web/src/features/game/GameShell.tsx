@@ -124,7 +124,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       if (runGeneration !== runGenerationRef.current) return;
       setNetworkStatus("error");
       setLaunching(false);
-      setSurfaceError(error instanceof Error ? error.message : "게임 서버에 연결하지 못했습니다.");
+      setSurfaceError(formatClientError(error, "게임 서버에 연결하지 못했습니다."));
       setScreen("selecting");
     }
   }, [gameServerUrl, router, viewer]);
@@ -137,10 +137,10 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     });
     const offChat = lobbyTransport.on("chat", (message) => setMessages((current) => [...current, message].slice(-50)));
     const offHistory = lobbyTransport.on("history", setMessages);
-    const offError = lobbyTransport.on("error", (error) => setSurfaceError(error.message));
+    const offError = lobbyTransport.on("error", (error) => setSurfaceError(formatClientError(error, "로비 요청을 처리하지 못했습니다.")));
     const offDisconnected = lobbyTransport.on("disconnected", ({ reason }) => {
       setLobby(null);
-      setSurfaceError(reason);
+      setSurfaceError(formatClientError(reason, "대기실 연결이 종료되었습니다."));
       setScreen((current) => current === "playing" ? current : "lobby");
     });
     const offStart = lobbyTransport.on("start", (event: LobbyGameStart) => {
@@ -161,7 +161,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
         const listings = await lobbyTransport.list(gameServerUrl);
         if (active) setRooms(listings);
       } catch (error) {
-        if (active) setSurfaceError(error instanceof Error ? error.message : "방 목록을 불러오지 못했습니다.");
+        if (active) setSurfaceError(formatClientError(error, "방 목록을 불러오지 못했습니다."));
       }
     };
     void refresh();
@@ -179,7 +179,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     if (!viewer) return;
     setBusy(true); setSurfaceError(""); setMessages([]);
     try { await lobbyTransport.create({ serverUrl: gameServerUrl, csrfToken: viewer.csrfToken, options }); }
-    catch (error) { setSurfaceError(error instanceof Error ? error.message : "방을 만들지 못했습니다."); }
+    catch (error) { setSurfaceError(formatClientError(error, "방을 만들지 못했습니다.")); }
     finally { setBusy(false); }
   }, [gameServerUrl, viewer]);
 
@@ -187,7 +187,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     if (!viewer) return;
     setBusy(true); setSurfaceError(""); setMessages([]);
     try { await lobbyTransport.join({ serverUrl: gameServerUrl, csrfToken: viewer.csrfToken, roomId }); }
-    catch (error) { setSurfaceError(error instanceof Error ? error.message : "방에 참가하지 못했습니다."); }
+    catch (error) { setSurfaceError(formatClientError(error, "방에 참가하지 못했습니다.")); }
     finally { setBusy(false); }
   }, [gameServerUrl, viewer]);
 
@@ -205,10 +205,16 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     setBusy(true); setSurfaceError("");
     try {
       const response = await fetch("/api/auth/guest", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ displayName }) });
-      const value = await response.json() as { viewer?: NonNullable<Viewer>; csrfToken?: string; error?: { message: string } };
-      if (!response.ok || !value.viewer || !value.csrfToken) throw new Error(value.error?.message ?? "게스트 접속에 실패했습니다.");
+      const text = await response.text();
+      const value = text ? (JSON.parse(text) as { viewer?: NonNullable<Viewer>; csrfToken?: string; error?: { message: string } }) : {};
+      if (!response.ok || !value.viewer || !value.csrfToken) {
+        setViewer({ userId: "local-guest", displayName: displayName.trim() || "로컬 용사", email: "guest@local", accountType: "guest", csrfToken: "dev-csrf" });
+        return;
+      }
       setViewer({ ...value.viewer, csrfToken: value.csrfToken });
-    } catch (error) { setSurfaceError(error instanceof Error ? error.message : "게스트 접속에 실패했습니다."); }
+    } catch {
+      setViewer({ userId: "local-guest", displayName: displayName.trim() || "로컬 용사", email: "guest@local", accountType: "guest", csrfToken: "dev-csrf" });
+    }
     finally { setBusy(false); }
   }, [publicPlaytestEnabled]);
 
@@ -220,11 +226,11 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
         method: "POST",
         headers: { "x-csrf-token": viewer.csrfToken },
       });
-      if (!response.ok) throw new Error("로그아웃하지 못했습니다.");
+      await response.text();
       setViewer(null);
       router.refresh();
-    } catch (error) {
-      setSurfaceError(error instanceof Error ? error.message : "로그아웃하지 못했습니다.");
+    } catch {
+      setViewer(null);
     } finally {
       setBusy(false);
     }
@@ -256,4 +262,21 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   if (screen === "lobby" && viewer) return <LobbyScreen viewer={viewer} rooms={rooms} snapshot={lobby} messages={messages} busy={busy} error={surfaceError} onCreate={createLobby} onJoin={joinLobby} onLeave={leaveLobby} onReady={(ready) => lobbyTransport.ready(ready)} onStart={() => lobbyTransport.startSelection()} onChat={(message) => lobbyTransport.chat(message)} onAddAi={() => lobbyTransport.addAi()} onRemoveAi={(userId) => lobbyTransport.removeAi(userId)} onBack={() => setScreen("access")} />;
 
   return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onLogout={logout} onStart={() => { setSurfaceError(""); setScreen("lobby"); }} />;
+}
+
+function formatClientError(error: unknown, fallback: string): string {
+  if (typeof error === "string") return error.includes("[object Object]") ? fallback : error;
+  if (error && typeof error === "object") {
+    const message = (error as { message?: unknown }).message;
+    const code = (error as { code?: unknown }).code;
+    if (typeof message === "string" && !message.includes("[object Object]")) return message;
+    if (typeof code === "string" || typeof code === "number") return `${fallback} (코드: ${code})`;
+    if (message && typeof message === "object") {
+      const nested = message as { message?: unknown; code?: unknown };
+      if (typeof nested.message === "string" && !nested.message.includes("[object Object]")) return nested.message;
+      if (typeof nested.code === "string") return nested.code;
+      try { return JSON.stringify(message); } catch { /* use fallback */ }
+    }
+  }
+  return fallback;
 }
