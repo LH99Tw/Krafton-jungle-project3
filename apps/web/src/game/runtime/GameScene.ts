@@ -121,8 +121,8 @@ export class GameScene extends Phaser.Scene {
   create(): void {
     createGameTextures(this);
     this.physics.world.setBounds(0, 0, WORLD.width, WORLD.height);
-    this.createWorld();
     this.createGroups();
+    this.createWorld();
     this.createCore();
     this.createPlayer();
     this.createGatesAndFieldEnemies();

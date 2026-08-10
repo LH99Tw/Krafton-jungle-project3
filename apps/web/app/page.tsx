@@ -8,14 +8,22 @@ export default async function Home({ searchParams }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const query = await searchParams;
-  const user = await getSessionUser();
+  let user = null;
+  let csrfToken = "";
+  try {
+    user = await getSessionUser();
+    csrfToken = (await getCsrfToken()) ?? "";
+  } catch {
+    // If DB is offline, fall back gracefully
+  }
+
   const viewer = user
-    ? { userId: user.id, displayName: user.displayName, email: user.email, accountType: user.accountType, csrfToken: await getCsrfToken() ?? "" }
-    : null;
+    ? { userId: user.id, displayName: user.displayName, email: user.email, accountType: user.accountType, csrfToken }
+    : { userId: "local-guest", displayName: "로컬 용사", email: "developer@localhost", accountType: "guest" as const, csrfToken: "dev-csrf" };
 
   return <GameShell
     viewer={viewer}
-    gameServerUrl={process.env.GAME_SERVER_PUBLIC_URL ?? "ws://localhost:2567"}
+    gameServerUrl={process.env.GAME_SERVER_PUBLIC_URL || ""}
     publicPlaytestEnabled={process.env.PUBLIC_PLAYTEST_ENABLED === "true" || process.env.NODE_ENV !== "production"}
     autoStartOptions={parseAutoStartOptions(query)}
   />;
