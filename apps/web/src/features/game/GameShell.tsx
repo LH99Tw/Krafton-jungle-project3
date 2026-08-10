@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { GameCanvas } from "@/src/game/client/GameCanvas";
 import { CLASS_DEFINITIONS, CLASS_ORDER } from "@/src/game/content/classes";
@@ -29,12 +29,17 @@ export type Viewer = {
 
 type Screen = "briefing" | "playing";
 
-export function GameShell({ viewer, gameServerUrl }: { viewer: Viewer; gameServerUrl: string }) {
+export function GameShell({ viewer, gameServerUrl, autoStartOptions }: {
+  viewer: Viewer;
+  gameServerUrl: string;
+  autoStartOptions: GameStartOptions | null;
+}) {
   const router = useRouter();
+  const autoStartAttempted = useRef(false);
   const [screen, setScreen] = useState<Screen>("briefing");
-  const [selectedClass, setSelectedClass] = useState<HeroClassId>("swordsman");
-  const [sessionMode, setSessionMode] = useState<SessionMode>("prototype");
-  const [difficulty, setDifficulty] = useState<GameStartOptions["difficulty"]>("normal");
+  const [selectedClass, setSelectedClass] = useState<HeroClassId>(autoStartOptions?.heroClass ?? "swordsman");
+  const [sessionMode, setSessionMode] = useState<SessionMode>(autoStartOptions?.sessionMode ?? "prototype");
+  const [difficulty, setDifficulty] = useState<GameStartOptions["difficulty"]>(autoStartOptions?.difficulty ?? "normal");
   const [activeOptions, setActiveOptions] = useState<GameStartOptions | null>(null);
   const [runKey, setRunKey] = useState(0);
   const [snapshot, setSnapshot] = useState<GameSnapshot>(EMPTY_SNAPSHOT);
@@ -60,7 +65,8 @@ export function GameShell({ viewer, gameServerUrl }: { viewer: Viewer; gameServe
   const beginRun = useCallback(async () => {
     if (gameServerUrl) {
       if (!viewer) {
-        router.push("/api/auth/login?returnTo=%2F");
+        const returnTo = `/?autostart=1&heroClass=${selectedClass}&mode=${sessionMode}&difficulty=${difficulty}`;
+        router.push(`/api/auth/login?returnTo=${encodeURIComponent(returnTo)}`);
         return;
       }
       setNetworkStatus("connecting");
@@ -85,6 +91,12 @@ export function GameShell({ viewer, gameServerUrl }: { viewer: Viewer; gameServe
     setRunKey((value) => value + 1);
     setScreen("playing");
   }, [difficulty, gameServerUrl, router, selectedClass, sessionMode, viewer]);
+
+  useEffect(() => {
+    if (!viewer || !autoStartOptions || autoStartAttempted.current) return;
+    autoStartAttempted.current = true;
+    void beginRun();
+  }, [autoStartOptions, beginRun, viewer]);
 
   const retryRun = useCallback(() => {
     setSnapshot(EMPTY_SNAPSHOT);

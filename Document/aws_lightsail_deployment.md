@@ -24,6 +24,12 @@ AWS에서 이 시스템을 영구적으로 완전 무료 운영할 수 있다고
 
 무료 기간 종료 후 예상 최저 고정비는 Lightsail 월 12달러다. 작은 S3 백업 비용과 세금은 별도다. 자체 도메인을 구입하면 등록·갱신 비용도 추가된다.
 
+실제 AWS CLI bootstrap과 수동 GitHub Actions 실행 순서는 [`deploy/aws/README.md`](../deploy/aws/README.md)를 따른다. 저장소의 배포 workflow는 `workflow_dispatch`만 선언하며 push로 자동 배포하지 않는다.
+
+### 1.1 레이턴시 기준
+
+레이턴시는 물리적 거리 때문에 0으로 만들 수 없다. MVP는 한국 사용자를 기준으로 웹, Colyseus, PostgreSQL을 서울의 동일 Lightsail 인스턴스와 Docker network에 배치하고 ALB, NAT Gateway, CloudFront, 외부 Redis를 경로에서 제외한다. 브라우저는 하나의 WSS 연결을 유지하고 서버는 20Hz로 판정한다. 운영 검증에서는 네트워크 RTT와 Room tick p95를 분리해 측정한다.
+
 ## 2. MVP 인프라 결정
 
 ```text

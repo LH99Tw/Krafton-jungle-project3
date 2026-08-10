@@ -300,7 +300,8 @@ export class GameScene extends Phaser.Scene {
     });
     this.physics.add.overlap(this.enemies, this.player, (enemy) => {
       const sprite = enemy as Phaser.Physics.Arcade.Sprite;
-      const data = this.enemyData(sprite);
+      const data = sprite.getData("enemy") as EnemyData | undefined;
+      if (!sprite.active || !data) return;
       if (data.kind === "gate" || data.kind === "boss") return;
       if (this.time.now - data.lastHitAt >= 850) {
         data.lastHitAt = this.time.now;
@@ -310,9 +311,9 @@ export class GameScene extends Phaser.Scene {
     this.physics.add.collider(this.enemies, this.structures, (enemy, structure) => {
       const enemySprite = enemy as Phaser.Physics.Arcade.Sprite;
       const structureSprite = structure as Phaser.Physics.Arcade.Image;
-      const enemyData = this.enemyData(enemySprite);
+      const enemyData = enemySprite.getData("enemy") as EnemyData | undefined;
       const structureData = structureSprite.getData("structure") as StructureData | undefined;
-      if (!structureData || enemyData.kind === "gate" || enemyData.kind === "boss") return;
+      if (!enemySprite.active || !enemyData || !structureData || enemyData.kind === "gate" || enemyData.kind === "boss") return;
       if (this.time.now - enemyData.lastHitAt < 750) return;
       enemyData.lastHitAt = this.time.now;
       structureData.hp -= Math.max(1, enemyData.damage - structureData.level);

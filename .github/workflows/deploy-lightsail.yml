@@ -2,8 +2,16 @@ name: Deploy Lightsail
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
+    inputs:
+      confirm:
+        description: "배포하려면 DEPLOY를 입력하세요"
+        required: true
+        type: string
+      run_migration:
+        description: "PostgreSQL migration 실행"
+        required: true
+        default: true
+        type: boolean
 
 concurrency:
   group: lightsail-staging
@@ -12,9 +20,11 @@ concurrency:
 permissions:
   contents: read
   packages: write
+  id-token: write
 
 jobs:
   deploy:
+    if: ${{ inputs.confirm == 'DEPLOY' }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: staging
@@ -40,6 +50,21 @@ jobs:
           file: Dockerfile.game
           push: true
           tags: ghcr.io/${{ github.repository_owner }}/five-days-game-server:${{ github.sha }}
+      - name: Authenticate to AWS with GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ap-northeast-2
+      - name: Temporarily allow this runner to use SSH
+        env:
+          LIGHTSAIL_INSTANCE_NAME: ${{ secrets.LIGHTSAIL_INSTANCE_NAME }}
+        run: |
+          set -euo pipefail
+          runner_cidr="$(curl --fail --silent https://checkip.amazonaws.com)/32"
+          printf 'RUNNER_CIDR=%s\n' "$runner_cidr" >> "$GITHUB_ENV"
+          aws lightsail open-instance-public-ports \
+            --instance-name "$LIGHTSAIL_INSTANCE_NAME" \
+            --port-info "fromPort=22,toPort=22,protocol=TCP,cidrs=$runner_cidr"
       - name: Configure SSH
         env:
           SSH_PRIVATE_KEY: ${{ secrets.LIGHTSAIL_SSH_PRIVATE_KEY }}
@@ -49,16 +74,24 @@ jobs:
           printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
           chmod 0600 ~/.ssh/id_ed25519
           ssh-keyscan -H "$LIGHTSAIL_HOST" >> ~/.ssh/known_hosts
+      - name: Upload deployment topology
+        env:
+          LIGHTSAIL_HOST: ${{ secrets.LIGHTSAIL_HOST }}
+          LIGHTSAIL_DEPLOY_USER: ${{ secrets.LIGHTSAIL_DEPLOY_USER }}
+        run: |
+          scp compose.yml Caddyfile \
+            "$LIGHTSAIL_DEPLOY_USER@$LIGHTSAIL_HOST:/opt/five-days/"
       - name: Deploy SHA images
         env:
           LIGHTSAIL_HOST: ${{ secrets.LIGHTSAIL_HOST }}
           LIGHTSAIL_DEPLOY_USER: ${{ secrets.LIGHTSAIL_DEPLOY_USER }}
           IMAGE_SHA: ${{ github.sha }}
           IMAGE_OWNER: ${{ github.repository_owner }}
-          GHCR_READ_TOKEN: ${{ secrets.GHCR_READ_TOKEN }}
+          GHCR_READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_MIGRATION: ${{ inputs.run_migration }}
         run: |
           ssh "$LIGHTSAIL_DEPLOY_USER@$LIGHTSAIL_HOST" \
-            IMAGE_SHA="$IMAGE_SHA" IMAGE_OWNER="$IMAGE_OWNER" GHCR_READ_TOKEN="$GHCR_READ_TOKEN" \
+            IMAGE_SHA="$IMAGE_SHA" IMAGE_OWNER="$IMAGE_OWNER" GHCR_READ_TOKEN="$GHCR_READ_TOKEN" RUN_MIGRATION="$RUN_MIGRATION" \
             'bash -s' <<'REMOTE'
           set -euo pipefail
           cd /opt/five-days
@@ -74,7 +107,9 @@ jobs:
           . ./.release
           set +a
           docker compose pull web game-server migrate
-          docker compose --profile migration run --rm migrate
+          if [ "$RUN_MIGRATION" = "true" ]; then
+            docker compose --profile migration run --rm migrate
+          fi
           docker compose up -d --remove-orphans
           for attempt in $(seq 1 12); do
             if curl --fail --silent "https://$WEB_HOST/api/health/ready" >/dev/null && \
@@ -91,3 +126,11 @@ jobs:
           fi
           exit 1
           REMOTE
+      - name: Close temporary SSH access
+        if: ${{ always() && env.RUNNER_CIDR != '' }}
+        env:
+          LIGHTSAIL_INSTANCE_NAME: ${{ secrets.LIGHTSAIL_INSTANCE_NAME }}
+        run: |
+          aws lightsail close-instance-public-ports \
+            --instance-name "$LIGHTSAIL_INSTANCE_NAME" \
+            --port-info "fromPort=22,toPort=22,protocol=TCP,cidrs=$RUNNER_CIDR"
