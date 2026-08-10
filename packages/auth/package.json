@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@five-days/protocol": "workspace:*",
     "jose": "6.2.8"
   },
   "devDependencies": {

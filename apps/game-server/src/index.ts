@@ -11,7 +11,7 @@ const app = express();
 const httpServer = createServer(app);
 const gameServer = new Server({ transport: new WebSocketTransport({ server: httpServer, pingInterval: 10_000, maxPayload: 4096 }) });
 
-gameServer.define(PARTY_ROOM, PartyRoom);
+gameServer.define(PARTY_ROOM, PartyRoom).filterBy(["partyMode", "sessionMode", "difficulty"]);
 gameServer.define(LOBBY_ROOM, GameLobbyRoom);
 
 app.get("/lobbies", async (request, response) => {

@@ -1,0 +1,334 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { PROTOCOL_VERSION, type PlayerInputCommand } from "@five-days/protocol";
+import {
+  BOSS_ROOM_ID,
+  GameCore,
+  ROOM_HEIGHT,
+  ROOM_WIDTH,
+  waypointId,
+  type CoreEnemy,
+} from "../src/index";
+
+test("constructs a deterministic authoritative world and starts players in the discovered base room", () => {
+  const first = new GameCore({ mode: "prototype", difficulty: "normal", seed: "world-seed", minimumPlayers: 1 });
+  const second = new GameCore({ mode: "prototype", difficulty: "normal", seed: "world-seed", minimumPlayers: 1 });
+  assert.deepEqual(first.maps, second.maps);
+  assert.deepEqual([...first.enemies.values()], [...second.enemies.values()]);
+  assert.equal(first.rooms.size, 46);
+  assert.ok(first.doors.size > 0);
+  assert.equal(first.enemies.size, 21);
+  assert.equal(first.waypoints.size, 9);
+
+  const player = first.addPlayer({ userId: "p1", displayName: "용사", heroClass: "swordsman" });
+  assert.equal(player.roomId, first.maps.zones[0].startRoomId);
+  assert.equal(player.alive, true);
+  assert.ok(first.discoveredRooms.has(player.roomId));
+  assert.deepEqual(player.equipment, { weapon: null, armor: null, accessory: null });
+});
+
+test("keeps movement room-local and crosses only a connected door", () => {
+  const core = startedCore("door-transition");
+  const player = core.players.get("p1")!;
+  const start = core.rooms.get(player.roomId)!;
+  const right = [...core.rooms.values()].find((room) =>
+    room.zone === 1 && room.gridX === start.gridX + 1 && room.gridY === start.gridY)!;
+  assert.ok(start.connections.includes(right.id));
+
+  player.x = ROOM_WIDTH - 1;
+  player.y = ROOM_HEIGHT / 2;
+  assert.equal(core.applyInput("p1", input(0, 1, 0)), true);
+  core.update(0.1);
+  assert.equal(player.roomId, right.id);
+  assert.ok(player.x < ROOM_WIDTH / 4);
+  assert.ok(core.discoveredRooms.has(right.id));
+
+  player.x = ROOM_WIDTH / 2;
+  player.y = ROOM_HEIGHT - 1;
+  core.applyInput("p1", input(1, 0, 1));
+  core.update(0.1);
+  assert.equal(player.roomId, right.id, "an unconnected boundary must clamp instead of teleporting");
+  assert.ok(player.y <= ROOM_HEIGHT);
+});
+
+test("server auto attack picks the nearest enemy inside the cursor cone", () => {
+  const core = startedCore("cone-target");
+  const player = core.players.get("p1")!;
+  player.x = 100;
+  player.y = 100;
+  player.aim = 0;
+  const near = enemy("near", player.roomId, 190, 100);
+  const far = enemy("far", player.roomId, 260, 100);
+  const outsideCone = enemy("outside", player.roomId, 120, 240);
+  core.enemies.clear();
+  core.enemies.set(near.id, near);
+  core.enemies.set(far.id, far);
+  core.enemies.set(outsideCone.id, outsideCone);
+
+  assert.equal(core.performAutoAttack("p1")?.id, near.id);
+  assert.ok(near.hp < near.maxHp);
+  assert.equal(near.aggroed, true);
+  assert.equal(far.hp, far.maxHp);
+  assert.equal(outsideCone.hp, outsideCone.maxHp);
+});
+
+test("static enemies stay idle until hit and never leave their spawn room", () => {
+  const core = startedCore("static-behavior");
+  const player = core.players.get("p1")!;
+  player.aim = Math.PI;
+  const staticEnemy = enemy("static-test", player.roomId, player.x + 180, player.y);
+  core.enemies.clear();
+  core.enemies.set(staticEnemy.id, staticEnemy);
+  const originalX = staticEnemy.x;
+  core.update(0.1);
+  assert.equal(staticEnemy.x, originalX);
+  assert.equal(staticEnemy.aggroed, false);
+
+  assert.equal(core.damageEnemy(player.userId, staticEnemy.id, 1), true);
+  core.update(0.1);
+  assert.ok(staticEnemy.x < originalX);
+  const spawnRoomId = staticEnemy.spawnRoomId;
+  const destination = core.rooms.get(player.roomId)!.connections[0]!;
+  core.movePlayerToRoom(player.userId, destination);
+  for (let index = 0; index < 20; index += 1) core.update(0.1);
+  assert.equal(staticEnemy.roomId, spawnRoomId);
+});
+
+test("team XP creates personal deterministic drafts through milestone level 10", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "draft-integration", minimumPlayers: 2 });
+  core.addPlayer({ userId: "p1", displayName: "검사", heroClass: "swordsman" });
+  core.addPlayer({ userId: "p2", displayName: "궁수", heroClass: "archer" });
+  while (core.teamLevel < 10) core.addTeamExperience(core.teamXpToNext - core.teamXp);
+  assert.equal(core.teamLevel, 10);
+  assert.equal(core.players.get("p1")?.level, 10);
+  assert.equal(core.players.get("p2")?.level, 10);
+
+  for (const player of core.players.values()) {
+    const seenLevels: number[] = [];
+    while (player.upgradeDraft) {
+      const draft = player.upgradeDraft;
+      seenLevels.push(draft.level);
+      assert.equal(draft.choices.length, 3);
+      if (draft.level === 10) assert.ok(draft.choices.every((choice) => choice.classId === player.heroClass));
+      assert.equal(core.chooseUpgrade(player.userId, draft.draftId, draft.choices[0]!.id), true);
+    }
+    assert.deepEqual(seenLevels, [2, 3, 4, 5, 6, 7, 8, 9, 10]);
+  }
+});
+
+test("hidden-room kill awards deterministic personal legendary or mythic equipment", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "hidden-reward", minimumPlayers: 2 });
+  const first = core.addPlayer({ userId: "p1", displayName: "검사", heroClass: "swordsman" });
+  const second = core.addPlayer({ userId: "p2", displayName: "마법사", heroClass: "mage" });
+  core.setReady(first.userId, true);
+  core.setReady(second.userId, true);
+  const hidden = [...core.enemies.values()].find((candidate) => candidate.kind === "hidden")!;
+  core.movePlayerToRoom(first.userId, hidden.roomId, hidden.x - 20, hidden.y);
+  core.movePlayerToRoom(second.userId, hidden.roomId, hidden.x - 30, hidden.y);
+  assert.equal(core.damageEnemy(first.userId, hidden.id, hidden.hp), true);
+
+  for (const player of [first, second]) {
+    const equipped = Object.values(player.equipment).filter(Boolean);
+    assert.equal(equipped.length, 1);
+    assert.ok(equipped[0]!.rarity === "legendary" || equipped[0]!.rarity === "mythic");
+    assert.equal(equipped[0]!.ownerPlayerId, player.userId);
+  }
+});
+
+test("destroyed gates unlock a five-second all-player travel hold", () => {
+  const core = twoPlayerCore("gate-travel");
+  const gate = [...core.enemies.values()].find((candidate) => candidate.kind === "gate" && candidate.roomId.startsWith("zone-1:"))!;
+  for (const player of core.players.values()) core.movePlayerToRoom(player.userId, gate.roomId, ROOM_WIDTH / 2, ROOM_HEIGHT / 2);
+  assert.equal(core.damageEnemy("p1", gate.id, gate.hp), true);
+
+  const sourceId = waypointId(gate.roomId as `zone-1:${number},${number}`, "gate");
+  const source = core.waypoints.get(sourceId)!;
+  assert.equal(source.active, true);
+  assert.equal(core.waypoints.get(source.destinationId)?.active, true);
+  assert.equal(core.requestTravel("p1", source.id, source.destinationId), true);
+  for (let index = 0; index < 51; index += 1) core.update(0.1);
+  assert.ok([...core.players.values()].every((player) => player.roomId === core.maps.zones[1].startRoomId));
+  assert.equal(core.currentZone, 2);
+  assert.equal(core.activeTravel, null);
+});
+
+test("zone three gate waypoint moves the whole connected party into the boss room", () => {
+  const core = twoPlayerCore("boss-travel");
+  const gate = [...core.enemies.values()].find((candidate) => candidate.kind === "gate" && candidate.roomId.startsWith("zone-3:"))!;
+  for (const player of core.players.values()) core.movePlayerToRoom(player.userId, gate.roomId, ROOM_WIDTH / 2, ROOM_HEIGHT / 2);
+  core.damageEnemy("p1", gate.id, gate.hp);
+  const source = [...core.waypoints.values()].find((waypoint) => waypoint.roomId === gate.roomId)!;
+  assert.equal(source.destinationId, BOSS_ROOM_ID);
+  assert.equal(core.requestTravel("p1", source.id, BOSS_ROOM_ID), true);
+  for (let index = 0; index < 51; index += 1) core.update(0.1);
+  assert.equal(core.phase, "boss");
+  assert.ok([...core.players.values()].every((player) => player.roomId === BOSS_ROOM_ID));
+  assert.ok([...core.enemies.values()].some((candidate) => candidate.kind === "boss" && candidate.alive));
+});
+
+test("invaders ignore players and advance coarsely from their gate to the zone-one base", () => {
+  const core = startedCore("invader-path");
+  core.setConnected("p1", false);
+  const invader = core.spawnInvader(3);
+  assert.equal(invader.targetId, "base");
+  assert.equal(invader.path[0], core.maps.zones[2].gateRoomId);
+  assert.equal(invader.path.at(-1), core.maps.zones[0].startRoomId);
+  const baseBefore = core.baseHp;
+  for (let index = 0; index < (invader.path.length + 1) * 26; index += 1) core.update(0.1);
+  assert.equal(invader.targetId, "base");
+  assert.equal(invader.alive, false);
+  assert.ok(core.baseHp < baseBefore);
+});
+
+test("each discovered resource room produces one shared gold every five simulation seconds", () => {
+  const core = startedCore("resource-production");
+  const player = core.players.get("p1")!;
+  const resources = [...core.rooms.values()].filter((room) => room.kind === "resource");
+  assert.ok(resources.length >= 2);
+  core.movePlayerToRoom(player.userId, resources[0]!.id);
+  const initialGold = core.gold;
+  for (let index = 0; index < 49; index += 1) core.update(0.1);
+  assert.equal(core.gold, initialGold);
+  core.update(0.1);
+  assert.equal(core.gold, initialGold + 1);
+
+  core.movePlayerToRoom(player.userId, resources[1]!.id);
+  for (let index = 0; index < 50; index += 1) core.update(0.1);
+  assert.equal(core.gold, initialGold + 3, "two discovered resource rooms must produce independently");
+});
+
+test("normal static enemies respawn at their exact spawn after the mode-specific delay", () => {
+  for (const [mode, delay] of [["prototype", 30], ["full", 90]] as const) {
+    const core = new GameCore({ mode, difficulty: "normal", seed: `respawn-${mode}`, minimumPlayers: 1 });
+    const player = core.addPlayer({ userId: "p1", displayName: "용사", heroClass: "swordsman" });
+    core.setReady(player.userId, true);
+    const target = [...core.enemies.values()].find((candidate) => candidate.kind === "static")!;
+    core.movePlayerToRoom(player.userId, target.roomId, target.x - 10, target.y);
+    core.damageEnemy(player.userId, target.id, target.hp);
+    core.setConnected(player.userId, false);
+    assert.equal(target.alive, false);
+    assert.equal(core.rooms.get(target.spawnRoomId)?.cleared, true);
+    for (let index = 0; index < delay * 10 - 1; index += 1) core.update(0.1);
+    assert.equal(target.alive, false, `${mode} static enemy respawned too early`);
+    core.update(0.1);
+    assert.equal(target.alive, true);
+    assert.equal(target.hp, target.maxHp);
+    assert.equal(target.x, target.spawnX);
+    assert.equal(target.y, target.spawnY);
+    assert.equal(target.roomId, target.spawnRoomId);
+    assert.equal(target.aggroed, false);
+    assert.equal(target.targetId, null);
+    assert.equal(core.rooms.get(target.spawnRoomId)?.cleared, false);
+  }
+});
+
+test("hidden, gate, and boss enemies never respawn", () => {
+  const core = startedCore("no-special-respawn");
+  const player = core.players.get("p1")!;
+  const targets = [...core.enemies.values()].filter((candidate) => candidate.kind === "hidden" || candidate.kind === "gate");
+  assert.ok(targets.length > 0);
+  for (const target of targets) {
+    core.movePlayerToRoom(player.userId, target.roomId, target.x - 10, target.y);
+    core.damageEnemy(player.userId, target.id, target.hp);
+  }
+  core.setConnected(player.userId, false);
+  for (let index = 0; index < 1_000; index += 1) core.update(0.1);
+  assert.ok(targets.every((target) => !target.alive && target.respawnRemaining === null));
+
+  const bossCore = startedCore("no-boss-respawn");
+  bossCore.day = 3;
+  assert.equal(bossCore.startBoss(), true);
+  const boss = [...bossCore.enemies.values()].find((candidate) => candidate.kind === "boss")!;
+  bossCore.movePlayerToRoom("p1", BOSS_ROOM_ID, boss.x - 10, boss.y);
+  bossCore.damageEnemy("p1", boss.id, boss.hp);
+  assert.equal(bossCore.result, "victory");
+  for (let index = 0; index < 1_000; index += 1) bossCore.update(0.1);
+  assert.equal(boss.alive, false);
+  assert.equal(boss.respawnRemaining, null);
+});
+
+test("recall uses the active waypoint and the existing five-second all-player quorum", () => {
+  const core = twoPlayerCore("recall-quorum");
+  const central = [...core.waypoints.values()].find((waypoint) => waypoint.zone === 1 && waypoint.kind === "central")!;
+  core.movePlayerToRoom("p1", central.roomId, central.x, central.y);
+  core.movePlayerToRoom("p2", central.roomId, central.x, central.y);
+  assert.equal(central.active, true);
+  assert.equal(core.recall("p1"), true);
+  assert.equal(core.activeTravel?.destinationId, waypointId(core.maps.zones[0].startRoomId, "start"));
+  for (let index = 0; index < 49; index += 1) core.update(0.1);
+  assert.ok([...core.players.values()].every((player) => player.roomId === central.roomId));
+  core.update(0.1);
+  assert.ok([...core.players.values()].every((player) => player.roomId === core.maps.zones[0].startRoomId));
+});
+
+test("recall rejects a split quorum and allows returning from an unlocked gate waypoint", () => {
+  const core = twoPlayerCore("recall-gate");
+  const gate = [...core.enemies.values()].find((candidate) => candidate.kind === "gate" && candidate.roomId.startsWith("zone-1:"))!;
+  core.movePlayerToRoom("p1", gate.roomId, ROOM_WIDTH / 2, ROOM_HEIGHT / 2);
+  core.movePlayerToRoom("p2", gate.roomId, ROOM_WIDTH / 2, ROOM_HEIGHT / 2);
+  core.damageEnemy("p1", gate.id, gate.hp);
+  const gateWaypoint = [...core.waypoints.values()].find((waypoint) => waypoint.roomId === gate.roomId)!;
+  core.movePlayerToRoom("p2", core.maps.zones[0].startRoomId);
+  assert.equal(core.recall("p1"), false, "every connected alive player must occupy the same waypoint");
+  core.movePlayerToRoom("p2", gate.roomId, gateWaypoint.x, gateWaypoint.y);
+  assert.equal(core.recall("p1"), true);
+  assert.equal(core.activeTravel?.destinationId, waypointId(core.maps.zones[0].startRoomId, "start"));
+  for (let index = 0; index < 50; index += 1) core.update(0.1);
+  assert.ok([...core.players.values()].every((player) => player.roomId === core.maps.zones[0].startRoomId));
+});
+
+function startedCore(seed: string): GameCore {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed, minimumPlayers: 1 });
+  core.addPlayer({ userId: "p1", displayName: "용사", heroClass: "swordsman" });
+  core.setReady("p1", true);
+  return core;
+}
+
+function twoPlayerCore(seed: string): GameCore {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed, minimumPlayers: 2 });
+  core.addPlayer({ userId: "p1", displayName: "검사", heroClass: "swordsman" });
+  core.addPlayer({ userId: "p2", displayName: "궁수", heroClass: "archer" });
+  core.setReady("p1", true);
+  core.setReady("p2", true);
+  return core;
+}
+
+function input(seq: number, x: number, y: number): PlayerInputCommand {
+  return {
+    v: PROTOCOL_VERSION,
+    type: "player.input" as const,
+    seq,
+    clientTime: seq,
+    payload: { x, y, aim: 0, buttons: 0 },
+  };
+}
+
+function enemy(id: string, roomId: CoreEnemy["roomId"], x: number, y: number): CoreEnemy {
+  return {
+    id,
+    kind: "static",
+    behavior: "static",
+    roomId,
+    spawnRoomId: roomId,
+    x,
+    y,
+    spawnX: x,
+    spawnY: y,
+    hp: 100,
+    maxHp: 100,
+    damage: 1,
+    speed: 70,
+    attackRange: 30,
+    attackCooldown: 0,
+    xpReward: 0,
+    goldReward: 0,
+    alive: true,
+    aggroed: false,
+    targetId: null,
+    lastHitBy: null,
+    path: [],
+    pathIndex: 0,
+    coarseProgress: 0,
+    respawnRemaining: null,
+  };
+}

@@ -1,6 +1,6 @@
-# 5일 뒤 마왕 — 웹 게임 프로토타입
+# 《5일 뒤 마왕》 웹 클라이언트
 
-3인의 신참 용사가 낮에는 구역을 개척하고 밤에는 기지를 방어한 뒤, 5일 안에 마왕을 토벌하는 협동 로그라이트 디펜스 RPG의 플레이 가능한 수직 슬라이스입니다.
+`apps/web`은 Next.js·React 로비/HUD, Phaser 렌더러, 인증·세션·REST BFF, Colyseus 클라이언트를 포함합니다. 0.2 목표는 솔로 1인 또는 실제 사용자 3인의 협동 게임이며 AI 파티원은 사용하지 않습니다.
 
 ## 실행
 
@@ -14,26 +14,51 @@ pnpm db:migrate
 pnpm dev
 ```
 
-배포 빌드와 검증:
+검증:
 
 ```bash
 pnpm test
+pnpm typecheck
+pnpm build
 ```
 
-## 현재 구현
+## 실제 구현 범위
 
-- 검사·궁수·마법사 3개 클래스와 AI 동료 2명
-- WASD 이동, 포인터 조준 자동 평타, Q/E 스킬, Space 회피
-- 공유 경험치와 3개 중 1개 성장 드래프트
-- 베이스, 3개 구역, 게이트, 히든 엘리트, 웨이포인트 귀환
-- 5일 낮·밤·정산 상태기계와 단축/정식 세션
-- 포탑·장벽 자유 그리드 건설 및 3단계 강화
-- 고정형 마왕의 탄막·장판·소환 패턴과 1회 후퇴
-- PostgreSQL 기반 방명록·사용자 전적·서버 매치 결과 저장
-- Cognito + Google OAuth, HttpOnly 서버 세션, CSRF 보호
-- 90초 JWT 게임 티켓과 Colyseus `party_room` 접속
-- 20Hz 서버 시뮬레이션 기반 플레이어 이동·페이즈 상태 동기화
+### 구현
 
-로컬 개발에서는 Cognito 없이 개발 사용자로 로그인하며, 운영에서는 Cognito Authorization Code + PKCE를 사용합니다. 현재 Phaser 수직 슬라이스의 전투·AI·건설은 기존 로컬 플레이를 유지합니다. 멀티플레이 서버는 연결·입력·이동·시간·매치 영속화를 처리하며, 나머지 판정은 `packages/game-core`로 이전하는 순서입니다.
+- 검사·궁수·마법사 클래스 선택과 network mode에서 분리된 Phaser 로컬 수직 슬라이스
+- 로컬 mode의 WASD 이동, 포인터 조준, 공격·스킬·회피, phase·적·보스·건설·성장 콘텐츠
+- 서버 세션, Cognito Authorization Code + PKCE 경로, 비운영 개발 로그인
+- 비운영 환경 또는 production 환경 flag로 여는 공개 guest session
+- PostgreSQL 기반 사용자·세션·방명록·매치 저장소
+- 90초 RS256 game-ticket과 Colyseus `party_room` 접속
+- protocol v2 입력 전송, session 단위 seq, Colyseus state 구독과 20초 재접속 재시도
+- 실행 scene인 `RoomGameScene`의 network/local mode 분리
+- network mode에서 로컬 session·이동·전투·AI·경제 tick을 실행하지 않는 snapshot-only 갱신
+- server room/door, 같은 방 player/enemy, phase·base·gold·팀 성장·teamPower·실시간 통계의 장면·HUD 반영
+- 개인 draft 선택, 장비 요약과 owner-only drop 표시·클릭 교체, waypoint·travel·recall, 종료 state/event의 UI 연결
 
-자세한 모듈 책임은 [ARCHITECTURE.md](./ARCHITECTURE.md)를 참고하세요.
+### 부분 구현
+
+- solo 1명/coop 3명 Room, ready, reconnect, room-local 이동·aim·phase
+- 서버 3구역 map/door, 기본 자동 공격·정적/침공 AI, 자원 생산·정적 리스폰
+- 팀 XP·개인 draft와 session별 command seq 거부
+- hidden 개인 장비, waypoint 전원 5초 이동, 기본 boss 승패와 결과 transaction
+- rooms·doors·enemies·waypoints·drops와 player 장비/draft Schema 동기화
+- `StateView`를 통한 개인 draft/drop 공개 제한
+- private drop은 transport와 현재 room sprite에 연결되고 클릭 시 서버에 교체 장착을 요청함; 비교·확인·분해 UI는 남음
+- 기본 boss는 서버 state로 렌더링되지만 공격 패턴은 없음
+- network HUD는 `buildSupported=false`로 건설 미지원을 명시하고 로컬 건설 판정을 실행하지 않음
+- 종료 state의 승패·사유와 최종 팀 집계 snapshot이 overlay를 복구함; 개인별 기여 상세 payload는 미완료
+
+### 남은 서버 통합
+
+- 장비 비교·확인·분해, 특수 옵션과 폐기 lifecycle UI
+- 스킬·회피·플레이어 부활·건설·보스 공격 패턴의 서버 판정
+- 모든 명령의 phase·거리·대상 공개 범위 검증
+- 개인별 서버 기여 통계와 매치 결과 상세 표시의 end-to-end 연결
+- 실제 세 브라우저 협동 E2E와 운영 환경 검증
+
+network mode는 서버 snapshot을 simulation 원본으로 사용합니다. 다만 스킬·회피·플레이어 부활·건설·보스 공격 패턴, 장비 비교·분해와 실제 세 브라우저 검증이 남아 있으므로 게임 전체의 서버 권위 멀티플레이가 완성된 상태는 아닙니다.
+
+로컬 수직 슬라이스와 서버 통합 경계는 [ARCHITECTURE.md](./ARCHITECTURE.md), 전체 백엔드 현황은 [백엔드 아키텍처](../../Document/backend_node_colyseus_postgresql.md), 게임 규칙은 [0.2 명세서](../../Document/0.2버전_명세서.md)를 참고하세요.

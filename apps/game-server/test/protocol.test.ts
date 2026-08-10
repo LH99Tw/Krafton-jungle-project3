@@ -6,8 +6,20 @@ import {
   lobbyChatSchema,
   lobbyClassSelectSchema,
   lobbyCreateOptionsSchema,
+  roomOptionsSchema,
 } from "@five-days/protocol";
 import { consumeGameTicket } from "../src/party-room";
+import {
+  DoorState,
+  DropState,
+  EnemyState,
+  PartyRoomState,
+  PlayerState,
+  RoomState,
+  StructureState,
+  UpgradeChoiceState,
+  WaypointState,
+} from "../src/state";
 
 test("rejects out-of-range player input", () => {
   const result = clientCommandSchema.safeParse({
@@ -20,6 +32,104 @@ test("rejects out-of-range player input", () => {
   assert.equal(result.success, false);
 });
 
+test("resolves protocol v2 room party mode and rejects older versions", () => {
+  const defaults = roomOptionsSchema.parse({
+    heroClass: "swordsman",
+    protocolVersion: PROTOCOL_VERSION,
+  });
+  assert.equal(defaults.partyMode, "coop");
+  assert.equal(defaults.sessionMode, "prototype");
+  assert.equal(defaults.difficulty, "normal");
+
+  const solo = roomOptionsSchema.parse({
+    heroClass: "mage",
+    sessionMode: "full",
+    difficulty: "hard",
+    partyMode: "solo",
+    protocolVersion: PROTOCOL_VERSION,
+  });
+  assert.equal(solo.partyMode, "solo");
+  assert.equal(roomOptionsSchema.safeParse({ ...solo, protocolVersion: 1 }).success, false);
+});
+
+test("accepts the v2 interaction, travel, recall, and equipment commands", () => {
+  const base = { v: PROTOCOL_VERSION, seq: 7, clientTime: 12.5 } as const;
+  const commands = [
+    { ...base, type: "player.interact", payload: { targetId: "gate-zone-1" } },
+    { ...base, type: "travel.request", payload: { waypointId: "wp-start", destinationId: "wp-center" } },
+    { ...base, type: "recall.request", payload: {} },
+    { ...base, type: "equipment.equip", payload: { dropId: "drop-mythic-1" } },
+  ];
+
+  for (const command of commands) assert.equal(clientCommandSchema.safeParse(command).success, true);
+});
+
+test("strictly validates every command envelope and payload", () => {
+  const valid = {
+    v: PROTOCOL_VERSION,
+    type: "player.interact",
+    seq: 0,
+    clientTime: 0,
+    payload: { targetId: "resource-node" },
+  } as const;
+  assert.equal(clientCommandSchema.safeParse({ ...valid, seq: 0.5 }).success, false);
+  assert.equal(clientCommandSchema.safeParse({ ...valid, clientTime: "now" }).success, false);
+  assert.equal(clientCommandSchema.safeParse({ ...valid, v: 1 }).success, false);
+  assert.equal(clientCommandSchema.safeParse({ ...valid, unexpected: true }).success, false);
+  assert.equal(clientCommandSchema.safeParse({ ...valid, payload: { ...valid.payload, unexpected: true } }).success, false);
+});
+
+test("exposes the v2 room state graph through Colyseus schema collections", () => {
+  const state = new PartyRoomState();
+  state.seed = "seed-001";
+  state.currentZone = 2;
+  state.teamLevel = 10;
+  state.teamXp = 25;
+  state.teamXpToNext = 120;
+
+  const player = new PlayerState();
+  player.userId = "user-1";
+  player.roomId = "zone-2-room-7";
+  player.alive = true;
+  player.equipment.weaponId = "mythic-sword";
+  player.upgradeDraft.active = true;
+  player.upgradeDraft.draftId = "draft-1";
+  const choice = new UpgradeChoiceState();
+  choice.upgradeId = "power";
+  player.upgradeDraft.choices.push(choice);
+  state.players.set(player.userId, player);
+
+  const room = new RoomState();
+  room.id = player.roomId;
+  state.rooms.set(room.id, room);
+  const door = new DoorState();
+  door.id = "door-1";
+  state.doors.set(door.id, door);
+  const enemy = new EnemyState();
+  enemy.id = "enemy-1";
+  state.enemies.set(enemy.id, enemy);
+  const waypoint = new WaypointState();
+  waypoint.id = "waypoint-1";
+  waypoint.holdProgress = 0.5;
+  state.waypoints.set(waypoint.id, waypoint);
+  const structure = new StructureState();
+  structure.id = "turret-1";
+  state.structures.set(structure.id, structure);
+  const drop = new DropState();
+  drop.id = "drop-1";
+  state.drops.set(drop.id, drop);
+
+  assert.equal(state.protocolVersion, PROTOCOL_VERSION);
+  assert.equal(state.players.get("user-1")?.equipment.weaponId, "mythic-sword");
+  assert.equal(state.players.get("user-1")?.upgradeDraft.choices.at(0)?.upgradeId, "power");
+  assert.equal(state.rooms.size, 1);
+  assert.equal(state.doors.size, 1);
+  assert.equal(state.enemies.size, 1);
+  assert.equal(state.waypoints.get("waypoint-1")?.holdProgress, 0.5);
+  assert.equal(state.structures.size, 1);
+  assert.equal(state.drops.size, 1);
+});
+
 test("consumes each game ticket jti only once", () => {
   const now = Date.now();
   const claims = { jti: `ticket-${now}`, exp: Math.floor(now / 1000) + 90 };
@@ -27,24 +137,10 @@ test("consumes each game ticket jti only once", () => {
   assert.equal(consumeGameTicket(claims, now + 1), false);
 });
 
-test("validates public lobby creation and nullable class selection", () => {
-  assert.equal(lobbyCreateOptionsSchema.safeParse({
-    roomName: "새벽 원정대",
-    sessionMode: "prototype",
-    difficulty: "normal",
-    protocolVersion: PROTOCOL_VERSION,
-  }).success, true);
-  assert.equal(lobbyCreateOptionsSchema.safeParse({
-    roomName: "x",
-    sessionMode: "prototype",
-    difficulty: "normal",
-    protocolVersion: PROTOCOL_VERSION,
-  }).success, false);
-  assert.equal(lobbyClassSelectSchema.safeParse({ heroClass: "mage" }).success, true);
+test("validates lobby creation, class selection, and chat payloads", () => {
+  assert.equal(lobbyCreateOptionsSchema.safeParse({ roomName: "새벽 원정대", protocolVersion: PROTOCOL_VERSION }).success, true);
+  assert.equal(lobbyCreateOptionsSchema.safeParse({ roomName: "x", protocolVersion: PROTOCOL_VERSION }).success, false);
   assert.equal(lobbyClassSelectSchema.safeParse({ heroClass: null }).success, true);
-});
-
-test("limits party chat payload length", () => {
   assert.equal(lobbyChatSchema.safeParse({ message: "원정 준비 완료" }).success, true);
   assert.equal(lobbyChatSchema.safeParse({ message: "x".repeat(181) }).success, false);
 });

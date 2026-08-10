@@ -1,20 +1,21 @@
 import * as Phaser from "phaser";
 import { createGameTextures } from "../client/render/createTextures";
 import { BUILDINGS, DIFFICULTY, ENEMY_ARCHETYPES, WORLD } from "../content/balance";
-import { CLASS_DEFINITIONS, CLASS_ORDER } from "../content/classes";
+import { CLASS_DEFINITIONS } from "../content/classes";
 import { draftUpgrades, UPGRADE_MAP } from "../content/upgrades";
 import type {
   BuildMode,
   GameResult,
   GameSnapshot,
   GameStartOptions,
-  HeroClassId,
+  NetworkWorldSnapshot,
   TeamStats,
   UpgradeId,
 } from "../domain/types";
 import { gameBridge, type GameCommand } from "./GameBridge";
 import { ProgressionModel } from "../systems/ProgressionModel";
 import { SessionDirector } from "../systems/SessionDirector";
+import { colyseusTransport } from "../transport/ColyseusTransport";
 
 type EnemyKind = "grunt" | "runner" | "elite" | "gate" | "boss";
 type StructureKind = "turret" | "wall";
@@ -30,6 +31,11 @@ type EnemyData = {
   invader: boolean;
   gateId?: string;
   lastHitAt: number;
+  nextShotAt: number;
+  homeX: number;
+  homeY: number;
+  provoked: boolean;
+  returning: boolean;
 };
 
 type StructureData = {
@@ -54,7 +60,7 @@ export class GameScene extends Phaser.Scene {
   private readonly difficulty;
   private progression: ProgressionModel;
   private player!: Phaser.Physics.Arcade.Sprite;
-  private allies: Phaser.Physics.Arcade.Sprite[] = [];
+  private readonly remotePlayers = new Map<string, Phaser.Physics.Arcade.Sprite>();
   private enemies!: Phaser.Physics.Arcade.Group;
   private projectiles!: Phaser.Physics.Arcade.Group;
   private enemyProjectiles!: Phaser.Physics.Arcade.Group;
@@ -64,11 +70,13 @@ export class GameScene extends Phaser.Scene {
   private qKey!: Phaser.Input.Keyboard.Key;
   private eKey!: Phaser.Input.Keyboard.Key;
   private dashKey!: Phaser.Input.Keyboard.Key;
-  private returnKey!: Phaser.Input.Keyboard.Key;
   private commandDisconnect?: () => void;
+  private networkDisconnect?: () => void;
+  private cursorReticle?: Phaser.GameObjects.Container;
+  private networkState?: NetworkWorldSnapshot;
   private buildMode: BuildMode = null;
   private gold = 100;
-  private baseHp = WORLD.base.maxHp;
+  private baseHp: number = WORLD.base.maxHp;
   private lastAutoAttackAt = 0;
   private qReadyAt = 0;
   private eReadyAt = 0;
@@ -85,6 +93,8 @@ export class GameScene extends Phaser.Scene {
   private ended = false;
   private playerDead = false;
   private retreatUsed = false;
+  private waypointHoldStartedAt = 0;
+  private waypointHoldDestination: "base" | "boss" | null = null;
   private currentMessage = "첫 게이트를 찾아 성장의 길을 여세요.";
   private gateSprites = new Map<string, Phaser.Physics.Arcade.Sprite>();
   private stats: TeamStats = {
@@ -114,12 +124,14 @@ export class GameScene extends Phaser.Scene {
     this.createWorld();
     this.createGroups();
     this.createCore();
-    this.createPlayerParty();
+    this.createPlayer();
     this.createGatesAndFieldEnemies();
     this.configurePhysics();
     this.configureInput();
     this.configureCamera();
     this.commandDisconnect = gameBridge.connect((command) => this.handleCommand(command));
+    this.networkDisconnect = gameBridge.on("network", (state) => this.syncNetworkState(state));
+    if (colyseusTransport.snapshot) this.syncNetworkState(colyseusTransport.snapshot);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
     this.events.once(Phaser.Scenes.Events.DESTROY, () => this.cleanup());
     gameBridge.emit("ready", undefined);
@@ -129,14 +141,15 @@ export class GameScene extends Phaser.Scene {
   update(time: number, delta: number): void {
     if (this.ended) return;
     const safeDelta = Math.min(delta, 100);
-    this.updateSession(safeDelta);
+    if (!this.options.networked) this.updateSession(safeDelta);
     this.updatePlayer(time);
-    this.updateAllies(time);
+    this.updateRemotePlayers();
     this.updateEnemies(time);
     this.updateProjectiles(time);
     this.updateStructures(time);
     this.updateSpawning(safeDelta);
     this.updateBoss(time);
+    this.updateWaypointHold(time);
 
     this.snapshotAccumulator += safeDelta;
     if (this.snapshotAccumulator >= 120) {
@@ -154,8 +167,12 @@ export class GameScene extends Phaser.Scene {
     // Zone 01 (Sunny Meadow): 3-Way Maze, Hedge/Tree Walls, and Blue Crystal Flower Shrines
     this.drawSunnyMeadowMaze(graphics);
 
-    graphics.fillStyle(0x203733, 0.94).fillRect(3200, 2850, 5250, 3200);
-    graphics.fillStyle(0x2e2038, 0.95).fillRect(6600, 1300, 6200, 3600);
+    // Zone 02 (Corrupted Forest): Reddish Soil, Autumn Coral Trees, Torches & Blue Oasis Pond
+    this.drawCorruptedForest(graphics);
+
+    // Zone 03 (Outer Demon Castle): Magma Lakes, Carved Rune Walls & Demon Statues
+    this.drawCastleOutskirts(graphics);
+
     graphics.fillStyle(0x17111e, 0.98).fillCircle(WORLD.arena.x, WORLD.arena.y, WORLD.arena.radius + 150);
     graphics.lineStyle(2, 0x3c594d, 0.42);
     for (let x = 0; x <= WORLD.width; x += 100) graphics.lineBetween(x, 0, x, WORLD.height);
@@ -347,6 +364,201 @@ export class GameScene extends Phaser.Scene {
     flowerLocations.forEach((loc) => drawBlueFlowerPedestal(loc.x, loc.y));
   }
 
+  private drawCorruptedForest(graphics: Phaser.GameObjects.Graphics): void {
+    const originX = 5800;
+    const originY = 2600;
+    const forestW = 3800;
+    const forestH = 3200;
+
+    // 1. Reddish-Orange Corrupted Soil Base Ground (#3e2620 base, #8e3b22 / #cb5b37 patches - Matching Screenshot 1)
+    graphics.fillStyle(0x3e2620, 0.96).fillRect(originX, originY, forestW, forestH);
+
+    // Corrupted reddish-orange soil patches
+    const drawSoilPatch = (x: number, y: number, w: number, h: number) => {
+      graphics.fillStyle(0x8e3b22, 0.92).fillRect(x, y, w, h);
+      graphics.fillStyle(0xcb5b37, 0.88).fillRect(x + 6, y + 6, w - 12, h - 12);
+      graphics.fillStyle(0xe7643b, 0.6).fillCircle(x + w * 0.3, y + h * 0.4, w * 0.2);
+      graphics.fillStyle(0xe7643b, 0.6).fillCircle(x + w * 0.7, y + h * 0.6, w * 0.15);
+    };
+
+    // Paved Golden-Orange Trail through the Corrupted Forest (#bd8448 / #dba15c - Matching Screenshot 2)
+    const drawForestTrail = (x: number, y: number, w: number, h: number) => {
+      graphics.fillStyle(0x523624, 0.9).fillRect(x - 4, y - 4, w + 8, h + 8);
+      graphics.fillStyle(0xbd8448, 0.95).fillRect(x, y, w, h);
+      graphics.fillStyle(0xdba15c, 0.7).fillRect(x + 4, y + 4, w - 8, h - 8);
+    };
+
+    drawSoilPatch(originX + 200, originY + 200, forestW - 400, forestH - 400);
+
+    drawForestTrail(5800, 5900, 1400, 140);
+    drawForestTrail(7000, 4100, 200, 1900); // Vertical trail to Forest Rift
+    drawForestTrail(7000, 4100, 1800, 140); // Horizontal trail towards Zone 3
+
+    // 2. Autumnal Coral/Red Trees & Dark Rock Walls (Matching Screenshot 2)
+    const drawAutumnTree = (tx: number, ty: number, radius: number) => {
+      graphics.fillStyle(0x3d2319).fillRect(tx - 6, ty, 12, radius * 0.8);
+      graphics.fillStyle(0x7a2918, 0.95).fillCircle(tx, ty - 10, radius);
+      graphics.fillStyle(0xad3f28, 0.92).fillCircle(tx - 4, ty - 14, radius * 0.8);
+      graphics.fillStyle(0xd95a3d, 0.85).fillCircle(tx - 7, ty - 18, radius * 0.55);
+      graphics.fillStyle(0xf0805d, 0.70).fillCircle(tx - 9, ty - 22, radius * 0.35);
+    };
+
+    const treeCoords = [
+      { x: 6100, y: 5750, r: 45 }, { x: 6300, y: 5720, r: 55 }, { x: 6500, y: 5760, r: 48 },
+      { x: 6700, y: 5730, r: 52 }, { x: 6900, y: 5750, r: 42 },
+      { x: 6100, y: 6120, r: 50 }, { x: 6400, y: 6150, r: 58 }, { x: 6700, y: 6110, r: 46 },
+      { x: 6850, y: 4400, r: 55 }, { x: 6850, y: 4700, r: 48 }, { x: 6850, y: 5000, r: 52 },
+      { x: 7350, y: 4400, r: 50 }, { x: 7350, y: 4700, r: 56 }, { x: 7350, y: 5000, r: 44 },
+      { x: 7350, y: 3950, r: 60 }, { x: 7650, y: 3950, r: 52 }, { x: 7950, y: 3950, r: 58 },
+    ];
+    treeCoords.forEach((t) => drawAutumnTree(t.x, t.y, t.r));
+
+    // 3. Underground Blue Oasis Pond with Giant Lotus Flowers (Matching Screenshot 2!)
+    const drawOasisPond = (cx: number, cy: number, pWidth: number, pHeight: number) => {
+      graphics.fillStyle(0x543725).fillRect(cx - 10, cy - 10, pWidth + 20, pHeight + 20);
+      graphics.fillStyle(0x73513a).fillRect(cx - 5, cy - 5, pWidth + 10, pHeight + 10);
+
+      graphics.fillStyle(0x1a5276, 0.95).fillRect(cx, cy, pWidth, pHeight);
+      graphics.fillStyle(0x2d82b7, 0.88).fillRect(cx + 8, cy + 8, pWidth - 16, pHeight - 16);
+      graphics.fillStyle(0x4cb5f5, 0.65).fillRect(cx + 16, cy + 16, pWidth - 32, pHeight - 32);
+
+      const drawLotus = (lx: number, ly: number) => {
+        graphics.fillStyle(0x2e8548, 0.9).fillCircle(lx, ly, 22);
+        graphics.fillStyle(0x48b868, 0.8).fillCircle(lx - 2, ly - 2, 16);
+        graphics.fillStyle(0xd96f30).fillTriangle(lx - 10, ly + 4, lx + 10, ly + 4, lx, ly - 14);
+        graphics.fillStyle(0xf09854).fillTriangle(lx - 7, ly - 2, lx + 7, ly - 2, lx, ly + 8);
+        graphics.fillStyle(0xfff3ad).fillCircle(lx, ly - 2, 4);
+      };
+
+      drawLotus(cx + 40, cy + 50);
+      drawLotus(cx + pWidth - 60, cy + 70);
+      drawLotus(cx + 70, cy + pHeight - 50);
+      drawLotus(cx + pWidth - 50, cy + pHeight - 60);
+    };
+
+    // Oasis Pond near the Forest Rift Gate at (7450, 4150)
+    drawOasisPond(7450, 4150, 360, 240);
+
+    // 4. Warm Fiery Torches with Orange Light Aura (Matching Screenshot 1 & 2!)
+    const drawTorch = (tx: number, ty: number) => {
+      graphics.fillStyle(0x3d281a).fillRect(tx - 3, ty - 6, 6, 24);
+      graphics.fillStyle(0x8c7462).fillRect(tx - 5, ty - 8, 10, 4);
+
+      this.add.circle(tx, ty - 12, 48, 0xff7700, 0.22).setDepth(-8);
+      this.add.circle(tx, ty - 12, 26, 0xffaa00, 0.38).setDepth(-7);
+
+      graphics.fillStyle(0xff5500).fillTriangle(tx - 6, ty - 6, tx + 6, ty - 6, tx, ty - 20);
+      graphics.fillStyle(0xffaa00).fillTriangle(tx - 4, ty - 8, tx + 4, ty - 8, tx, ty - 18);
+      graphics.fillStyle(0xffee77).fillCircle(tx, ty - 12, 3);
+    };
+
+    const torchLocations = [
+      { x: 5950, y: 5830 }, { x: 6350, y: 5830 }, { x: 6750, y: 5830 },
+      { x: 6930, y: 5500 }, { x: 6930, y: 5100 }, { x: 6930, y: 4700 },
+      { x: 7150, y: 3980 }, { x: 7420, y: 3980 }, { x: 7850, y: 3980 },
+      { x: 7420, y: 4420 }, { x: 7830, y: 4420 },
+    ];
+    torchLocations.forEach((t) => drawTorch(t.x, t.y));
+  }
+
+  private drawCastleOutskirts(graphics: Phaser.GameObjects.Graphics): void {
+    const originX = 9000;
+    const originY = 1000;
+    const castleW = 3800;
+    const castleH = 3200;
+
+    // 1. Dark Volcanic Ash & Obsidian Base Ground (#16131c)
+    graphics.fillStyle(0x16131c, 0.98).fillRect(originX, originY, castleW, castleH);
+
+    // 2. Molten Magma Lakes & Lava Streams (#ff3300, #ff8800, #ffdd00 - Matching Screenshots 2 & 3!)
+    const drawLavaPool = (lx: number, ly: number, lw: number, lh: number) => {
+      graphics.fillStyle(0x421915, 0.95).fillRect(lx - 8, ly - 8, lw + 16, lh + 16);
+      graphics.fillStyle(0xd62800, 0.98).fillRect(lx, ly, lw, lh);
+      graphics.fillStyle(0xff6600, 0.92).fillRect(lx + 8, ly + 8, lw - 16, lh - 16);
+      graphics.fillStyle(0xffcc00, 0.85).fillRect(lx + 16, ly + 16, lw - 32, lh - 32);
+
+      this.add.circle(lx + lw / 2, ly + lh / 2, Math.max(lw, lh) * 0.7, 0xff5500, 0.2).setDepth(-8);
+    };
+
+    drawLavaPool(9200, 1400, 700, 350);
+    drawLavaPool(10400, 1200, 800, 400);
+    drawLavaPool(9500, 2900, 600, 600);
+    drawLavaPool(10800, 2700, 900, 450);
+
+    // 3. Dark Slate Fortress Tile Walkway (마왕성 통로)
+    const drawCastlePavement = (x: number, y: number, w: number, h: number) => {
+      graphics.fillStyle(0x1b2029, 0.98).fillRect(x - 4, y - 4, w + 8, h + 8);
+      graphics.fillStyle(0x353e4f, 0.96).fillRect(x, y, w, h);
+      graphics.lineStyle(2, 0x4f5c73, 0.45);
+      for (let px = x; px < x + w; px += 40) {
+        for (let py = y; py < y + h; py += 40) {
+          graphics.strokeRect(px + 2, py + 2, 36, 36);
+        }
+      }
+    };
+
+    drawCastlePavement(8800, 4100, 1600, 140);
+    drawCastlePavement(10150, 2400, 200, 1840);
+    drawCastlePavement(10150, 2400, 1200, 140);
+
+    // 4. Carved Ancient Rune Walls with Glowing Blue Orbs (Matching Screenshot 1!)
+    const drawRuneWall = (wx: number, wy: number, ww: number, wh: number) => {
+      graphics.fillStyle(0x151f1c, 0.98).fillRect(wx, wy, ww, wh);
+      graphics.fillStyle(0x283834, 0.95).fillRect(wx + 4, wy + 4, ww - 8, wh - 8);
+      graphics.lineStyle(2, 0x3d544f, 0.7).strokeRect(wx + 6, wy + 6, ww - 12, wh - 12);
+
+      for (let ox = wx + 35; ox < wx + ww; ox += 70) {
+        for (let oy = wy + 35; oy < wy + wh; oy += 70) {
+          this.add.circle(ox, oy, 16, 0x00c8ff, 0.35).setDepth(-8);
+          graphics.fillStyle(0x0f1715).fillCircle(ox, oy, 11);
+          graphics.fillStyle(0x0099ff).fillCircle(ox, oy, 8);
+          graphics.fillStyle(0x99e5ff).fillCircle(ox - 2, oy - 2, 3);
+        }
+      }
+    };
+
+    drawRuneWall(8800, 3850, 1350, 230);
+    drawRuneWall(8800, 4260, 1350, 230);
+    drawRuneWall(9900, 2250, 230, 1580);
+    drawRuneWall(10370, 2250, 230, 1580);
+
+    // 5. Demon Gargoyle Statues (Matching Screenshot 4!)
+    const drawDemonStatue = (sx: number, sy: number) => {
+      graphics.fillStyle(0x212730).fillRect(sx - 18, sy - 18, 36, 36);
+      graphics.fillStyle(0x3e4754).fillRect(sx - 14, sy - 14, 28, 28);
+      graphics.fillStyle(0x576375).fillTriangle(sx - 12, sy + 6, sx + 12, sy + 6, sx, sy - 16);
+      graphics.fillStyle(0x7c8ba1).fillTriangle(sx - 14, sy - 4, sx - 4, sy - 4, sx - 9, sy - 18);
+      graphics.fillStyle(0x7c8ba1).fillTriangle(sx + 4, sy - 4, sx + 14, sy - 4, sx + 9, sy - 18);
+      graphics.fillStyle(0xff2200).fillCircle(sx - 4, sy - 6, 2);
+      graphics.fillStyle(0xff2200).fillCircle(sx + 4, sy - 6, 2);
+    };
+
+    const statueLocations = [
+      { x: 9950, y: 3950 }, { x: 10400, y: 3950 },
+      { x: 9950, y: 3200 }, { x: 10400, y: 3200 },
+      { x: 9950, y: 2500 }, { x: 10400, y: 2500 },
+    ];
+    statueLocations.forEach((st) => drawDemonStatue(st.x, st.y));
+
+    // 6. Fiery Castle Torches along the Walls (Matching Screenshots 1 & 4!)
+    const drawCastleTorch = (cx: number, cy: number) => {
+      graphics.fillStyle(0x212730).fillRect(cx - 4, cy - 8, 8, 26);
+      this.add.circle(cx, cy - 14, 50, 0xff6600, 0.25).setDepth(-8);
+      this.add.circle(cx, cy - 14, 28, 0xffaa00, 0.40).setDepth(-7);
+      graphics.fillStyle(0xff3300).fillTriangle(cx - 6, cy - 6, cx + 6, cy - 6, cx, cy - 22);
+      graphics.fillStyle(0xffcc00).fillTriangle(cx - 4, cy - 8, cx + 4, cy - 8, cx, cy - 20);
+      graphics.fillStyle(0xffffff).fillCircle(cx, cy - 14, 3);
+    };
+
+    const torchLocs = [
+      { x: 9100, y: 3820 }, { x: 9500, y: 3820 },
+      { x: 9100, y: 4280 }, { x: 9500, y: 4280 },
+      { x: 10120, y: 3600 }, { x: 10120, y: 3000 },
+      { x: 10420, y: 3600 }, { x: 10420, y: 3000 },
+    ];
+    torchLocs.forEach((t) => drawCastleTorch(t.x, t.y));
+  }
+
   private createGroups(): void {
     this.enemies = this.physics.add.group();
     this.projectiles = this.physics.add.group({ maxSize: 260 });
@@ -360,33 +572,10 @@ export class GameScene extends Phaser.Scene {
     this.add.circle(WORLD.base.x, WORLD.base.y, 112, 0x77d8b2, 0.08).setStrokeStyle(2, 0x9ce7cb, 0.34);
   }
 
-  private createPlayerParty(): void {
+  private createPlayer(): void {
     this.player = this.physics.add.sprite(WORLD.base.x + 120, WORLD.base.y, `hero-${this.options.heroClass}`);
     this.player.setDepth(10).setCollideWorldBounds(true);
     (this.player.body as Phaser.Physics.Arcade.Body).setCircle(11, 3, 7);
-
-    const allyClassIds = CLASS_ORDER.filter((id) => id !== this.options.heroClass);
-    this.allies = allyClassIds.map((classId, index) => {
-      const ally = this.physics.add.sprite(
-        WORLD.base.x + 90,
-        WORLD.base.y + (index === 0 ? -55 : 55),
-        `hero-${classId}`,
-      );
-      ally.setDepth(9).setAlpha(0.86).setData("classId", classId).setData("nextShotAt", 0);
-      ally.body.setCircle(10, 4, 8);
-      this.add
-        .text(ally.x, ally.y - 26, index === 0 ? "동료 A" : "동료 B", {
-          fontFamily: "sans-serif",
-          fontSize: "10px",
-          color: "#dce9e4",
-          backgroundColor: "#18221fcc",
-          padding: { x: 4, y: 2 },
-        })
-        .setOrigin(0.5)
-        .setData("follow", ally)
-        .setName("ally-label");
-      return ally;
-    });
   }
 
   private createGatesAndFieldEnemies(): void {
@@ -427,8 +616,11 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.spawnEnemy("elite", 1110, 770, false, 1).setData("hidden", true);
+    this.spawnEnemy("elite", 840, 980, false, 1).setData("hidden", true);
     this.spawnEnemy("elite", 1770, 430, false, 2).setData("hidden", true);
+    this.spawnEnemy("elite", 1510, 640, false, 2).setData("hidden", true);
     this.spawnEnemy("elite", 2360, 720, false, 3).setData("hidden", true);
+    this.spawnEnemy("elite", 2160, 820, false, 3).setData("hidden", true);
   }
 
   private configurePhysics(): void {
@@ -468,7 +660,7 @@ export class GameScene extends Phaser.Scene {
     this.qKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.Q);
     this.eKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.E);
     this.dashKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE, true);
-    this.returnKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.B);
+    this.createCursorReticle();
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       if (this.buildMode) this.tryBuildAt(pointer.worldX, pointer.worldY);
     });
@@ -502,18 +694,23 @@ export class GameScene extends Phaser.Scene {
 
   private updatePlayer(time: number): void {
     if (this.playerDead || !this.player.active) return;
-    let dx = 0;
-    let dy = 0;
-    if (this.cursors.A?.isDown) dx -= 1;
-    if (this.cursors.D?.isDown) dx += 1;
-    if (this.cursors.W?.isDown) dy -= 1;
-    if (this.cursors.S?.isDown) dy += 1;
-    const vector = new Phaser.Math.Vector2(dx, dy).normalize().scale(this.progression.stats.moveSpeed);
-    this.player.setVelocity(vector.x, vector.y);
+    if (this.options.networked) {
+      this.player.setVelocity(0);
+    } else {
+      let dx = 0;
+      let dy = 0;
+      if (this.cursors.A?.isDown) dx -= 1;
+      if (this.cursors.D?.isDown) dx += 1;
+      if (this.cursors.W?.isDown) dy -= 1;
+      if (this.cursors.S?.isDown) dy += 1;
+      const vector = new Phaser.Math.Vector2(dx, dy).normalize().scale(this.progression.stats.moveSpeed);
+      this.player.setVelocity(vector.x, vector.y);
+    }
 
     if (this.session.phase === "boss") this.clampPlayerToArena();
 
     const pointer = this.input.activePointer;
+    this.cursorReticle?.setPosition(pointer.worldX, pointer.worldY);
     const aimAngle = Phaser.Math.Angle.Between(this.player.x, this.player.y, pointer.worldX, pointer.worldY);
     this.player.setFlipX(Math.cos(aimAngle) < 0);
 
@@ -528,41 +725,13 @@ export class GameScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this.qKey) && time >= this.qReadyAt) this.useQSkill(aimAngle);
     if (Phaser.Input.Keyboard.JustDown(this.eKey) && time >= this.eReadyAt) this.useESkill(aimAngle);
     if (Phaser.Input.Keyboard.JustDown(this.dashKey) && time >= this.dashReadyAt) this.useDash(aimAngle);
-    if (Phaser.Input.Keyboard.JustDown(this.returnKey)) this.returnToBase();
   }
 
-  private updateAllies(time: number): void {
-    this.allies.forEach((ally, index) => {
-      if (!ally.active) return;
-      const desiredAngle = this.time.now / 1800 + index * Math.PI;
-      const targetX = this.player.x + Math.cos(desiredAngle) * 70;
-      const targetY = this.player.y + Math.sin(desiredAngle) * 70;
-      const distance = Phaser.Math.Distance.Between(ally.x, ally.y, targetX, targetY);
-      if (distance > 28) this.physics.moveTo(ally, targetX, targetY, 175);
-      else ally.setVelocity(0);
-
-      const classId = ally.getData("classId") as HeroClassId;
-      const classDef = CLASS_DEFINITIONS[classId];
-      const target = this.findTarget(ally.x, ally.y, Math.min(380, classDef.stats.attackRange + 70));
-      const nextShotAt = (ally.getData("nextShotAt") as number) ?? 0;
-      if (target && time >= nextShotAt) {
-        const angle = Phaser.Math.Angle.Between(ally.x, ally.y, target.x, target.y);
-        this.spawnProjectile(
-          ally.x,
-          ally.y,
-          angle,
-          Math.max(3, Math.round(classDef.stats.attack * 0.7 + this.progression.level * 0.5)),
-          classId === "mage" ? "magic-projectile" : "projectile",
-          classId === "mage" ? 34 : 0,
-        );
-        ally.setData("nextShotAt", time + classDef.stats.attackIntervalMs * 1.45);
-      }
-
-      const label = this.children.list.find(
-        (child) => child.name === "ally-label" && child.getData("follow") === ally,
-      ) as Phaser.GameObjects.Text | undefined;
-      label?.setPosition(ally.x, ally.y - 27);
-    });
+  private updateRemotePlayers(): void {
+    for (const remote of this.remotePlayers.values()) {
+      const label = remote.getData("label") as Phaser.GameObjects.Text | undefined;
+      label?.setPosition(remote.x, remote.y - 27);
+    }
   }
 
   private updateEnemies(time: number): void {
@@ -576,19 +745,41 @@ export class GameScene extends Phaser.Scene {
       }
 
       const targetsBase = data.invader && this.session.phase !== "boss";
-      const targetX = targetsBase ? WORLD.base.x : this.player.x;
-      const targetY = targetsBase ? WORLD.base.y : this.player.y;
-      const distance = Phaser.Math.Distance.Between(enemy.x, enemy.y, targetX, targetY);
-      if (!targetsBase && distance > 610 && this.session.phase !== "boss") {
+      if (!targetsBase && data.returning) {
+        const homeDistance = Phaser.Math.Distance.Between(enemy.x, enemy.y, data.homeX, data.homeY);
+        if (homeDistance <= 10) {
+          data.returning = false;
+          data.provoked = false;
+          enemy.setPosition(data.homeX, data.homeY).setVelocity(0);
+        } else this.physics.moveTo(enemy, data.homeX, data.homeY, data.speed);
+        continue;
+      }
+      if (!targetsBase && !data.provoked) {
         enemy.setVelocity(0);
         continue;
       }
+      const distanceFromHome = Phaser.Math.Distance.Between(enemy.x, enemy.y, data.homeX, data.homeY);
+      if (!targetsBase && distanceFromHome > 285) {
+        data.returning = true;
+        data.provoked = false;
+        this.physics.moveTo(enemy, data.homeX, data.homeY, data.speed);
+        continue;
+      }
+      const targetX = targetsBase ? WORLD.base.x : this.player.x;
+      const targetY = targetsBase ? WORLD.base.y : this.player.y;
+      const distance = Phaser.Math.Distance.Between(enemy.x, enemy.y, targetX, targetY);
 
       if (targetsBase && distance < 74) {
         enemy.setVelocity(0);
         if (time - data.lastHitAt >= 760) {
           data.lastHitAt = time;
           this.damageBase(data.damage);
+        }
+      } else if (!targetsBase && data.kind === "elite" && distance > 150 && distance <= 380) {
+        enemy.setVelocity(0);
+        if (time >= data.nextShotAt) {
+          data.nextShotAt = time + 1250;
+          this.spawnEnemyProjectile(enemy.x, enemy.y, Phaser.Math.Angle.Between(enemy.x, enemy.y, this.player.x, this.player.y), 230);
         }
       } else {
         this.physics.moveTo(enemy, targetX, targetY, data.speed);
@@ -660,7 +851,7 @@ export class GameScene extends Phaser.Scene {
 
     if (time >= this.bossGroundAt) {
       this.spawnGroundWarning(this.player.x, this.player.y, enraged ? 105 : 84, 22);
-      this.allies.forEach((ally) => this.spawnGroundWarning(ally.x, ally.y, 64, 14));
+      for (const ally of this.remotePlayers.values()) this.spawnGroundWarning(ally.x, ally.y, 64, 14);
       this.bossGroundAt = time + (enraged ? 4300 : 5800);
     }
 
@@ -817,6 +1008,11 @@ export class GameScene extends Phaser.Scene {
       invader,
       gateId,
       lastHitAt: 0,
+      nextShotAt: 0,
+      homeX: x,
+      homeY: y,
+      provoked: false,
+      returning: false,
     };
     enemy.setData("enemy", data);
     return enemy;
@@ -830,10 +1026,12 @@ export class GameScene extends Phaser.Scene {
       if (!enemy.active) continue;
       const distance = Phaser.Math.Distance.Between(x, y, enemy.x, enemy.y);
       if (distance > range) continue;
-      const angularPenalty = aimAngle === undefined
-        ? 0
-        : Math.abs(Phaser.Math.Angle.Wrap(Phaser.Math.Angle.Between(x, y, enemy.x, enemy.y) - aimAngle)) * 80;
-      const score = distance + angularPenalty;
+      if (aimAngle !== undefined) {
+        const halfCone = this.classDefinition.attackKind === "melee" ? Phaser.Math.DegToRad(55) : Phaser.Math.DegToRad(30);
+        const angleDelta = Math.abs(Phaser.Math.Angle.Wrap(Phaser.Math.Angle.Between(x, y, enemy.x, enemy.y) - aimAngle));
+        if (angleDelta > halfCone) continue;
+      }
+      const score = distance;
       if (score < bestScore) {
         best = enemy;
         bestScore = score;
@@ -888,6 +1086,7 @@ export class GameScene extends Phaser.Scene {
   private damageEnemy(enemy: Phaser.Physics.Arcade.Sprite, rawDamage: number): void {
     if (!enemy.active) return;
     const data = this.enemyData(enemy);
+    if (!data.invader && data.kind !== "gate" && data.kind !== "boss") data.provoked = true;
     let damage = Math.max(1, Math.round(rawDamage));
     if (this.progression.has("swordsman-execution") && data.hp / data.maxHp <= 0.3) damage = Math.round(damage * 1.6);
     if (this.progression.has("archer-sniper")) {
@@ -1114,7 +1313,6 @@ export class GameScene extends Phaser.Scene {
     this.session.startBoss();
     this.buildMode = null;
     this.player.setPosition(WORLD.arena.x, WORLD.arena.y + 205);
-    this.allies.forEach((ally, index) => ally.setPosition(WORLD.arena.x + (index === 0 ? -65 : 65), WORLD.arena.y + 220));
     this.clearNonBossEnemies();
     this.boss = this.spawnEnemy("boss", WORLD.arena.x, WORLD.arena.y - 60, false, 3);
     this.boss.setImmovable(true).setDepth(8);
@@ -1125,12 +1323,39 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.flash(300, 135, 55, 142);
   }
 
-  private returnToBase(): void {
+  private beginLocalWaypointTravel(destination: "base" | "boss"): void {
     if (this.session.phase === "boss" || this.playerDead) return;
-    this.player.setPosition(WORLD.base.x + 120, WORLD.base.y);
-    this.allies.forEach((ally, index) => ally.setPosition(WORLD.base.x + 80, WORLD.base.y + (index === 0 ? -55 : 55)));
-    this.currentMessage = "웨이포인트 귀환 완료. 시설을 건설하거나 다시 원정하세요.";
-    this.spawnImpact(this.player.x, this.player.y, 80, 0x9adcc1);
+    const nearWaypoint = Phaser.Math.Distance.Between(this.player.x, this.player.y, WORLD.base.x, WORLD.base.y) <= 155
+      || WORLD.gates.some((gate) => Phaser.Math.Distance.Between(this.player.x, this.player.y, gate.x, gate.y) <= 130);
+    if (!nearWaypoint) {
+      this.currentMessage = "이동하려면 활성화된 웨이포인트 원 안으로 들어가세요.";
+      return;
+    }
+    this.waypointHoldStartedAt = this.time.now;
+    this.waypointHoldDestination = destination;
+    this.currentMessage = "웨이포인트 동기화 중 · 5초 동안 원 안에 머무르세요.";
+  }
+
+  private updateWaypointHold(time: number): void {
+    if (!this.waypointHoldDestination) return;
+    const nearWaypoint = Phaser.Math.Distance.Between(this.player.x, this.player.y, WORLD.base.x, WORLD.base.y) <= 155
+      || WORLD.gates.some((gate) => Phaser.Math.Distance.Between(this.player.x, this.player.y, gate.x, gate.y) <= 130);
+    if (!nearWaypoint || this.playerDead) {
+      this.waypointHoldDestination = null;
+      this.waypointHoldStartedAt = 0;
+      this.currentMessage = "웨이포인트 집결이 취소되었습니다.";
+      return;
+    }
+    if (time - this.waypointHoldStartedAt < 5000) return;
+    const destination = this.waypointHoldDestination;
+    this.waypointHoldDestination = null;
+    this.waypointHoldStartedAt = 0;
+    if (destination === "boss") this.enterBoss();
+    else {
+      this.player.setPosition(WORLD.base.x + 120, WORLD.base.y);
+      this.currentMessage = "웨이포인트 귀환 완료. 베이스 시설을 정비하세요.";
+      this.spawnImpact(this.player.x, this.player.y, 80, 0x9adcc1);
+    }
   }
 
   private spawnGroundWarning(x: number, y: number, radius: number, damage: number, friendly = false): void {
@@ -1244,7 +1469,74 @@ export class GameScene extends Phaser.Scene {
           : `${command.buildMode === "turret" ? "포탑" : "장벽"} 배치 위치를 베이스 그리드에서 클릭하세요.`
         : "건설 모드를 종료했습니다.";
     } else if (command.type === "enter-boss") this.enterBoss();
-    else if (command.type === "return-base") this.returnToBase();
+    else if (command.type === "return-base") {
+      this.currentMessage = "즉시 귀환은 제거되었습니다. 웨이포인트에서 파티 전원이 5초간 집결하세요.";
+    } else if (command.type === "interact") {
+      if (this.options.networked) colyseusTransport.interact(command.targetId);
+    } else if (command.type === "travel") {
+      if (this.options.networked) colyseusTransport.requestTravel(command.waypointId, command.destinationId);
+      else this.beginLocalWaypointTravel(command.destinationId === "boss" ? "boss" : "base");
+    }
+  }
+
+  private createCursorReticle(): void {
+    this.input.setDefaultCursor("none");
+    const ring = this.add.circle(0, 0, 13, 0x101718, 0.26).setStrokeStyle(2, 0xf0d889, 0.92);
+    const inner = this.add.circle(0, 0, 3, 0xf0d889, 0.24).setStrokeStyle(1, 0xfff1bd, 0.9);
+    const lines = this.add.graphics().lineStyle(2, 0xc79d52, 0.9);
+    lines.lineBetween(-22, 0, -9, 0).lineBetween(9, 0, 22, 0).lineBetween(0, -22, 0, -9).lineBetween(0, 9, 0, 22);
+    const runes = this.add.graphics().fillStyle(0xffe6a3, 0.82);
+    runes.fillTriangle(-2, -17, 2, -17, 0, -12).fillTriangle(-2, 17, 2, 17, 0, 12);
+    this.cursorReticle = this.add.container(0, 0, [ring, inner, lines, runes]).setDepth(1000);
+  }
+
+  private syncNetworkState(state: NetworkWorldSnapshot): void {
+    this.networkState = state;
+    if (!this.options.networked) return;
+    const local = state.players.find((member) => member.isLocal || member.userId === this.options.userId);
+    if (local && this.player?.active) {
+      this.player.setPosition(local.x, local.y);
+      this.progression.stats.hp = local.hp;
+      this.progression.stats.maxHp = local.maxHp;
+      this.progression.level = local.level;
+    }
+    if (state.phase !== "lobby") {
+      this.session.phase = state.phase;
+      this.session.day = state.day;
+      this.session.phaseRemaining = state.phaseEndsAt > 0 ? Math.max(0, (state.phaseEndsAt - Date.now()) / 1000) : 0;
+    }
+    this.baseHp = state.baseHp;
+    this.gold = state.gold;
+
+    const activeIds = new Set<string>();
+    for (const member of state.players) {
+      if (member.isLocal || member.userId === this.options.userId) continue;
+      activeIds.add(member.userId);
+      let remote = this.remotePlayers.get(member.userId);
+      if (!remote) {
+        remote = this.physics.add.sprite(member.x, member.y, `hero-${member.heroClass}`);
+        remote.setDepth(9).setAlpha(member.connected ? 0.9 : 0.38);
+        (remote.body as Phaser.Physics.Arcade.Body).setCircle(10, 4, 8);
+        const label = this.add.text(member.x, member.y - 27, member.displayName, {
+          fontFamily: "sans-serif",
+          fontSize: "10px",
+          color: "#dce9e4",
+          backgroundColor: "#18221fcc",
+          padding: { x: 4, y: 2 },
+        }).setOrigin(0.5).setDepth(12);
+        remote.setData("label", label);
+        this.remotePlayers.set(member.userId, remote);
+      }
+      remote.setTexture(`hero-${member.heroClass}`).setPosition(member.x, member.y).setAlpha(member.connected ? 0.9 : 0.38);
+      const label = remote.getData("label") as Phaser.GameObjects.Text | undefined;
+      label?.setText(member.displayName).setAlpha(member.connected ? 1 : 0.4);
+    }
+    for (const [userId, remote] of this.remotePlayers) {
+      if (activeIds.has(userId)) continue;
+      (remote.getData("label") as Phaser.GameObjects.Text | undefined)?.destroy();
+      remote.destroy();
+      this.remotePlayers.delete(userId);
+    }
   }
 
   private emitSnapshot(): void {
@@ -1252,6 +1544,17 @@ export class GameScene extends Phaser.Scene {
     const upgrades = [...this.progression.stacks.entries()]
       .map(([id, stack]) => ({ name: UPGRADE_MAP.get(id)?.name ?? id, stack }))
       .slice(-4);
+    const networkParty = this.networkState?.players ?? [];
+    const currentRoomId = networkParty.find((member) => member.isLocal || member.userId === this.options.userId)?.roomId
+      ?? "z1-r0-4";
+    const nearWaypoint = Phaser.Math.Distance.Between(this.player.x, this.player.y, WORLD.base.x, WORLD.base.y) <= 155
+      || WORLD.gates.some((gate) => Phaser.Math.Distance.Between(this.player.x, this.player.y, gate.x, gate.y) <= 130);
+    const buildBounds = WORLD.buildBounds;
+    const inBuildZone = this.player.x >= buildBounds.minX && this.player.x <= buildBounds.maxX
+      && this.player.y >= buildBounds.minY && this.player.y <= buildBounds.maxY;
+    const localHoldProgress = this.waypointHoldDestination
+      ? Math.min(1, Math.max(0, (this.time.now - this.waypointHoldStartedAt) / 5000))
+      : 0;
     const snapshot: GameSnapshot = {
       running: !this.ended,
       phase: this.session.phase,
@@ -1279,6 +1582,24 @@ export class GameScene extends Phaser.Scene {
       message: this.currentMessage,
       upgrades,
       stats: { ...this.stats },
+      party: networkParty,
+      currentZone: this.networkState?.currentZone ?? Math.min(3, this.gatesDestroyed + 1),
+      currentRoomId,
+      roomsExplored: this.networkState?.rooms.filter((room) => room.visited).length ?? Math.min(15, 1 + this.stats.kills),
+      roomMap: this.networkState?.rooms ?? [],
+      equipment: [],
+      buildSupported: !this.options.networked,
+      inBuildZone,
+      waypoint: {
+        nearby: nearWaypoint,
+        id: nearWaypoint ? `${currentRoomId}-waypoint` : null,
+        label: nearWaypoint ? "활성 웨이포인트" : "웨이포인트 없음",
+        destinationLabel: this.gatesDestroyed >= 3 ? "마왕방" : "베이스캠프",
+        destinationId: "",
+        holdProgress: this.networkState?.waypointHoldProgress ?? localHoldProgress,
+        requiredPlayers: this.options.partyMode === "coop" ? Math.max(1, networkParty.filter((member) => member.connected).length || 3) : 1,
+        presentPlayers: nearWaypoint ? 1 : 0,
+      },
     };
     gameBridge.emit("snapshot", snapshot);
   }
@@ -1286,6 +1607,13 @@ export class GameScene extends Phaser.Scene {
   private cleanup(): void {
     this.commandDisconnect?.();
     this.commandDisconnect = undefined;
+    this.networkDisconnect?.();
+    this.networkDisconnect = undefined;
+    for (const remote of this.remotePlayers.values()) {
+      (remote.getData("label") as Phaser.GameObjects.Text | undefined)?.destroy();
+      remote.destroy();
+    }
+    this.remotePlayers.clear();
     this.input.removeAllListeners();
   }
 }

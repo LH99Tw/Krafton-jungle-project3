@@ -13,7 +13,7 @@
     "dev": "dotenv -e .env.local -- pnpm --parallel --filter @five-days/web --filter @five-days/game-server dev",
     "dev:web": "dotenv -e .env.local -- pnpm --filter @five-days/web dev",
     "dev:game": "dotenv -e .env.local -- pnpm --filter @five-days/game-server dev",
-    "build": "pnpm -r --filter './packages/**' --filter @five-days/game-server --filter @five-days/web build",
+    "build": "pnpm -r --filter ./packages/** --filter @five-days/game-server --filter @five-days/web build",
     "lint": "pnpm -r lint",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
