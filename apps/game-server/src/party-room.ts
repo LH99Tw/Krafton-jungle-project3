@@ -11,11 +11,11 @@ import {
   type ClientCommand,
   type RoomOptions,
 } from "@five-days/protocol";
-import { PartyRoomState, PlayerState } from "./state.js";
+import { PartyRoomState, PlayerState } from "./state";
 
 const usedTickets = new Map<string, number>();
 
-export class PartyRoom extends Room<{ state: PartyRoomState }> {
+export class PartyRoom extends Room<PartyRoomState> {
   maxClients = 3;
   patchRate = 50;
   private core!: GameCore;
@@ -23,13 +23,11 @@ export class PartyRoom extends Room<{ state: PartyRoomState }> {
   private finalized = false;
   private readonly messageWindows = new Map<string, { startedAt: number; count: number }>();
 
-  static async onAuth(token: string, _options: unknown, _context: AuthContext): Promise<GameTicketClaims> {
+  static async onAuth(token: string, _options: unknown, context: AuthContext): Promise<GameTicketClaims> {
+    validateOrigin(context.headers.origin);
     if (!token) throw new ServerError(401, "게임 접속 티켓이 필요합니다.");
     const claims = await verifyGameTicket(token);
-    const now = Date.now();
-    for (const [jti, expiresAt] of usedTickets) if (expiresAt <= now) usedTickets.delete(jti);
-    if (usedTickets.has(claims.jti)) throw new ServerError(401, "이미 사용된 게임 접속 티켓입니다.");
-    usedTickets.set(claims.jti, (claims.exp ?? Math.floor(now / 1000) + 90) * 1000);
+    if (!consumeGameTicket(claims)) throw new ServerError(401, "이미 사용된 게임 접속 티켓입니다.");
     return claims;
   }
 
@@ -200,6 +198,21 @@ export class PartyRoom extends Room<{ state: PartyRoomState }> {
     window.count += 1;
     return window.count <= 30;
   }
+}
+
+export function consumeGameTicket(claims: Pick<GameTicketClaims, "jti" | "exp">, now = Date.now()): boolean {
+  for (const [jti, expiresAt] of usedTickets) if (expiresAt <= now) usedTickets.delete(jti);
+  if (usedTickets.has(claims.jti)) return false;
+  usedTickets.set(claims.jti, (claims.exp ?? Math.floor(now / 1000) + 90) * 1000);
+  return true;
+}
+
+function validateOrigin(origin: string | undefined): void {
+  const allowed = new Set(
+    (process.env.ALLOWED_ORIGINS ?? "").split(",").map((value) => value.trim()).filter(Boolean),
+  );
+  if (!origin && process.env.NODE_ENV !== "production") return;
+  if (!origin || !allowed.has(origin)) throw new ServerError(403, "허용되지 않은 게임 서버 Origin입니다.");
 }
 
 export { PARTY_ROOM };

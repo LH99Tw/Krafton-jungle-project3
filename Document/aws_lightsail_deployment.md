@@ -1,6 +1,6 @@
 # AWS Lightsail MVP 배포·운영 런북
 
-> 상태: 구현 전 배포 기준
+> 상태: Docker Compose·Caddy·CI/CD 파일 구현 완료, 실제 AWS 계정 배포 전 검증 기준
 > 기준일: 2026-08-10
 > 리전: 서울 `ap-northeast-2`
 > 대상: 동시접속 10~20명 시연용 MVP
@@ -249,7 +249,19 @@ Caddy가 Let's Encrypt 인증서를 발급·갱신한다. 두 이름 모두 publ
 
 ## 8. Docker Compose 배포 토폴로지
 
-구현 단계에서 `/opt/five-days/compose.yml`에 다음 서비스와 제약을 둔다.
+저장소의 `compose.yml`, `Caddyfile`, `Dockerfile.web`, `Dockerfile.game`을 `/opt/five-days`에 배치한다. `deploy/env/*.example`을 기준으로 실제 환경 파일을 만들되 placeholder는 반드시 새 비밀값으로 교체한다.
+
+```bash
+cd /opt/five-days
+cp deploy/env/host.example .env
+cp deploy/env/web.example .env.web
+cp deploy/env/game.example .env.game
+cp deploy/env/migration.example .env.migration
+cp deploy/env/postgres.example .env.postgres
+chmod 0600 .env .env.web .env.game .env.migration .env.postgres
+```
+
+`GAME_SERVER_PUBLIC_URL`은 브라우저가 접근할 `wss://` 주소이며 Next.js가 요청 시 페이지 속성으로 전달하므로 Docker 이미지에 고정하지 않는다. 목표 토폴로지는 다음과 같다.
 
 ```yaml
 services:
@@ -302,7 +314,7 @@ volumes:
 - web과 game-server에는 메모리 상한을 설정해 PostgreSQL과 host를 보호한다.
 - `.env.web`, `.env.game`, `.env.migration`, `.env.postgres`, `.env.backup`과 JWT key는 `/opt/five-days`에 mode `0600`으로 저장하고 Git에 포함하지 않는다.
 - game-ticket private key는 `.env.web` 또는 web 전용 key file에만 두고 game-server에는 공개키만 제공한다.
-- DB superuser는 초기화와 복구에만 사용한다. 앱용과 migration용 role을 분리한다.
+- 단일 서버 MVP는 운영 복잡도를 줄이기 위해 앱과 migration이 전용 `five_days_app` role 하나를 공유한다. RDS 전환 시 migration owner와 제한된 앱 role을 분리한다.
 
 권장 2GB 메모리 예산:
 

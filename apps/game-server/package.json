@@ -12,9 +12,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@colyseus/schema": "4.0.30",
-    "@colyseus/core": "0.17.49",
-    "@colyseus/ws-transport": "0.17.13",
+    "@colyseus/schema": "3.0.72",
+    "@colyseus/core": "0.16.24",
+    "@colyseus/ws-transport": "0.16.5",
     "@five-days/auth": "workspace:*",
     "@five-days/db": "workspace:*",
     "@five-days/game-core": "workspace:*",

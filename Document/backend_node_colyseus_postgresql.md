@@ -1,13 +1,13 @@
-# Node.js·Colyseus·PostgreSQL 백엔드 목표 아키텍처
+# Node.js·Colyseus·PostgreSQL 백엔드 아키텍처
 
-> 상태: 구현 전 목표 설계
+> 상태: 기반 구현 완료, 전투·AI·건설 서버 권위화 진행 중
 > 기준일: 2026-08-10
 > 대상: 《5일 뒤 마왕》 3인 협동 웹 게임 MVP
 > 목표 규모: 동시접속 10~20명, 한 파티 3명
 
 ## 1. 문서 목적
 
-현재 프로토타입은 Cloudflare Worker/Vinext/D1 위에서 페이지, 방명록, 런 결과 저장을 제공하지만 실제 게임 판정은 브라우저의 Phaser 씬에서 수행한다. 이 문서는 다음 목표 상태로 이전하기 위한 확정 설계와 구현 순서를 정의한다.
+Cloudflare Worker/Vinext/D1 런타임은 제거되었고 Next.js Node, Colyseus, PostgreSQL 기반이 로컬에서 동작한다. 이 문서는 구현된 계약과 Phaser에 남은 전투 규칙을 서버로 이전하기 위한 완료 조건을 함께 정의한다.
 
 ```text
 Browser
@@ -27,22 +27,22 @@ Browser
 
 초기 배포는 단일 Node.js 호스트에서 실행하지만 `web`, `game-server`, `postgres`는 별도 프로세스와 컨테이너로 분리한다. Redis는 Colyseus 프로세스가 둘 이상일 때만 추가한다.
 
-## 2. 현재 상태와 목표 상태
+## 2. 구현 상태와 완료 상태
 
-| 영역 | 현재 구현 | 목표 구현 |
+| 영역 | 현재 구현 | 완료 상태 |
 |---|---|---|
-| 웹 런타임 | Vinext + Cloudflare Worker | 표준 Next.js Node 런타임 |
-| 인증 | 플랫폼이 주입한 `oai-authenticated-*` 헤더 | Cognito User Pool + Google OAuth |
-| 브라우저 세션 | 플랫폼 인증 헤더 | PostgreSQL 서버 세션 + HttpOnly 쿠키 |
-| 게임 서버 인증 | 없음 | 90초 game-ticket JWT + Colyseus `static onAuth` |
-| REST | App Router의 방명록·런 결과 API | 동일 계약 + 인증/세션 API |
-| DB | Cloudflare D1(SQLite) | PostgreSQL + Drizzle ORM |
-| 게임 실행 | Phaser 클라이언트가 모든 판정 소유 | Colyseus Room이 최종 판정 소유 |
-| 네트워크 | `GameBridge`, 미사용 `LocalTransport` 경계 | Colyseus client transport + versioned protocol |
-| 결과 저장 | 브라우저가 `/api/runs`로 결과 제출 | 게임 서버가 종료 트랜잭션으로 저장 |
-| 확장 | 단일 Worker | 단일 Colyseus → Redis 기반 다중 프로세스 |
+| 웹 런타임 | 표준 Next.js Node 런타임 | 완료 |
+| 인증 | Cognito + Google OAuth 및 개발용 로컬 로그인 | 운영 Cognito 실계정 검증 |
+| 브라우저 세션 | PostgreSQL 서버 세션 + HttpOnly 쿠키 | 완료 |
+| 게임 서버 인증 | 90초 game-ticket JWT + Colyseus `static onAuth` | 키 교체 자동화 |
+| REST | 인증·세션·방명록·전적 조회 | 완료 |
+| DB | PostgreSQL + Drizzle ORM migration | 완료 |
+| 게임 실행 | Colyseus가 Room·이동·시간을, Phaser가 전투·AI·건설을 소유 | 모든 최종 판정을 Colyseus가 소유 |
+| 네트워크 | Colyseus client transport + versioned Zod protocol | Schema 상태를 Phaser 렌더링에 완전 연결 |
+| 결과 저장 | Room 종료 transaction | 승패 판정 이전 후 보상 계산 추가 |
+| 확장 | Redis 없는 단일 Colyseus 프로세스 | 필요 시 Redis 기반 다중 프로세스 |
 
-### 2.1 Cloudflare 의존성 대체표
+### 2.1 제거한 Cloudflare 의존성 대체표
 
 | 현재 대상 | 역할 | Node.js 대체 |
 |---|---|---|
@@ -492,7 +492,7 @@ health endpoint:
 ```text
 NODE_ENV
 APP_ORIGIN
-GAME_SERVER_ORIGIN
+GAME_SERVER_PUBLIC_URL
 DATABASE_URL
 
 COGNITO_REGION
@@ -501,16 +501,15 @@ COGNITO_CLIENT_ID
 COGNITO_CLIENT_SECRET
 COGNITO_ISSUER
 COGNITO_REDIRECT_URI
-GOOGLE_OAUTH_CLIENT_ID
-GOOGLE_OAUTH_CLIENT_SECRET
-
 AUTH_SESSION_ENCRYPTION_KEY
-GAME_TICKET_PRIVATE_KEY
-GAME_TICKET_PUBLIC_KEYS
+GAME_TICKET_PRIVATE_KEY_BASE64
+GAME_TICKET_PUBLIC_KEY_BASE64
 GAME_TICKET_ACTIVE_KID
 PROTOCOL_VERSION
 
 ALLOWED_ORIGINS
+MINIMUM_PLAYERS
+SERVER_VERSION
 LOG_LEVEL
 ```
 

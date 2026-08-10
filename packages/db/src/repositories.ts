@@ -1,6 +1,6 @@
 import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
-import { getDb } from "./index.js";
-import { authSessions, guestbookEntries, matchPlayers, matches, users } from "./schema.js";
+import { getDb } from "./index";
+import { authSessions, guestbookEntries, matchPlayers, matches, users } from "./schema";
 
 export type UserRecord = typeof users.$inferSelect;
 
@@ -42,6 +42,7 @@ export async function createSession(input: {
 }
 
 export async function findSessionUser(tokenHash: string): Promise<UserRecord | null> {
+  const idleCutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
   const [record] = await getDb()
     .select({ user: users, sessionId: authSessions.id })
     .from(authSessions)
@@ -50,6 +51,7 @@ export async function findSessionUser(tokenHash: string): Promise<UserRecord | n
       eq(authSessions.tokenHash, tokenHash),
       isNull(authSessions.revokedAt),
       gt(authSessions.expiresAt, new Date()),
+      gt(authSessions.lastSeenAt, idleCutoff),
     ))
     .limit(1);
   if (!record) return null;

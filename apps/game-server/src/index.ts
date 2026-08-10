@@ -3,7 +3,7 @@ import express from "express";
 import { Server } from "@colyseus/core";
 import { WebSocketTransport } from "@colyseus/ws-transport";
 import { checkDatabase } from "@five-days/db";
-import { PARTY_ROOM, PartyRoom } from "./party-room.js";
+import { PARTY_ROOM, PartyRoom } from "./party-room";
 
 const port = Number(process.env.PORT ?? 2567);
 const app = express();

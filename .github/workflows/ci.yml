@@ -27,5 +27,4 @@ jobs:
       - run: pnpm build
         env:
           APP_ORIGIN: http://localhost:3000
-          GAME_SERVER_ORIGIN: http://localhost:2567
-          NEXT_PUBLIC_GAME_SERVER_URL: ws://localhost:2567
+          GAME_SERVER_PUBLIC_URL: ws://localhost:2567

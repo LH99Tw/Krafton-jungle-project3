@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PROTOCOL_VERSION } from "@five-days/protocol";
-import { GameCore } from "../src/index.js";
+import { GameCore } from "../src/index";
 
 test("starts when all required players are ready and rejects duplicate input", () => {
   const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "test", minimumPlayers: 1 });

@@ -9,5 +9,8 @@ export default async function Home() {
     ? { userId: user.id, displayName: user.displayName, email: user.email, csrfToken: await getCsrfToken() ?? "" }
     : null;
 
-  return <GameShell viewer={viewer} />;
+  return <GameShell
+    viewer={viewer}
+    gameServerUrl={process.env.GAME_SERVER_PUBLIC_URL ?? "ws://localhost:2567"}
+  />;
 }

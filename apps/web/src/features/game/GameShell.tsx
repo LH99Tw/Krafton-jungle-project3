@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { GameCanvas } from "@/src/game/client/GameCanvas";
 import { CLASS_DEFINITIONS, CLASS_ORDER } from "@/src/game/content/classes";
 import {
@@ -28,7 +29,8 @@ export type Viewer = {
 
 type Screen = "briefing" | "playing";
 
-export function GameShell({ viewer }: { viewer: Viewer }) {
+export function GameShell({ viewer, gameServerUrl }: { viewer: Viewer; gameServerUrl: string }) {
+  const router = useRouter();
   const [screen, setScreen] = useState<Screen>("briefing");
   const [selectedClass, setSelectedClass] = useState<HeroClassId>("swordsman");
   const [sessionMode, setSessionMode] = useState<SessionMode>("prototype");
@@ -56,10 +58,9 @@ export function GameShell({ viewer }: { viewer: Viewer }) {
   }, []);
 
   const beginRun = useCallback(async () => {
-    const gameServerUrl = process.env.NEXT_PUBLIC_GAME_SERVER_URL;
     if (gameServerUrl) {
       if (!viewer) {
-        window.location.href = "/api/auth/login?returnTo=%2F";
+        router.push("/api/auth/login?returnTo=%2F");
         return;
       }
       setNetworkStatus("connecting");
@@ -83,7 +84,7 @@ export function GameShell({ viewer }: { viewer: Viewer }) {
     setActiveOptions({ heroClass: selectedClass, sessionMode, difficulty });
     setRunKey((value) => value + 1);
     setScreen("playing");
-  }, [difficulty, selectedClass, sessionMode, viewer]);
+  }, [difficulty, gameServerUrl, router, selectedClass, sessionMode, viewer]);
 
   const retryRun = useCallback(() => {
     setSnapshot(EMPTY_SNAPSHOT);
@@ -290,7 +291,7 @@ export function GameShell({ viewer }: { viewer: Viewer }) {
 
       <footer className="site-footer">
         <span>《5일 뒤 마왕》 vertical slice prototype</span>
-        <span>Phaser 3 · Vinext · Cloudflare Sites</span>
+        <span>Phaser 3 · Next.js · Colyseus · PostgreSQL</span>
       </footer>
     </main>
   );

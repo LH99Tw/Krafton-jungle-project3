@@ -18,6 +18,7 @@ services:
       game-server:
         condition: service_healthy
     restart: unless-stopped
+    mem_limit: 128m
 
   web:
     image: ${WEB_IMAGE:-five-days-web:local}
@@ -35,6 +36,7 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    mem_limit: 512m
 
   game-server:
     image: ${GAME_IMAGE:-five-days-game-server:local}
@@ -52,6 +54,7 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
+    mem_limit: 512m
 
   migrate:
     image: ${GAME_IMAGE:-five-days-game-server:local}
@@ -78,6 +81,7 @@ services:
       timeout: 3s
       retries: 20
     restart: unless-stopped
+    mem_limit: 512m
 
 volumes:
   postgres-data:

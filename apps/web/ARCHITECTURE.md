@@ -1,90 +1,99 @@
-# 프로토타입 아키텍처
+# Node.js 웹·게임 아키텍처
 
-> 이 문서는 현재 실행 가능한 Cloudflare 기반 프로토타입을 설명합니다. 목표 Node.js·Colyseus·PostgreSQL 구조와 결정 완료 구현 로드맵은 [`Document/backend_node_colyseus_postgresql.md`](../../Document/backend_node_colyseus_postgresql.md), AWS 배포 기준은 [`Document/aws_lightsail_deployment.md`](../../Document/aws_lightsail_deployment.md)를 참고하세요.
+> 이 문서는 현재 구현을 설명합니다. 전체 백엔드 계약과 남은 서버 권위화 로드맵은 [`Document/backend_node_colyseus_postgresql.md`](../../Document/backend_node_colyseus_postgresql.md), AWS 배포 런북은 [`Document/aws_lightsail_deployment.md`](../../Document/aws_lightsail_deployment.md)를 참고하세요.
 
-## 설계 목표
-
-- Phaser 렌더링, React HUD, 게임 규칙, 영속 저장을 서로 분리한다.
-- 첫 프로토타입은 로컬 런타임으로 완주 가능하게 만들고, 이후 동일한 명령·스냅숏 계약을 실제 멀티플레이 서버로 옮긴다.
-- 클래스·특성·적·시설 수치는 콘텐츠 데이터에서 변경하며 전투 로직을 수정하지 않는다.
-
-## 디렉터리
+## 실행 구조
 
 ```text
-app/
-├─ api/guestbook/       방명록 읽기·쓰기
-├─ api/runs/            사용자별 런 결과
-├─ chatgpt-auth.ts      플랫폼 인증 경계
-├─ layout.tsx           메타데이터와 한국어 문서 셸
-└─ page.tsx             서버 페이지와 사용자 정보 주입
-
-src/
-├─ features/
-│  ├─ game/             브리핑, HUD, 성장, 결과 React UI
-│  └─ guestbook/        방명록 UI
-└─ game/
-   ├─ client/           Phaser 캔버스와 렌더 텍스처
-   ├─ content/          클래스·특성·밸런스 데이터
-   ├─ domain/           직렬화 가능한 공유 타입
-   ├─ runtime/          Phaser 씬과 UI 브리지
-   ├─ systems/          세션 상태기계와 성장 규칙
-   └─ transport/        Local/WebSocket 교체 경계
-
-db/
-├─ schema.ts            D1 스키마
-└─ index.ts             DB 바인딩 접근점
+브라우저
+├─ HTTPS/REST ─ Next.js Node 서버 ─ Drizzle ─ PostgreSQL
+│                 └─ Cognito + Google OAuth
+└─ WebSocket ─ Colyseus party_room ─ game-core
+                         └─ 매치 결과 transaction ─ PostgreSQL
 ```
 
-## 의존 방향
+- Next.js는 화면, REST API, OAuth callback, HttpOnly 서버 세션을 담당합니다.
+- Colyseus는 최대 3인의 Room, 90초 게임 티켓 검증, 입력 제한, 재접속, 20Hz 시뮬레이션과 결과 저장을 담당합니다.
+- PostgreSQL은 사용자, 인증 세션, 방명록, 매치, 플레이어별 전적을 저장합니다.
+- 초기 단일 서버에서는 Redis를 사용하지 않습니다. 여러 Colyseus 프로세스로 확장할 때 Presence/Driver 용도로만 추가합니다.
+
+## 저장소 경계
 
 ```text
-content → domain ← systems ← runtime ← Phaser
-                    ↑          ↑
-                transport   React UI
+apps/web/
+├─ app/api/auth/          OAuth login·callback·logout
+├─ app/api/session/       현재 서버 세션
+├─ app/api/game-ticket/   Colyseus 접속 JWT
+├─ app/api/guestbook/     방명록 REST
+├─ app/api/runs/          사용자 전적 조회
+├─ src/features/          React UI
+└─ src/game/
+   ├─ client/             Phaser 캔버스
+   ├─ content/            클래스·특성·밸런스 데이터
+   ├─ domain/             UI와 로컬 런타임 타입
+   ├─ runtime/            현재 플레이 가능한 Phaser 수직 슬라이스
+   ├─ systems/            세션 상태기계와 성장 규칙
+   └─ transport/          Colyseus 티켓·Room·입력 전송
 
-DB/API ────────────────────────┘ (런 결과만)
+apps/game-server/
+├─ src/index.ts           HTTP/WebSocket 서버와 health check
+├─ src/party-room.ts      인증·접속·명령·재접속·결과 저장
+└─ src/state.ts           Colyseus Schema 동기화 상태
+
+packages/
+├─ auth/                  PKCE·OAuth state·JWT·Cognito 검증
+├─ db/                    Drizzle schema·repository·migration
+├─ game-core/             Phaser 비의존 결정론적 서버 규칙
+└─ protocol/              버전이 있는 Zod 명령 계약
 ```
 
-`domain`, `content`, `systems`, `transport`는 React와 DB를 import하지 않습니다. React는 게임 상태를 직접 수정하지 않고 `GameBridge`에 명령을 전송합니다. HUD는 60fps 월드 전체가 아니라 120ms 간격의 작은 스냅숏만 구독합니다.
+## 인증과 접속 흐름
 
-## 멀티플레이 확장
+1. 브라우저가 `/api/auth/login`에서 Cognito Authorization Code + PKCE를 시작합니다.
+2. callback이 Cognito 토큰을 검증하고 PostgreSQL `auth_sessions`에 세션을 생성합니다.
+3. 브라우저에는 임의 세션 ID와 CSRF 토큰만 쿠키로 전달합니다.
+4. `/api/game-ticket`이 인증·CSRF를 확인하고 90초 RS256 JWT를 발급합니다.
+5. Colyseus `static onAuth`가 서명과 `iss`, `aud`, `sub`, `exp`, `jti`, protocol version을 검증합니다.
+6. 사용된 `jti`는 프로세스 메모리에서 만료 시각까지 보관해 재사용을 막습니다.
 
-현재 코드는 실제 WebSocket 게임 서버를 사용하지 않으며 Phaser `GameScene`이 시간·피해·골드·AI·승패를 모두 소유합니다. 목표 구조에서는 `LocalTransport` 경계를 Colyseus client transport로 교체하고 다음 순서로 서버 권위화를 진행합니다.
+개발 환경의 `DEV_AUTH_BYPASS=true`는 Cognito 대신 로컬 사용자를 생성하지만 이후 세션·CSRF·게임 티켓 경로는 운영과 동일합니다.
 
-1. `GameCommand`를 네트워크 메시지로 직렬화
-2. 시간·피해·골드·드롭·건설을 서버에서 판정
-3. 서버가 `GameSnapshot` 또는 상태 패치를 전송
-4. 클라이언트는 이동을 예측하고 서버 상태로 보간
-5. Phaser 씬의 순수 규칙을 `packages/game-core`로 추출
-6. 별도 Node.js `apps/game-server`의 Colyseus Room이 같은 규칙 패키지를 사용
+## 현재 서버 권위 범위
 
-PostgreSQL은 계정·서버 세션·방명록·매치 결과만 저장합니다. 실시간 엔티티 위치와 탄막은 Colyseus Room 메모리에서 처리합니다. 초기 단일 프로세스에는 Redis를 두지 않고, 여러 Colyseus 프로세스로 확장할 때 Presence/Driver 용도로 추가합니다.
-
-## 현재 구현과 목표 구현의 경계
-
-| 영역 | 현재 프로토타입 | 목표 구조 |
+| 영역 | 현재 소유자 | 상태 |
 |---|---|---|
-| 웹 실행 | Vinext + Cloudflare Worker | 표준 Next.js Node 런타임 |
-| DB | D1(SQLite) | PostgreSQL + Drizzle ORM |
-| 인증 | 플랫폼 인증 헤더 | Cognito + Google OAuth + 서버 세션 |
-| 게임 서버 | 없음; 브라우저 로컬 판정 | Colyseus 3인 `party_room` 서버 권위 판정 |
-| 결과 저장 | 브라우저가 REST로 제출 | Room 종료 transaction |
-| AWS 배포 | 미구현 | Lightsail 단일 서버 MVP 후 RDS/Redis 확장 |
+| 인증·세션·티켓 | Next.js/PostgreSQL | 구현 |
+| Room·중복 접속·20초 재접속 | Colyseus | 구현 |
+| 입력 sequence·검증·초당 제한 | Colyseus/protocol | 구현 |
+| 플레이어 이동·페이즈 시간 | game-core | 구현 |
+| 매치 생성·종료 결과 저장 | Colyseus/Drizzle | 구현 |
+| 전투·적 AI·드롭·건설·승패 전체 | Phaser 로컬 런타임 | 이전 중 |
 
-기존 D1 API와 Cloudflare 파일은 목표 구현이 완료될 때까지 현재 프로토타입 실행에 필요하므로 문서 작성만으로 제거하지 않습니다.
+따라서 기존 싱글 플레이 수직 슬라이스는 그대로 플레이할 수 있지만, 모든 전투 판정을 신뢰할 수 있는 3인 멀티플레이로 만들려면 마지막 행을 `game-core`로 옮겨야 합니다. 미완성 서버 명령은 묵시적으로 승인하지 않고 protocol error를 반환합니다.
+
+## 상태와 의존 방향
+
+```text
+protocol ← game-core ← Colyseus Room → db
+    ↑                         ↑
+web transport ────────────────┘
+    ↓
+Phaser renderer ↔ React HUD
+```
+
+Phaser와 React는 PostgreSQL에 직접 접근하지 않습니다. 게임 결과 POST는 브라우저에서 제거했고 Room 종료만 결과를 저장합니다. 실시간 엔티티 상태는 DB에 쓰지 않고 Room 메모리에 유지합니다.
+
+## 운영 규칙
+
+- Caddy만 80/443을 외부에 공개하고 web, game-server, PostgreSQL은 Docker 내부 네트워크에 둡니다.
+- 매치 결과와 플레이어 결과는 하나의 transaction으로 저장하며 `match_id` unique constraint로 중복을 차단합니다.
+- 스키마 변경은 `drizzle-kit generate`로 생성한 migration만 적용합니다.
+- 토큰·이메일·refresh token은 로그에 남기지 않습니다.
+- Redis, RDS, ALB, ElastiCache는 단일 Lightsail MVP 범위 밖입니다.
 
 ## 콘텐츠 확장
 
-- 클래스 추가: `content/classes.ts`와 전용 특성을 추가하고 스킬 전략을 런타임 레지스트리에 연결
-- 적 추가: `content/balance.ts`의 원형과 스폰 전략 추가
-- 장비: `domain`에 장비 정의와 인벤토리 스냅숏을 추가하되 효과는 성장 수정자로 합성
-- 맵: 현재 고정 골격을 방 템플릿과 시드 생성기로 교체
-- 자유 건설: 현재 그리드 검증에 경로 유효성 검사와 서버 승인 추가
-
-## 성능 규칙
-
-- Phaser가 월드 상태와 60fps 업데이트를 소유한다.
-- React에는 HUD와 모달에 필요한 값만 전달한다.
-- 투사체는 풀을 재사용하고 수명을 제한한다.
-- 비활성 탭 복귀 시 한 프레임 델타를 100ms로 제한한다.
-- 씬 종료 시 명령 구독과 입력 리스너를 해제한다.
+- 클래스 추가: `src/game/content/classes.ts`와 protocol의 `heroClassSchema`를 함께 변경합니다.
+- 서버 전투 이전: Phaser 규칙에서 렌더링 의존성을 제거한 뒤 `packages/game-core` 테스트를 먼저 추가합니다.
+- 건설 이전: 골드 차감, 그리드 점유, 경로 유효성을 하나의 서버 명령으로 검증합니다.
+- 다중 서버 확장: Redis Presence/Driver를 추가하고 Room 프로세스 간 상태 공유가 아니라 매치메이킹과 위치 검색에만 사용합니다.
