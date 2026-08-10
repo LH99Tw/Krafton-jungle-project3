@@ -1,25 +1,184 @@
 import { Client, type Room } from "colyseus.js";
 import { PARTY_ROOM, PROTOCOL_VERSION, type RoomOptions } from "@five-days/protocol";
+import type {
+  HeroClassId,
+  EquipmentSummary,
+  NetworkDropSnapshot,
+  NetworkEnemySnapshot,
+  NetworkWorldSnapshot,
+  PartyMemberSnapshot,
+  RoomMapCell,
+  TeamStats,
+  UpgradeChoice,
+  UpgradeId,
+} from "../domain/types";
+import { gameBridge } from "../runtime/GameBridge";
 
-export type NetworkStatus = "idle" | "connecting" | "connected" | "disconnected" | "error";
+export type NetworkStatus = "idle" | "connecting" | "waiting" | "connected" | "reconnecting" | "disconnected" | "error";
 
 type TicketResponse = { token: string; expiresAt: string };
+type StateListener = (state: NetworkWorldSnapshot) => void;
+type EventListener = (event: { type: string; message?: string; code?: string; state?: string }) => void;
+
+type SchemaCollection<T> = {
+  forEach(callback: (value: T, key: string | number) => void): void;
+};
+
+type PlayerStateLike = {
+  userId?: string;
+  displayName?: string;
+  heroClass?: string;
+  hp?: number;
+  maxHp?: number;
+  level?: number;
+  teamPower?: number;
+  damage?: number;
+  bossDamage?: number;
+  kills?: number;
+  deaths?: number;
+  structuresBuilt?: number;
+  goldSpent?: number;
+  gatesDestroyed?: number;
+  ready?: boolean;
+  connected?: boolean;
+  alive?: boolean;
+  roomId?: string;
+  x?: number;
+  y?: number;
+  upgradeDraft?: {
+    draftId?: string;
+    level?: number;
+    active?: boolean;
+    choices?: SchemaCollection<{
+      upgradeId?: string;
+      name?: string;
+      description?: string;
+      rarity?: string;
+      stack?: number;
+      maxStacks?: number;
+      order?: number;
+    }>;
+  };
+  equipment?: {
+    weaponId?: string;
+    weaponRarity?: string;
+    armorId?: string;
+    armorRarity?: string;
+    accessoryId?: string;
+    accessoryRarity?: string;
+    attackBonus?: number;
+    maxHpBonus?: number;
+    defenseBonus?: number;
+    attackSpeedBonus?: number;
+  };
+};
+
+type RoomStateLike = {
+  id?: string;
+  zone?: number;
+  x?: number;
+  y?: number;
+  gridX?: number;
+  gridY?: number;
+  roomType?: string;
+  kind?: string;
+  visited?: boolean;
+  discovered?: boolean;
+  cleared?: boolean;
+  connections?: SchemaCollection<string> | string[];
+};
+
+type DoorStateLike = { fromRoomId?: string; toRoomId?: string };
+type WaypointStateLike = {
+  id?: string;
+  roomId?: string;
+  kind?: string;
+  destinationId?: string;
+  active?: boolean;
+  requiredPlayers?: number;
+  holdingPlayers?: number;
+  holdProgress?: number;
+  holdDurationMs?: number;
+};
+type EnemyStateLike = {
+  id?: string;
+  kind?: string;
+  behavior?: string;
+  roomId?: string;
+  spawnRoomId?: string;
+  targetId?: string;
+  x?: number;
+  y?: number;
+  hp?: number;
+  maxHp?: number;
+  alive?: boolean;
+};
+type DropStateLike = {
+  id?: string;
+  ownerUserId?: string;
+  roomId?: string;
+  slot?: string;
+  rarity?: string;
+  x?: number;
+  y?: number;
+  specialOptionCount?: number;
+  claimed?: boolean;
+};
+
+type PartyStateLike = {
+  matchId?: string;
+  seed?: string;
+  phase?: string;
+  resultState?: string;
+  resultReason?: string;
+  day?: number;
+  serverTime?: number;
+  elapsed?: number;
+  phaseEndsAt?: number;
+  baseHp?: number;
+  baseMaxHp?: number;
+  gold?: number;
+  currentZone?: number;
+  teamLevel?: number;
+  teamXp?: number;
+  teamXpToNext?: number;
+  waypointHoldProgress?: number;
+  players?: SchemaCollection<PlayerStateLike>;
+  rooms?: SchemaCollection<RoomStateLike>;
+  doors?: SchemaCollection<DoorStateLike>;
+  waypoints?: SchemaCollection<WaypointStateLike>;
+  enemies?: SchemaCollection<EnemyStateLike>;
+  drops?: SchemaCollection<DropStateLike>;
+};
 
 export class ColyseusTransport {
+  private client: Client | null = null;
   private room: Room | null = null;
+  private generation = 0;
+  private reconnecting = false;
+  private terminal = false;
   private seq = 0;
   private inputTimer: ReturnType<typeof setInterval> | null = null;
   private readonly pressed = new Set<string>();
   private aim = 0;
+  private latestPointerClient: { x: number; y: number } | null = null;
   private cleanupInput: (() => void) | null = null;
+  private readonly stateListeners = new Set<StateListener>();
+  private readonly eventListeners = new Set<EventListener>();
+  private latestState: NetworkWorldSnapshot | null = null;
+  private localUserId = "";
 
   async connect(input: {
     serverUrl: string;
     csrfToken: string;
+    userId: string;
     options: Omit<RoomOptions, "protocolVersion">;
     roomId?: string;
-  }): Promise<void> {
+  }): Promise<NetworkWorldSnapshot | null> {
     this.disconnect();
+    const generation = this.generation;
+    this.terminal = false;
+    this.localUserId = input.userId;
     const ticketResponse = await fetch("/api/game-ticket", {
       method: "POST",
       headers: { "x-csrf-token": input.csrfToken },
@@ -27,26 +186,148 @@ export class ColyseusTransport {
     if (!ticketResponse.ok) throw new Error("게임 접속 티켓을 발급하지 못했습니다.");
     const ticket = await ticketResponse.json() as TicketResponse;
     const client = new Client(input.serverUrl);
+    this.client = client;
     client.auth.token = ticket.token;
     const roomOptions = {
       ...input.options,
       protocolVersion: PROTOCOL_VERSION,
     };
-    this.room = input.roomId
+    const room = input.roomId
       ? await client.joinById(input.roomId, roomOptions)
       : await client.joinOrCreate(PARTY_ROOM, roomOptions);
+    if (generation !== this.generation) {
+      await room.leave(true);
+      throw new Error("새 연결 요청으로 대체되었습니다.");
+    }
+    this.attachRoom(room, generation);
     this.send("room.ready", { ready: true });
     this.startInputCapture();
+    if (room.state) this.handleState(room.state as PartyStateLike);
+    return this.latestState;
+  }
+
+  subscribe(listener: StateListener): () => void {
+    this.stateListeners.add(listener);
+    if (this.latestState) listener(this.latestState);
+    return () => this.stateListeners.delete(listener);
+  }
+
+  subscribeEvents(listener: EventListener): () => void {
+    this.eventListeners.add(listener);
+    return () => this.eventListeners.delete(listener);
+  }
+
+  get snapshot(): NetworkWorldSnapshot | null {
+    return this.latestState;
+  }
+
+  interact(targetId: string): void {
+    this.send("player.interact", { targetId });
+  }
+
+  requestTravel(waypointId: string, destinationId: string): void {
+    this.send("travel.request", { waypointId, destinationId });
+  }
+
+  requestRecall(): void {
+    this.send("recall.request", {});
+  }
+
+  equip(dropId: string): void {
+    this.send("equipment.equip", { dropId });
+  }
+
+  chooseUpgrade(draftId: string, upgradeId: UpgradeId): void {
+    this.send("upgrade.choose", { draftId, upgradeId });
   }
 
   disconnect(): void {
+    this.generation += 1;
+    this.reconnecting = false;
     if (this.inputTimer) clearInterval(this.inputTimer);
     this.inputTimer = null;
     this.cleanupInput?.();
     this.cleanupInput = null;
     this.pressed.clear();
-    void this.room?.leave(true);
+    const room = this.room;
     this.room = null;
+    this.client = null;
+    void room?.leave(true);
+    room?.removeAllListeners();
+    this.latestState = null;
+  }
+
+  private attachRoom(room: Room, generation: number): void {
+    this.room = room;
+    const isCurrentRoom = () => generation === this.generation && this.room === room;
+    room.onStateChange((state) => {
+      if (isCurrentRoom()) this.handleState(state as PartyStateLike);
+    });
+    room.onMessage("message", (message: { message?: string }) => {
+      if (!isCurrentRoom()) return;
+      this.emitEvent({ type: "message", message: message.message });
+    });
+    room.onMessage("protocol-error", (message: { code?: string }) => {
+      if (!isCurrentRoom()) return;
+      this.emitEvent({ type: "protocol-error", code: message.code });
+    });
+    room.onMessage("result", (message: { state?: string; reason?: string }) => {
+      if (!isCurrentRoom()) return;
+      this.terminal = true;
+      this.emitEvent({ type: "result", state: message.state, message: message.reason });
+    });
+    room.onError((code, message) => {
+      if (!isCurrentRoom()) return;
+      this.emitEvent({ type: "protocol-error", code: String(code), message });
+    });
+    room.onLeave((code) => {
+      if (generation !== this.generation) return;
+      if (this.room === room) this.room = null;
+      if (code === 4009 || this.terminal || this.latestState?.phase === "ended") {
+        this.emitEvent({ type: "disconnected", code: String(code) });
+        return;
+      }
+      void this.tryReconnect(room.reconnectionToken, generation);
+    });
+  }
+
+  private async tryReconnect(reconnectionToken: string, generation: number): Promise<void> {
+    if (this.reconnecting || !this.client) return;
+    this.reconnecting = true;
+    this.emitEvent({ type: "reconnecting" });
+    const reconnectDeadline = performance.now() + 18_000;
+    const retryDelays = [0, 250, 500, 1_000, 2_000, 3_500, 4_500];
+    for (const delay of retryDelays) {
+      if (generation !== this.generation || !this.client) return;
+      const remainingBeforeDelay = reconnectDeadline - performance.now();
+      if (remainingBeforeDelay <= 0) break;
+      if (delay > 0) await wait(Math.min(delay, remainingBeforeDelay));
+      if (generation !== this.generation || !this.client) return;
+      const remaining = reconnectDeadline - performance.now();
+      if (remaining <= 0) break;
+      try {
+        const reconnectPromise = this.client.reconnect(reconnectionToken);
+        const room = await withDeadline(reconnectPromise, remaining, async (lateRoom) => {
+          lateRoom.removeAllListeners();
+          await lateRoom.leave(true);
+        });
+        if (generation !== this.generation) {
+          await room.leave(true);
+          return;
+        }
+        this.reconnecting = false;
+        this.attachRoom(room, generation);
+        if (room.state) this.handleState(room.state as PartyStateLike);
+        this.emitEvent({ type: "reconnected" });
+        return;
+      } catch (error) {
+        if (error instanceof Error && error.message === "RECONNECT_TIMEOUT") break;
+        // Retry within the server's 20-second reconnection reservation.
+      }
+    }
+    if (generation !== this.generation) return;
+    this.reconnecting = false;
+    this.emitEvent({ type: "disconnected" });
   }
 
   private send(type: string, payload: unknown): void {
@@ -61,15 +342,22 @@ export class ColyseusTransport {
   }
 
   private startInputCapture(): void {
-    const onKeyDown = (event: KeyboardEvent) => this.pressed.add(event.code);
+    const onKeyDown = (event: KeyboardEvent) => {
+      this.pressed.add(event.code);
+      if (event.code === "KeyB" && !event.repeat) this.requestRecall();
+    };
     const onKeyUp = (event: KeyboardEvent) => this.pressed.delete(event.code);
+    const clearPressed = () => this.pressed.clear();
     const onPointerMove = (event: PointerEvent) => {
-      this.aim = Math.atan2(event.clientY - window.innerHeight / 2, event.clientX - window.innerWidth / 2);
+      this.latestPointerClient = { x: event.clientX, y: event.clientY };
+      this.updateAimFromLatestPointer();
     };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
+    window.addEventListener("blur", clearPressed);
     window.addEventListener("pointermove", onPointerMove);
     this.inputTimer = setInterval(() => {
+      this.updateAimFromLatestPointer();
       const x = Number(this.pressed.has("KeyD")) - Number(this.pressed.has("KeyA"));
       const y = Number(this.pressed.has("KeyS")) - Number(this.pressed.has("KeyW"));
       const buttons =
@@ -82,9 +370,281 @@ export class ColyseusTransport {
     this.cleanupInput = () => {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
+      window.removeEventListener("blur", clearPressed);
       window.removeEventListener("pointermove", onPointerMove);
     };
   }
+
+  private updateAimFromLatestPointer(): void {
+    if (!this.latestPointerClient) return;
+    const canvas = document.querySelector<HTMLCanvasElement>(".game-canvas canvas");
+    const bounds = canvas?.getBoundingClientRect();
+    const localPlayer = this.latestState?.players.find((player) => player.isLocal);
+    const originX = bounds && canvas && localPlayer
+      ? bounds.left + localPlayer.x * (bounds.width / Math.max(1, canvas.width))
+      : bounds ? bounds.left + bounds.width / 2 : window.innerWidth / 2;
+    const originY = bounds && canvas && localPlayer
+      ? bounds.top + localPlayer.y * (bounds.height / Math.max(1, canvas.height))
+      : bounds ? bounds.top + bounds.height / 2 : window.innerHeight / 2;
+    this.aim = Math.atan2(
+      this.latestPointerClient.y - originY,
+      this.latestPointerClient.x - originX,
+    );
+  }
+
+  private handleState(state: PartyStateLike): void {
+    const players = collectionValues(state.players).map((player): PartyMemberSnapshot => ({
+      userId: player.userId ?? "",
+      displayName: player.displayName ?? "용사",
+      heroClass: isHeroClass(player.heroClass) ? player.heroClass : "swordsman",
+      hp: player.hp ?? 0,
+      maxHp: player.maxHp ?? 0,
+      level: player.level ?? 1,
+      teamPower: player.teamPower ?? 0,
+      ready: player.ready ?? false,
+      connected: player.connected ?? true,
+      alive: player.alive ?? (player.hp ?? 0) > 0,
+      roomId: player.roomId ?? "zone-1:0,4",
+      x: player.x ?? 0,
+      y: player.y ?? 0,
+      isLocal: player.userId === this.localUserId,
+    }));
+    const localRoomId = players.find((player) => player.isLocal)?.roomId ?? "";
+    const localPlayerState = collectionValues(state.players).find((player) => player.userId === this.localUserId);
+    const draft = localPlayerState?.upgradeDraft;
+    const localUpgradeDraft = draft?.active && draft.draftId
+      ? {
+        draftId: draft.draftId,
+        level: draft.level ?? 1,
+        choices: collectionValues(draft.choices)
+          .sort((left, right) => (left.order ?? 0) - (right.order ?? 0))
+          .map((choice): UpgradeChoice => ({
+            id: (choice.upgradeId ?? "power") as UpgradeId,
+            name: choice.name ?? "공격 증강",
+            description: choice.description ?? "공격 능력을 강화합니다.",
+            tag: upgradeTag(choice.upgradeId),
+            maxStacks: choice.maxStacks ?? 1,
+            rarity: isUpgradeRarity(choice.rarity) ? choice.rarity : "normal",
+            stack: choice.stack ?? 0,
+          })),
+      }
+      : null;
+    const localEquipment = equipmentSummaries(localPlayerState?.equipment);
+    const stats = collectionValues(state.players).reduce<TeamStats>((total, player) => ({
+      damage: total.damage + (player.damage ?? 0),
+      bossDamage: total.bossDamage + (player.bossDamage ?? 0),
+      kills: total.kills + (player.kills ?? 0),
+      deaths: total.deaths + (player.deaths ?? 0),
+      structuresBuilt: total.structuresBuilt + (player.structuresBuilt ?? 0),
+      goldSpent: total.goldSpent + (player.goldSpent ?? 0),
+      gatesDestroyed: total.gatesDestroyed + (player.gatesDestroyed ?? 0),
+    }), {
+      damage: 0,
+      bossDamage: 0,
+      kills: 0,
+      deaths: 0,
+      structuresBuilt: 0,
+      goldSpent: 0,
+      gatesDestroyed: 0,
+    });
+    const connections = new Map<string, string[]>();
+    for (const door of collectionValues(state.doors)) {
+      if (!door.fromRoomId || !door.toRoomId) continue;
+      connections.set(door.fromRoomId, [...(connections.get(door.fromRoomId) ?? []), door.toRoomId]);
+      connections.set(door.toRoomId, [...(connections.get(door.toRoomId) ?? []), door.fromRoomId]);
+    }
+    const rooms = collectionValues(state.rooms).map((room): RoomMapCell => ({
+      id: room.id ?? "",
+      zone: room.zone ?? 1,
+      x: room.gridX ?? room.x ?? 0,
+      y: room.gridY ?? room.y ?? 0,
+      type: isRoomType(room.kind) ? room.kind : isRoomType(room.roomType) ? room.roomType : "empty",
+      visited: room.discovered ?? room.visited ?? false,
+      current: room.id === localRoomId,
+      cleared: room.cleared ?? false,
+      connections: collectionValues(room.connections).length > 0 ? collectionValues(room.connections) : connections.get(room.id ?? "") ?? [],
+    }));
+    const enemies = collectionValues(state.enemies).map((enemy): NetworkEnemySnapshot => ({
+      id: enemy.id ?? "",
+      kind: enemy.kind ?? "grunt",
+      behavior: isEnemyBehavior(enemy.behavior) ? enemy.behavior : "static",
+      roomId: enemy.roomId ?? "",
+      spawnRoomId: enemy.spawnRoomId ?? enemy.roomId ?? "",
+      targetId: enemy.targetId ?? "",
+      x: enemy.x ?? 0,
+      y: enemy.y ?? 0,
+      hp: enemy.hp ?? 0,
+      maxHp: enemy.maxHp ?? 0,
+      alive: enemy.alive ?? true,
+    }));
+    const drops = collectionValues(state.drops)
+      .filter((drop) => drop.ownerUserId === this.localUserId && !drop.claimed && isDropSlot(drop.slot) && isDropRarity(drop.rarity))
+      .map((drop): NetworkDropSnapshot => ({
+        id: drop.id ?? "",
+        ownerUserId: drop.ownerUserId ?? "",
+        roomId: drop.roomId ?? "",
+        slot: drop.slot as NetworkDropSnapshot["slot"],
+        rarity: drop.rarity as NetworkDropSnapshot["rarity"],
+        x: drop.x ?? 0,
+        y: drop.y ?? 0,
+        specialOptionCount: drop.specialOptionCount ?? 0,
+      }));
+    const waypoints = collectionValues(state.waypoints).map((waypoint) => ({
+      id: waypoint.id ?? "",
+      roomId: waypoint.roomId ?? "",
+      kind: isWaypointKind(waypoint.kind) ? waypoint.kind : "central" as const,
+      destinationId: waypoint.destinationId ?? "",
+      active: waypoint.active ?? false,
+      requiredPlayers: waypoint.requiredPlayers ?? 0,
+      holdingPlayers: waypoint.holdingPlayers ?? 0,
+      holdProgress: waypoint.holdProgress ?? 0,
+      holdDurationMs: waypoint.holdDurationMs ?? 5_000,
+    }));
+    const snapshot: NetworkWorldSnapshot = {
+      matchId: state.matchId ?? "",
+      seed: state.seed ?? "",
+      phase: isNetworkPhase(state.phase) ? state.phase : "lobby",
+      resultState: isNetworkResult(state.resultState) ? state.resultState : null,
+      resultReason: state.resultReason ?? "",
+      day: state.day ?? 1,
+      serverTime: state.serverTime ?? Date.now(),
+      elapsed: state.elapsed ?? 0,
+      phaseEndsAt: state.phaseEndsAt ?? 0,
+      baseHp: state.baseHp ?? 0,
+      baseMaxHp: state.baseMaxHp ?? 900,
+      gold: state.gold ?? 0,
+      currentZone: rooms.find((room) => room.id === localRoomId)?.zone ?? state.currentZone ?? 1,
+      teamLevel: state.teamLevel ?? 1,
+      teamXp: state.teamXp ?? 0,
+      teamXpToNext: state.teamXpToNext ?? 20,
+      players,
+      rooms,
+      enemies,
+      drops,
+      waypoints,
+      waypointHoldProgress: state.waypointHoldProgress ?? Math.max(0, ...waypoints.map((waypoint) => waypoint.holdProgress)),
+      localUpgradeDraft,
+      localEquipment,
+      stats,
+    };
+    this.latestState = snapshot;
+    gameBridge.emit("network", snapshot);
+    this.stateListeners.forEach((listener) => listener(snapshot));
+  }
+
+  private emitEvent(event: { type: string; message?: string; code?: string; state?: string }): void {
+    this.eventListeners.forEach((listener) => listener(event));
+  }
+}
+
+function collectionValues<T>(collection: SchemaCollection<T> | T[] | undefined): T[] {
+  if (!collection) return [];
+  if (Array.isArray(collection)) return [...collection];
+  const values: T[] = [];
+  collection.forEach((value) => values.push(value));
+  return values;
+}
+
+function isHeroClass(value: string | undefined): value is HeroClassId {
+  return value === "swordsman" || value === "archer" || value === "mage";
+}
+
+function isNetworkPhase(value: string | undefined): value is NetworkWorldSnapshot["phase"] {
+  return value === "lobby" || value === "day" || value === "night" || value === "standby" || value === "boss" || value === "ended";
+}
+
+function isNetworkResult(value: string | undefined): value is Exclude<NetworkWorldSnapshot["resultState"], null> {
+  return value === "victory" || value === "defeat" || value === "abandoned";
+}
+
+function isRoomType(value: string | undefined): value is RoomMapCell["type"] {
+  return value === "start" || value === "gate" || value === "resource" || value === "static-monster" || value === "empty" || value === "central-waypoint" || value === "hidden-monster" || value === "boss";
+}
+
+function isEnemyBehavior(value: string | undefined): value is NetworkEnemySnapshot["behavior"] {
+  return value === "static" || value === "invader" || value === "hidden" || value === "gate" || value === "boss";
+}
+
+function isWaypointKind(value: string | undefined): value is NetworkWorldSnapshot["waypoints"][number]["kind"] {
+  return value === "start" || value === "central" || value === "gate" || value === "boss";
+}
+
+function isDropSlot(value: string | undefined): value is NetworkDropSnapshot["slot"] {
+  return value === "weapon" || value === "armor" || value === "accessory";
+}
+
+function isDropRarity(value: string | undefined): value is NetworkDropSnapshot["rarity"] {
+  return value === "legendary" || value === "mythic";
+}
+
+async function withDeadline<T>(
+  operation: Promise<T>,
+  timeoutMs: number,
+  onLateResolve: (value: T) => Promise<void>,
+): Promise<T> {
+  let timedOut = false;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      timedOut = true;
+      reject(new Error("RECONNECT_TIMEOUT"));
+    }, Math.max(1, timeoutMs));
+  });
+  operation.then((value) => {
+    if (timedOut) void onLateResolve(value).catch(() => undefined);
+  }).catch(() => undefined);
+  try {
+    return await Promise.race([operation, deadline]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+function isUpgradeRarity(value: string | undefined): value is UpgradeChoice["rarity"] {
+  return value === "normal" || value === "rare" || value === "epic";
+}
+
+function upgradeTag(upgradeId: string | undefined): UpgradeChoice["tag"] {
+  if (upgradeId?.startsWith("swordsman-")) return "검사";
+  if (upgradeId?.startsWith("archer-")) return "궁수";
+  if (upgradeId?.startsWith("mage-")) return "마법사";
+  return "공용";
+}
+
+function equipmentSummaries(equipment: PlayerStateLike["equipment"]): EquipmentSummary[] {
+  if (!equipment) return [];
+  const result: EquipmentSummary[] = [];
+  const append = (
+    slot: EquipmentSummary["slot"],
+    id: string | undefined,
+    rarityValue: string | undefined,
+    power: number,
+  ) => {
+    const rarity = isEquipmentRarity(rarityValue) ? rarityValue : null;
+    if (!id || !rarity) return;
+    const slotName = slot === "weapon" ? "무기" : slot === "armor" ? "방어구" : "장신구";
+    result.push({ slot, rarity, power, name: `${rarityName(rarity)} ${slotName}` });
+  };
+  append("weapon", equipment.weaponId, equipment.weaponRarity, equipment.attackBonus ?? 0);
+  append("armor", equipment.armorId, equipment.armorRarity, (equipment.maxHpBonus ?? 0) + (equipment.defenseBonus ?? 0));
+  append("accessory", equipment.accessoryId, equipment.accessoryRarity, equipment.attackSpeedBonus ?? 0);
+  return result;
+}
+
+function isEquipmentRarity(value: string | undefined): value is EquipmentSummary["rarity"] {
+  return value === "normal" || value === "rare" || value === "epic" || value === "legendary" || value === "mythic";
+}
+
+function rarityName(rarity: EquipmentSummary["rarity"]): string {
+  if (rarity === "mythic") return "신화";
+  if (rarity === "legendary") return "레전더리";
+  if (rarity === "epic") return "에픽";
+  if (rarity === "rare") return "레어";
+  return "노말";
 }
 
 export const colyseusTransport = new ColyseusTransport();
+
+function wait(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}

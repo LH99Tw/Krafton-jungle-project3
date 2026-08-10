@@ -1,4 +1,5 @@
 import type { ClassDefinition, HeroClassId } from "../domain/types";
+import { CLASS_COMBAT_RULES } from "@five-days/game-core";
 
 export const CLASS_DEFINITIONS: Record<HeroClassId, ClassDefinition> = {
   swordsman: {
@@ -12,12 +13,12 @@ export const CLASS_DEFINITIONS: Record<HeroClassId, ClassDefinition> = {
     role: "근접 · 연격 · 생존",
     attackKind: "melee",
     stats: {
-      maxHp: 110,
-      attack: 9,
-      defense: 3,
-      moveSpeed: 220,
-      attackIntervalMs: 440,
-      attackRange: 105,
+      maxHp: CLASS_COMBAT_RULES.swordsman.hp,
+      attack: CLASS_COMBAT_RULES.swordsman.attackDamage,
+      defense: 0,
+      moveSpeed: CLASS_COMBAT_RULES.swordsman.speed,
+      attackIntervalMs: CLASS_COMBAT_RULES.swordsman.attackInterval * 1000,
+      attackRange: CLASS_COMBAT_RULES.swordsman.attackRange,
       skillPower: 1,
       projectileCount: 1,
     },
@@ -37,12 +38,12 @@ export const CLASS_DEFINITIONS: Record<HeroClassId, ClassDefinition> = {
     role: "원거리 · 관통 · 지속 화력",
     attackKind: "projectile",
     stats: {
-      maxHp: 82,
-      attack: 6,
-      defense: 1,
-      moveSpeed: 235,
-      attackIntervalMs: 360,
-      attackRange: 460,
+      maxHp: CLASS_COMBAT_RULES.archer.hp,
+      attack: CLASS_COMBAT_RULES.archer.attackDamage,
+      defense: 0,
+      moveSpeed: CLASS_COMBAT_RULES.archer.speed,
+      attackIntervalMs: CLASS_COMBAT_RULES.archer.attackInterval * 1000,
+      attackRange: CLASS_COMBAT_RULES.archer.attackRange,
       skillPower: 1,
       projectileCount: 1,
     },
@@ -62,12 +63,12 @@ export const CLASS_DEFINITIONS: Record<HeroClassId, ClassDefinition> = {
     role: "원거리 · 폭발 · 순간 화력",
     attackKind: "magic",
     stats: {
-      maxHp: 74,
-      attack: 8,
-      defense: 1,
-      moveSpeed: 210,
-      attackIntervalMs: 620,
-      attackRange: 390,
+      maxHp: CLASS_COMBAT_RULES.mage.hp,
+      attack: CLASS_COMBAT_RULES.mage.attackDamage,
+      defense: 0,
+      moveSpeed: CLASS_COMBAT_RULES.mage.speed,
+      attackIntervalMs: CLASS_COMBAT_RULES.mage.attackInterval * 1000,
+      attackRange: CLASS_COMBAT_RULES.mage.attackRange,
       skillPower: 1.15,
       projectileCount: 1,
     },

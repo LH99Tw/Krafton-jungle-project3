@@ -15,8 +15,9 @@ import {
   SignJWT,
   type JWTPayload,
 } from "jose";
+import { PROTOCOL_VERSION as GAME_PROTOCOL_VERSION } from "@five-days/protocol";
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = GAME_PROTOCOL_VERSION;
 export const GAME_TICKET_ISSUER = "five-days-web";
 export const GAME_TICKET_AUDIENCE = "five-days-game-server";
 
@@ -97,7 +98,7 @@ export function safeReturnPath(value: string | null | undefined): string {
   try {
     const url = new URL(value, "https://app.local");
     if (url.origin !== "https://app.local") return "/";
-    if (["/api/auth/login", "/api/auth/callback", "/api/auth/logout"].includes(url.pathname)) return "/";
+    if (["/api/auth/login", "/api/auth/callback", "/api/auth/logout", "/api/auth/guest"].includes(url.pathname)) return "/";
     return `${url.pathname}${url.search}${url.hash}`;
   } catch {
     return "/";

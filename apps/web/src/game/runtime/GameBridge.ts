@@ -3,6 +3,7 @@ import type {
   GameResult,
   GameSnapshot,
   GameStartOptions,
+  NetworkWorldSnapshot,
   UpgradeChoice,
   UpgradeId,
 } from "../domain/types";
@@ -13,6 +14,7 @@ type BridgeEvents = {
   result: GameResult;
   ready: undefined;
   message: string;
+  network: NetworkWorldSnapshot;
 };
 
 type BridgeEventName = keyof BridgeEvents;
@@ -50,6 +52,8 @@ export type GameCommand =
   | { type: "set-build-mode"; buildMode: BuildMode }
   | { type: "enter-boss" }
   | { type: "return-base" }
+  | { type: "interact"; targetId: string }
+  | { type: "travel"; waypointId: string; destinationId: string }
   | { type: "restart" };
 
 export const gameBridge = new GameBridge();

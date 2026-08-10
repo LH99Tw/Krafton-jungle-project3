@@ -20,9 +20,9 @@ export function UpgradeDraft({ choices, onChoose }: { choices: UpgradeChoice[]; 
   if (choices.length === 0) return null;
 
   return (
-    <div className="modal-backdrop upgrade-backdrop" role="dialog" aria-modal="true" aria-labelledby="upgrade-title">
+    <aside className="upgrade-dock" role="dialog" aria-modal="false" aria-labelledby="upgrade-title">
       <section className="upgrade-modal">
-        <div className="upgrade-heading"><span>LEVEL UP · TEAM EXP SHARED</span><h2 id="upgrade-title">이번 원정의 방향을 선택하세요</h2><p>전투는 계속됩니다. 숫자 키 1–3으로도 즉시 선택할 수 있습니다.</p></div>
+        <div className="upgrade-heading"><span>LEVEL UP · 전투 계속 진행 중</span><h2 id="upgrade-title">증강 선택</h2><p>1 / 2 / 3 키로 빠르게 선택</p></div>
         <div className="upgrade-grid">
           {choices.map((choice, index) => (
             <button
@@ -41,7 +41,7 @@ export function UpgradeDraft({ choices, onChoose }: { choices: UpgradeChoice[]; 
           ))}
         </div>
       </section>
-    </div>
+    </aside>
   );
 }
 
