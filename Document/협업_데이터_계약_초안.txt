@@ -1,0 +1,29 @@
+[공통 ID 규칙]
+- 클래스: swordsman / archer / mage
+- 페이즈: day / night / standby / boss / ended
+- 시설: turret / wall
+- 희귀도: normal / rare / epic / legendary / mythic
+- 시간 단위: 문서·밸런스는 초, 코드 쿨다운은 ms
+- 수치: 체력·피해·방어·골드는 정수
+
+[GameCommand 방향]
+- start(options)
+- choose-upgrade(upgradeId)
+- set-build-mode(buildMode)
+- enter-boss()
+- return-base()
+- restart()
+
+[GameSnapshot 최소 필드]
+- phase, day, phaseRemaining, elapsed
+- hp, maxHp, baseHp, baseMaxHp
+- level, xp, xpToNext, gold
+- gatesDestroyed, bossHp, bossMaxHp
+- buildMode, qCooldown, eCooldown, dashCooldown
+- upgrades, stats, message
+
+[담당별 변경 권한]
+- 시스템: classes, upgrades, balance의 수치와 효과
+- 레벨: levels 폴더의 방·시드·웨이브 배치
+- 백엔드: transport 구현, API, DB, 서버 검증
+- 공통 타입 변경: 관련 담당자 2명 리뷰 후 병합
