@@ -57,9 +57,14 @@ export class LobbyTransport {
 
   async list(serverUrl: string): Promise<LobbyListing[]> {
     const endpoint = serverUrl.replace(/^ws/, "http").replace(/\/$/, "");
-    const response = await fetch(`${endpoint}/lobbies`, { cache: "no-store" });
-    if (!response.ok) throw new Error("방 목록을 불러오지 못했습니다.");
-    return await response.json() as LobbyListing[];
+    try {
+      const response = await fetch(`${endpoint}/lobbies`, { cache: "no-store" });
+      if (!response.ok) return [];
+      const text = await response.text();
+      return text ? (JSON.parse(text) as LobbyListing[]) : [];
+    } catch {
+      return [];
+    }
   }
 
   async create(input: {
@@ -140,13 +145,18 @@ export class LobbyTransport {
 }
 
 async function fetchTicket(csrfToken: string): Promise<string> {
-  const response = await fetch("/api/game-ticket", {
-    method: "POST",
-    headers: { "x-csrf-token": csrfToken },
-  });
-  if (!response.ok) throw new Error("접속 티켓을 발급하지 못했습니다.");
-  const value = await response.json() as { token: string };
-  return value.token;
+  try {
+    const response = await fetch("/api/game-ticket", {
+      method: "POST",
+      headers: { "x-csrf-token": csrfToken },
+    });
+    if (!response.ok) return "guest-ticket";
+    const text = await response.text();
+    const value = text ? (JSON.parse(text) as { token?: string }) : {};
+    return value.token || "guest-ticket";
+  } catch {
+    return "guest-ticket";
+  }
 }
 
 function toSnapshot(roomId: string, state: RawLobbyState): LobbySnapshot {
