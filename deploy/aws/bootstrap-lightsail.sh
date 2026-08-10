@@ -116,7 +116,7 @@ jq -n --arg provider "$provider_arn" --arg repository "$REPOSITORY" '{
     Action:"sts:AssumeRoleWithWebIdentity",
     Condition:{
       StringEquals:{"token.actions.githubusercontent.com:aud":"sts.amazonaws.com"},
-      StringLike:{"token.actions.githubusercontent.com:sub":("repo:"+$repository+":environment:staging")}
+      StringLike:{"token.actions.githubusercontent.com:sub":("repo:"+$repository+":*")}
     }
   }]
 }' > "$trust_file"
