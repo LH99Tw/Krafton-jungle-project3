@@ -226,7 +226,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
         method: "POST",
         headers: { "x-csrf-token": viewer.csrfToken },
       });
-      const text = await response.text();
+      await response.text();
       setViewer(null);
       router.refresh();
     } catch {

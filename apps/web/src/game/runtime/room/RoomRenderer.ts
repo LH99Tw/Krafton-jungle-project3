@@ -185,8 +185,7 @@ export class RoomRenderer {
 
     if (room.type === "start" && room.zone === 1) {
       this.track(this.scene.add.image(center.x, center.y + 40, "core").setDepth(2));
-    } else if (options.showBuildGrid && room.zone === 1 && room.type === "start") {
-      this.drawBuildGridWorld(graphics, rect);
+      if (options.showBuildGrid) this.drawBuildGridWorld(graphics, rect);
     }
   }
 
@@ -196,7 +195,7 @@ export class RoomRenderer {
     accent: number,
     waypointActive: boolean,
   ): void {
-    const { room, rect, center } = entry;
+    const { room, center } = entry;
     if (room.type === "resource") {
       graphics.fillStyle(0xe0c271, 0.22).fillCircle(center.x - 120, center.y - 60, 34).fillCircle(center.x + 40, center.y + 70, 28).fillCircle(center.x + 150, center.y - 90, 22);
       graphics.lineStyle(2, 0xffe6a4, 0.55).strokeCircle(center.x - 120, center.y - 60, 34).strokeCircle(center.x + 40, center.y + 70, 28).strokeCircle(center.x + 150, center.y - 90, 22);
