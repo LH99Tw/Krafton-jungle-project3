@@ -14,3 +14,16 @@ deploy/.secrets/
 .wrangler/
 .vinext/
 out/
+Document/aws-icons/users.svg
+Document/aws-icons/s3.svg
+Document/aws-icons/lightsail.svg
+Document/aws-icons/git.svg
+Document/aws-icons/firewall.svg
+Document/aws-icons/database.svg
+Document/aws-icons/cognito.svg
+Document/aws-icons/code.svg
+Document/aws-icons/client.svg
+Document/aws-architecture-dark.svg
+Document/aws-architecture-dark.png
+Document/aws-architecture-dark-v2.svg
+Document/aws-architecture-dark-v2.png
