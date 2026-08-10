@@ -23,10 +23,12 @@ export function Guestbook({ viewer }: { viewer: Viewer }) {
   useEffect(() => {
     let alive = true;
     void fetch("/api/guestbook")
-      .then((response) => response.ok
-        ? response.json() as Promise<{ entries?: Entry[] }>
-        : Promise.reject(new Error("unavailable")))
-      .then((payload: { entries?: Entry[] }) => {
+      .then(async (response) => {
+        if (!response.ok) return { entries: [] };
+        const text = await response.text();
+        return text ? (JSON.parse(text) as { entries?: Entry[] }) : { entries: [] };
+      })
+      .then((payload) => {
         if (alive && payload.entries?.length) setEntries(payload.entries);
       })
       .catch(() => undefined);
@@ -37,22 +39,31 @@ export function Guestbook({ viewer }: { viewer: Viewer }) {
     event.preventDefault();
     if (!viewer || content.trim().length < 2) return;
     setStatus("기록 중…");
-    const response = await fetch("/api/guestbook", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-csrf-token": viewer.csrfToken,
-      },
-      body: JSON.stringify({ content }),
-    });
-    if (!response.ok) {
+    try {
+      const response = await fetch("/api/guestbook", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-csrf-token": viewer.csrfToken,
+        },
+        body: JSON.stringify({ content }),
+      });
+      if (!response.ok) {
+        setStatus("지금은 기록을 남길 수 없습니다.");
+        return;
+      }
+      const text = await response.text();
+      const payload = text ? (JSON.parse(text) as { entry?: Entry }) : null;
+      if (payload?.entry) {
+        setEntries((current) => [payload.entry!, ...current].slice(0, 8));
+        setContent("");
+        setStatus("왕국 기록에 남겼습니다.");
+      } else {
+        setStatus("지금은 기록을 남길 수 없습니다.");
+      }
+    } catch {
       setStatus("지금은 기록을 남길 수 없습니다.");
-      return;
     }
-    const payload = await response.json() as { entry: Entry };
-    setEntries((current) => [payload.entry, ...current].slice(0, 8));
-    setContent("");
-    setStatus("왕국 기록에 남겼습니다.");
   }
 
   return (

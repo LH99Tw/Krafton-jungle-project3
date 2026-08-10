@@ -14,6 +14,15 @@ import {
 } from "./map";
 import type { AugmentDefinition, AugmentStacks } from "./progression";
 import { createSeededRandom, hashSeed } from "./random";
+import {
+  bossWorldRect,
+  buildWorldFromRooms,
+  roomContainingPoint,
+  roomIdToGrid,
+  roomWorldCenter,
+  roomWorldRect,
+  resolveWalkablePoint,
+} from "./world";
 
 export const ROOM_WIDTH = 1_280;
 export const ROOM_HEIGHT = 720;
@@ -245,7 +254,8 @@ export function createRuntimeWorld(
 
       const kind = enemyKindForRoom(room.type);
       if (kind) {
-        const enemy = createSeededRoomEnemy(seed, room.id, room.zone, kind, difficulty);
+        const origin = roomWorldRect({ x: room.x, y: room.y });
+        const enemy = createSeededRoomEnemy(seed, room.id, room.zone, kind, difficulty, origin.x, origin.y);
         enemies.set(enemy.id, enemy);
       }
     }
@@ -270,16 +280,19 @@ export function createRuntimeWorld(
 export function createBossEnemy(seed: string | number, difficulty: "easy" | "normal" | "hard"): CoreEnemy {
   const multiplier = DIFFICULTY_MULTIPLIER[difficulty];
   const hp = Math.round(650 * multiplier.hp);
+  const boss = bossWorldRect();
+  const x = boss.x + boss.width / 2;
+  const y = boss.y + boss.height * 0.3;
   return {
     id: `enemy:boss:${hashSeed(`boss:${seed}`).toString(16)}`,
     kind: "boss",
     behavior: "boss",
     roomId: BOSS_ROOM_ID,
     spawnRoomId: BOSS_ROOM_ID,
-    x: ROOM_WIDTH / 2,
-    y: ROOM_HEIGHT * 0.3,
-    spawnX: ROOM_WIDTH / 2,
-    spawnY: ROOM_HEIGHT * 0.3,
+    x,
+    y,
+    spawnX: x,
+    spawnY: y,
     hp,
     maxHp: hp,
     damage: Math.round(18 * multiplier.damage),
@@ -310,16 +323,17 @@ export function createInvaderEnemy(
   const multiplier = DIFFICULTY_MULTIPLIER[difficulty];
   const path = createInvaderPath(zone, maps);
   const hp = Math.round((22 + zone * 8) * multiplier.hp);
+  const spawn = invaderWorldSpawn(path[0], maps);
   return {
     id: `enemy:invader:${zone}:${spawnIndex}:${hashSeed(`${seed}:${random.next()}`).toString(16)}`,
     kind: "invader",
     behavior: "invader",
     roomId: path[0] as CoreRoomId,
     spawnRoomId: path[0] as CoreRoomId,
-    x: ROOM_WIDTH / 2,
-    y: ROOM_HEIGHT / 2,
-    spawnX: ROOM_WIDTH / 2,
-    spawnY: ROOM_HEIGHT / 2,
+    x: spawn.x,
+    y: spawn.y,
+    spawnX: spawn.x,
+    spawnY: spawn.y,
     hp,
     maxHp: hp,
     damage: Math.round((7 + zone * 2) * multiplier.damage),
@@ -337,6 +351,14 @@ export function createInvaderEnemy(
     coarseProgress: 0,
     respawnRemaining: null,
   };
+}
+
+function invaderWorldSpawn(roomId: CoreRoomId, maps: ThreeZoneMap): Readonly<{ x: number; y: number }> {
+  for (const zoneMap of maps.zones) {
+    const room = zoneMap.rooms.find((candidate) => candidate.id === roomId);
+    if (room) return roomWorldCenter({ x: room.x, y: room.y });
+  }
+  return roomWorldCenter({ x: 0, y: 0 });
 }
 
 /** Gate-to-start paths are concatenated from the spawn zone down to zone one. */
@@ -374,56 +396,43 @@ export function shortestRoomPath(map: ZoneMap, from: RoomId, to: RoomId): RoomId
   return reversed.reverse();
 }
 
-export function movePlayerRoomLocal(
+/**
+ * Continuous world movement. Coordinates are world-space pixels; the player
+ * walks freely across a room and through a connecting corridor (통로) into the
+ * next room. Returns true when the player entered a different room so the
+ * caller can trigger discovery.
+ */
+export function movePlayerWorld(
   player: Pick<SimulationPlayer, "roomId" | "x" | "y">,
   deltaX: number,
   deltaY: number,
   rooms: ReadonlyMap<CoreRoomId, CoreRoom>,
 ): boolean {
   if (player.roomId === BOSS_ROOM_ID) {
-    player.x = clamp(player.x + deltaX, ROOM_EDGE_INSET, ROOM_WIDTH - ROOM_EDGE_INSET);
-    player.y = clamp(player.y + deltaY, ROOM_EDGE_INSET, ROOM_HEIGHT - ROOM_EDGE_INSET);
+    const boss = bossWorldRect();
+    player.x = clamp(player.x + deltaX, boss.x + ROOM_EDGE_INSET, boss.x + boss.width - ROOM_EDGE_INSET);
+    player.y = clamp(player.y + deltaY, boss.y + ROOM_EDGE_INSET, boss.y + boss.height - ROOM_EDGE_INSET);
     return false;
   }
 
+  // Restrict to the player's current zone so rooms from different zones (which
+  // share the same grid coordinates) never overlap in world space.
   const current = rooms.get(player.roomId);
-  if (!current) return false;
-  const nextX = player.x + deltaX;
-  const nextY = player.y + deltaY;
-  const horizontalOverflow = nextX < 0 ? -1 : nextX > ROOM_WIDTH ? 1 : 0;
-  const verticalOverflow = nextY < 0 ? -1 : nextY > ROOM_HEIGHT ? 1 : 0;
-  const direction = Math.abs(deltaX) >= Math.abs(deltaY) && horizontalOverflow !== 0
-    ? { x: horizontalOverflow, y: 0 }
-    : verticalOverflow !== 0
-      ? { x: 0, y: verticalOverflow }
-      : horizontalOverflow !== 0
-        ? { x: horizontalOverflow, y: 0 }
-        : null;
-
-  if (direction) {
-    const connected = current.connections
-      .map((id) => rooms.get(id))
-      .find((room) => room && room.gridX - current.gridX === direction.x && room.gridY - current.gridY === direction.y);
-    if (connected) {
-      player.roomId = connected.id;
-      player.x = direction.x > 0
-        ? ROOM_EDGE_INSET
-        : direction.x < 0
-          ? ROOM_WIDTH - ROOM_EDGE_INSET
-          : clamp(nextX, ROOM_EDGE_INSET, ROOM_WIDTH - ROOM_EDGE_INSET);
-      player.y = direction.y > 0
-        ? ROOM_EDGE_INSET
-        : direction.y < 0
-          ? ROOM_HEIGHT - ROOM_EDGE_INSET
-          : clamp(nextY, ROOM_EDGE_INSET, ROOM_HEIGHT - ROOM_EDGE_INSET);
-      return true;
-    }
+  const zone = current?.zone;
+  const zoneRooms = zone ? [...rooms.values()].filter((room) => room.zone === zone) : [...rooms.values()];
+  const world = buildWorldFromRooms(zoneRooms, zone === 3);
+  const resolved = resolveWalkablePoint(world.rects, player.x + deltaX, player.y + deltaY, player.x, player.y);
+  player.x = resolved.x;
+  player.y = resolved.y;
+  const containing = roomContainingPoint(world.grid, resolved.x, resolved.y);
+  if (containing && containing !== player.roomId) {
+    player.roomId = containing as CoreRoomId;
+    return true;
   }
-
-  player.x = clamp(nextX, ROOM_EDGE_INSET, ROOM_WIDTH - ROOM_EDGE_INSET);
-  player.y = clamp(nextY, ROOM_EDGE_INSET, ROOM_HEIGHT - ROOM_EDGE_INSET);
   return false;
 }
+
+
 
 /** Nearest alive enemy inside the player's room, range and cursor-facing cone. */
 export function selectNearestConeEnemy(
@@ -519,13 +528,15 @@ function createWaypoint(
   destinationId: string,
   active: boolean,
 ): CoreWaypoint {
+  const grid = roomIdToGrid(roomId) ?? { x: 0, y: 0 };
+  const center = roomWorldCenter(grid);
   return {
     id,
     roomId,
     zone,
     kind,
-    x: ROOM_WIDTH / 2,
-    y: ROOM_HEIGHT / 2,
+    x: center.x,
+    y: center.y,
     destinationId,
     active,
     requiredPlayers: 0,
@@ -541,14 +552,16 @@ function createSeededRoomEnemy(
   zone: ZoneId,
   kind: "static" | "hidden" | "gate",
   difficulty: "easy" | "normal" | "hard",
+  originX: number,
+  originY: number,
 ): CoreEnemy {
   const random = createSeededRandom(`enemy:${seed}:${roomId}:${kind}`);
   const base = ENEMY_RULES[kind];
   const difficultyRule = DIFFICULTY_MULTIPLIER[difficulty];
   const zoneScale = 1 + (zone - 1) * 0.28;
   const hp = Math.round(base.hp * zoneScale * difficultyRule.hp);
-  const x = kind === "gate" ? ROOM_WIDTH * 0.76 : ROOM_WIDTH * (0.35 + random.next() * 0.3);
-  const y = kind === "gate" ? ROOM_HEIGHT * 0.24 : ROOM_HEIGHT * (0.3 + random.next() * 0.4);
+  const x = originX + (kind === "gate" ? ROOM_WIDTH * 0.76 : ROOM_WIDTH * (0.35 + random.next() * 0.3));
+  const y = originY + (kind === "gate" ? ROOM_HEIGHT * 0.24 : ROOM_HEIGHT * (0.3 + random.next() * 0.4));
   return {
     id: `enemy:${kind}:${roomId}:${hashSeed(`${seed}:${roomId}`).toString(16)}`,
     kind,

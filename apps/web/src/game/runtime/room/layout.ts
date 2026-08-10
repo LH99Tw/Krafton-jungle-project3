@@ -1,3 +1,12 @@
+import {
+  boundsOf,
+  buildWorldFromRooms,
+  corridorRectsBetween,
+  roomWorldCenter,
+  roomWorldRect,
+  type WorldRect,
+} from "@five-days/game-core";
+
 export const ROOM_VIEW = {
   width: 1280,
   height: 720,
@@ -98,5 +107,46 @@ export function clampToRoom(x: number, y: number, padding = 18): { x: number; y:
   return {
     x: Math.max(ROOM_VIEW.left + padding, Math.min(ROOM_VIEW.right - padding, x)),
     y: Math.max(ROOM_VIEW.top + padding, Math.min(ROOM_VIEW.bottom - padding, y)),
+  };
+}
+
+export type RenderWorldRoom = {
+  room: RenderableRoom;
+  rect: WorldRect;
+  center: { x: number; y: number };
+};
+
+export type RenderZoneWorld = {
+  rooms: RenderWorldRoom[];
+  corridors: WorldRect[];
+  walkable: WorldRect[];
+  bounds: WorldRect;
+  bossRect: WorldRect;
+};
+
+/**
+ * Lays the rooms of a zone out as a single continuous world: each room fills a
+ * world rectangle and connected rooms are joined by walkable corridors (통로).
+ */
+export function buildRenderWorld(rooms: readonly RenderableRoom[], includeBoss: boolean): RenderZoneWorld {
+  const like = rooms.map((room) => ({ id: room.id, gridX: room.x, gridY: room.y, connections: room.connections }));
+  const built = buildWorldFromRooms(like, includeBoss);
+  const worldRooms: RenderWorldRoom[] = rooms.map((room) => {
+    const rect = roomWorldRect({ x: room.x, y: room.y });
+    return { room, rect, center: roomWorldCenter({ x: room.x, y: room.y }) };
+  });
+  return {
+    rooms: worldRooms,
+    corridors: corridorRectsBetween(like),
+    walkable: built.rects,
+    bounds: boundsOf(built.rects),
+    bossRect: built.bossRect,
+  };
+}
+
+export function clampToWorld(bounds: WorldRect, x: number, y: number, padding = 20): { x: number; y: number } {
+  return {
+    x: Math.max(bounds.x + padding, Math.min(bounds.x + bounds.width - padding, x)),
+    y: Math.max(bounds.y + padding, Math.min(bounds.y + bounds.height - padding, y)),
   };
 }
