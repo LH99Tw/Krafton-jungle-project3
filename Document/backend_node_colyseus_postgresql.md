@@ -275,7 +275,7 @@ Player에는 room ID, 좌표, HP, alive/connected, 장비 요약, 개인 upgrade
 
 현재 `PartyRoom.syncState()`는 root와 player뿐 아니라 발견된 rooms/doors/enemies/waypoints를 GameCore 값으로 채우고, 개인 장비 요약과 upgrade draft, drops도 동기화한다. draft와 drop은 Colyseus `StateView`로 해당 사용자에게만 전달한다. `structures`는 건설 미구현으로 비어 있다.
 
-클라이언트 `ColyseusTransport`는 player/root, 발견 rooms/doors/enemies/waypoints, 개인 draft·장비·drop과 terminal result를 view model로 변환하고 서버 20초 예약보다 짧은 18초 deadline 안에서 reconnect를 재시도한다. 현재 `createGame.ts`는 `RoomGameScene`을 실행하며 이 장면은 network mode의 `update()`에서 로컬 session·전투·AI·경제 tick을 실행하지 않는다. 서버 room을 `RoomRenderer`로 전환하고 같은 방의 player/enemy와 소유자 drop을 state 위치로 표현하며, drop 클릭 equip·draft 선택·waypoint/travel/recall과 종료 결과를 UI 경계에 전달한다. 이전 `GameScene.ts`는 저장소에 남아 있지만 현재 Phaser scene 목록에는 없다.
+클라이언트 `ColyseusTransport`는 player/root, 발견 rooms/doors/enemies/waypoints, 개인 draft·장비·drop과 terminal result를 view model로 변환하고 서버 20초 예약보다 짧은 18초 deadline 안에서 reconnect를 재시도한다. 현재 `createGame.ts`는 `RoomGameScene`을 유일한 실행 장면으로 사용하며, 이 장면은 network mode의 `update()`에서 로컬 session·전투·AI·경제 tick을 실행하지 않는다. 서버 room을 `RoomRenderer`로 전환하고 같은 방의 player/enemy와 소유자 drop을 state 위치로 표현하며, drop 클릭 equip·draft 선택·waypoint/travel/recall과 종료 결과를 UI 경계에 전달한다.
 
 부분 구현으로 남은 클라이언트 경계:
 

@@ -36,12 +36,7 @@ export type ClassDefinition = {
   ];
 };
 
-export type UpgradeId = AugmentId
-  // Legacy-only IDs remain in the type until GameScene.ts is removed.
-  | "vitality"
-  | "armor"
-  | "mobility"
-  | "base-link";
+export type UpgradeId = AugmentId;
 
 export type UpgradeDefinition = {
   id: UpgradeId;
