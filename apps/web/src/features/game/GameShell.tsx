@@ -265,13 +265,15 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
 }
 
 function formatClientError(error: unknown, fallback: string): string {
-  if (typeof error === "string") return error;
+  if (typeof error === "string") return error.includes("[object Object]") ? fallback : error;
   if (error && typeof error === "object") {
     const message = (error as { message?: unknown }).message;
-    if (typeof message === "string") return message;
+    const code = (error as { code?: unknown }).code;
+    if (typeof message === "string" && !message.includes("[object Object]")) return message;
+    if (typeof code === "string" || typeof code === "number") return `${fallback} (코드: ${code})`;
     if (message && typeof message === "object") {
       const nested = message as { message?: unknown; code?: unknown };
-      if (typeof nested.message === "string") return nested.message;
+      if (typeof nested.message === "string" && !nested.message.includes("[object Object]")) return nested.message;
       if (typeof nested.code === "string") return nested.code;
       try { return JSON.stringify(message); } catch { /* use fallback */ }
     }
