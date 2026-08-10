@@ -124,7 +124,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       if (runGeneration !== runGenerationRef.current) return;
       setNetworkStatus("error");
       setLaunching(false);
-      setSurfaceError(error instanceof Error ? error.message : "게임 서버에 연결하지 못했습니다.");
+      setSurfaceError(formatClientError(error, "게임 서버에 연결하지 못했습니다."));
       setScreen("selecting");
     }
   }, [gameServerUrl, router, viewer]);
@@ -140,7 +140,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     const offError = lobbyTransport.on("error", (error) => setSurfaceError(formatClientError(error, "로비 요청을 처리하지 못했습니다.")));
     const offDisconnected = lobbyTransport.on("disconnected", ({ reason }) => {
       setLobby(null);
-      setSurfaceError(reason);
+      setSurfaceError(formatClientError(reason, "대기실 연결이 종료되었습니다."));
       setScreen((current) => current === "playing" ? current : "lobby");
     });
     const offStart = lobbyTransport.on("start", (event: LobbyGameStart) => {
@@ -161,7 +161,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
         const listings = await lobbyTransport.list(gameServerUrl);
         if (active) setRooms(listings);
       } catch (error) {
-        if (active) setSurfaceError(error instanceof Error ? error.message : "방 목록을 불러오지 못했습니다.");
+        if (active) setSurfaceError(formatClientError(error, "방 목록을 불러오지 못했습니다."));
       }
     };
     void refresh();
