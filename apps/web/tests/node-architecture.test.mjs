@@ -46,3 +46,14 @@ test("retains the Phaser game while adding the Colyseus transport", async () => 
   assert.match(transport, /POST/);
   assert.match(transport, /game-ticket/);
 });
+
+test("renders the dedicated access sidebar with the clean decorative asset", async () => {
+  const sidebar = await readFile(new URL("src/features/lobby/AccessSidebar.tsx", root), "utf8");
+  const accessScreen = await readFile(new URL("src/features/lobby/AccessScreen.tsx", root), "utf8");
+  const styles = await readFile(new URL("app/globals.css", root), "utf8");
+
+  assert.match(sidebar, /export function AccessSidebar/);
+  assert.match(accessScreen, /<AccessSidebar/);
+  assert.doesNotMatch(accessScreen, /className="access-rail"/);
+  assert.match(styles, /sidebar-frame-clean\.webp/);
+});

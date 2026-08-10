@@ -163,6 +163,24 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, autoStartOptio
     finally { setBusy(false); }
   }, []);
 
+  const logout = useCallback(async () => {
+    if (!viewer) return;
+    setBusy(true); setSurfaceError("");
+    try {
+      const response = await fetch("/api/auth/logout", {
+        method: "POST",
+        headers: { "x-csrf-token": viewer.csrfToken },
+      });
+      if (!response.ok) throw new Error("로그아웃하지 못했습니다.");
+      setViewer(null);
+      router.refresh();
+    } catch (error) {
+      setSurfaceError(error instanceof Error ? error.message : "로그아웃하지 못했습니다.");
+    } finally {
+      setBusy(false);
+    }
+  }, [router, viewer]);
+
   const returnToLobby = useCallback(() => {
     colyseusTransport.disconnect();
     lobbyTransport.returnFromGame();
@@ -187,5 +205,5 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, autoStartOptio
 
   if (screen === "lobby" && viewer) return <LobbyScreen viewer={viewer} rooms={rooms} snapshot={lobby} messages={messages} busy={busy} error={surfaceError} onCreate={createLobby} onJoin={joinLobby} onLeave={leaveLobby} onReady={(ready) => lobbyTransport.ready(ready)} onStart={() => lobbyTransport.startSelection()} onChat={(message) => lobbyTransport.chat(message)} onAddAi={() => lobbyTransport.addAi()} onRemoveAi={(userId) => lobbyTransport.removeAi(userId)} onBack={() => setScreen("access")} />;
 
-  return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onStart={() => { setSurfaceError(""); setScreen("lobby"); }} />;
+  return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onLogout={logout} onStart={() => { setSurfaceError(""); setScreen("lobby"); }} />;
 }

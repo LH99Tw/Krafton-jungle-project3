@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2600" height="1600" viewBox="0 0 2600 1600">
+  <defs>
+    <style>text{font-family:"Pretendard","Noto Sans KR","Apple SD Gothic Neo",sans-serif;fill:#17201d}.title{font-size:46px;font-weight:800}.sub{font-size:20px;fill:#5c6762}.h{font-size:25px;font-weight:800}.label{font-size:17px;font-weight:800}.body{font-size:15px;fill:#56615c}.tiny{font-size:12px;fill:#69746f}.step{font-size:15px;font-weight:900;fill:#8f6e25;letter-spacing:2px}.box{fill:#fff;stroke:#b9c2be;stroke-width:2}.soft{fill:#f2f5f3;stroke:#cbd2cf;stroke-width:2}.dark{fill:#1c2522}.gold{fill:#d2ab50}.green{fill:#9ebaa5}.danger{fill:#b9847b}.path{stroke:#27322e;stroke-width:5;fill:none;marker-end:url(#a)}.loop{stroke:#8a9690;stroke-width:4;stroke-dasharray:12 10;fill:none;marker-end:url(#s)}</style>
+    <marker id="a" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0 0L12 6L0 12Z" fill="#27322e"/></marker><marker id="s" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto"><path d="M0 0L12 6L0 12Z" fill="#8a9690"/></marker>
+  </defs>
+  <rect width="2600" height="1600" fill="#e8ebe9"/>
+  <text x="80" y="85" class="title">게임 플레이 내부 Flow ① — 기지에서 마왕까지</text><text x="80" y="125" class="sub">기획 기준 공간 진행 · 낮 탐험 / 밤 방어 · 5일 안에 성장 경로를 완성하는 구조</text>
+
+  <!-- timeline -->
+  <rect x="80" y="175" width="2440" height="120" rx="16" class="dark"/><text x="120" y="218" style="font-size:16px;font-weight:800;fill:#d2ab50">SESSION TIMELINE</text>
+  <g style="font-size:15px;font-weight:700"><text x="350" y="255" style="fill:#fff">DAY 01 · 조작/첫 특성</text><text x="770" y="255" style="fill:#fff">DAY 02 · 장비/건설</text><text x="1190" y="255" style="fill:#fff">DAY 03 · 전직/보스 발견</text><text x="1630" y="255" style="fill:#fff">DAY 04 · 최종 정비</text><text x="2070" y="255" style="fill:#fff">DAY 05 · 마왕 레이드</text></g>
+  <path d="M125 272H2440" stroke="#5b6762" stroke-width="4"/><g fill="#d2ab50"><circle cx="350" cy="272" r="9"/><circle cx="770" cy="272" r="9"/><circle cx="1190" cy="272" r="9"/><circle cx="1630" cy="272" r="9"/><circle cx="2070" cy="272" r="12"/></g>
+
+  <!-- world route -->
+  <text x="80" y="360" class="h">월드 진행 경로</text><text x="80" y="392" class="body">기지는 매일 돌아오는 안전 거점이며, 게이트를 파괴할수록 적 압박이 줄고 보스방 진입 조건이 열린다.</text>
+  <g transform="translate(80 440)">
+    <rect width="430" height="430" rx="18" class="box"/><text x="30" y="45" class="step">START / BASE</text><text x="30" y="82" class="h">왕국 기지</text>
+    <rect x="30" y="115" width="370" height="185" rx="10" class="soft"/><rect x="160" y="170" width="110" height="90" class="dark"/><path d="M145 170L215 115L285 170" fill="#d2ab50"/><rect x="65" y="208" width="55" height="55" fill="#9ebaa5"/><rect x="310" y="208" width="55" height="55" fill="#b9a477"/>
+    <text x="30" y="335" class="label">할 일</text><text x="30" y="367" class="body">• 포탑/장벽 건설 및 업그레이드</text><text x="30" y="394" class="body">• 장비 정리 · 다음 원정 준비 · 부활</text>
+  </g>
+  <g transform="translate(600 440)">
+    <rect width="400" height="430" rx="18" class="box"/><text x="30" y="45" class="step">ZONE 01</text><text x="30" y="82" class="h">들판 개척</text><rect x="30" y="115" width="340" height="185" rx="10" fill="#cbd8cb"/><path d="M30 270L100 210L165 245L235 175L370 260V300H30Z" fill="#8fa594"/><circle cx="105" cy="195" r="28" class="danger"/><rect x="260" y="170" width="55" height="80" class="dark"/><text x="30" y="335" class="label">보장 경험</text><text x="30" y="367" class="body">• 일반몹 → 첫 레벨업과 골드</text><text x="30" y="394" class="body">• 게이트 → 웨이포인트 / 첫 포탑</text>
+  </g>
+  <g transform="translate(1090 440)">
+    <rect width="400" height="430" rx="18" class="box"/><text x="30" y="45" class="step">ZONE 02</text><text x="30" y="82" class="h">오염된 숲</text><rect x="30" y="115" width="340" height="185" rx="10" fill="#aab9ad"/><g fill="#53665a"><circle cx="90" cy="180" r="48"/><circle cx="180" cy="225" r="62"/><circle cx="280" cy="175" r="52"/></g><circle cx="220" cy="220" r="26" class="danger"/><text x="30" y="335" class="label">빌드 결정</text><text x="30" y="367" class="body">• 장비 희귀도 상승 · 전직 분기 시작</text><text x="30" y="394" class="body">• 엘리트/히든방 → 에픽 보장 기회</text>
+  </g>
+  <g transform="translate(1580 440)">
+    <rect width="400" height="430" rx="18" class="box"/><text x="30" y="45" class="step">ZONE 03</text><text x="30" y="82" class="h">마왕성 외곽</text><rect x="30" y="115" width="340" height="185" rx="10" fill="#9d999a"/><path d="M85 280V170H135V125H180V170H235V110H290V170H335V280Z" fill="#424a47"/><circle cx="210" cy="220" r="34" class="danger"/><text x="30" y="335" class="label">최종 파밍</text><text x="30" y="367" class="body">• 고등급 장비 · 마지막 게이트</text><text x="30" y="394" class="body">• 마왕방 발견 후 조기 도전 가능</text>
+  </g>
+  <g transform="translate(2070 440)">
+    <rect width="450" height="430" rx="18" fill="#fff" stroke="#8f6e25" stroke-width="3"/><text x="30" y="45" class="step">FINAL / BOSS</text><text x="30" y="82" class="h">마왕의 제단</text><rect x="30" y="115" width="390" height="185" rx="10" fill="#4b514f"/><circle cx="225" cy="205" r="72" fill="#242a28"/><path d="M185 160L145 115M265 160L305 115" stroke="#d2ab50" stroke-width="12"/><rect x="100" y="270" width="250" height="12" fill="#70514d"/><rect x="100" y="270" width="175" height="12" class="gold"/><text x="30" y="335" class="label">승패 조건</text><text x="30" y="367" class="body">• 제한 시간 내 마왕 HP 0 → 승리</text><text x="30" y="394" class="body">• 전멸/기지 파괴/5일 종료 → 패배</text>
+  </g>
+  <path d="M510 650H590" class="path"/><path d="M1000 650H1080" class="path"/><path d="M1490 650H1570" class="path"/><path d="M1980 650H2060" class="path"/>
+
+  <!-- day night loop -->
+  <rect x="80" y="960" width="2440" height="540" rx="18" fill="#f8f9f8" stroke="#c4ccc8" stroke-width="2"/>
+  <text x="120" y="1015" class="h">하루 반복 루프</text><text x="120" y="1048" class="body">매일 “더 파밍할지, 기지로 돌아갈지”가 핵심 선택이다. 성장과 방어가 모두 다음 날의 생존 확률에 연결된다.</text>
+  <g transform="translate(130 1100)"><rect width="560" height="285" rx="16" fill="#eef4e9" stroke="#aebea8" stroke-width="2"/><text x="30" y="46" class="step">DAY · 210초 (프로토타입 60초)</text><text x="30" y="84" class="h">낮: 탐험과 투자</text><text x="30" y="128" class="body">1. 구역 진입 → 적/게이트 처치</text><text x="30" y="161" class="body">2. 경험치·골드·장비 획득</text><text x="30" y="194" class="body">3. 레벨업 특성 선택 / 건설 자원 판단</text><text x="30" y="227" class="body">4. 밤 전에 귀환하거나 위험 파밍 지속</text><rect x="30" y="248" width="500" height="16" fill="#d5ded2"/><rect x="30" y="248" width="385" height="16" class="green"/></g>
+  <g transform="translate(820 1100)"><polygon points="150,0 300,142 150,285 0,142" fill="#fff" stroke="#8d9893" stroke-width="3"/><text x="150" y="105" text-anchor="middle" class="label">밤이 시작되면?</text><text x="150" y="143" text-anchor="middle" class="body">기지 귀환</text><text x="150" y="172" text-anchor="middle" class="body">VS</text><text x="150" y="201" text-anchor="middle" class="body">고위험 잔류</text></g>
+  <g transform="translate(1250 1100)"><rect width="560" height="285" rx="16" fill="#eeeaea" stroke="#bbaaa6" stroke-width="2"/><text x="30" y="46" class="step">NIGHT · 75초 (프로토타입 25초)</text><text x="30" y="84" class="h">밤: 기지 방어</text><text x="30" y="128" class="body">1. 살아 있는 게이트가 적 웨이브 전송</text><text x="30" y="161" class="body">2. 포탑·장벽과 플레이어가 기지 방어</text><text x="30" y="194" class="body">3. 잔류 탐험자는 더 강한 보상과 위험 감수</text><text x="30" y="227" class="body">4. 기지 HP 0이면 즉시 원정 실패</text><rect x="30" y="248" width="500" height="16" fill="#ded4d2"/><rect x="30" y="248" width="260" height="16" class="danger"/></g>
+  <g transform="translate(1940 1100)"><rect width="450" height="285" rx="16" class="soft"/><text x="30" y="46" class="step">STANDBY · 15초 (프로토타입 5초)</text><text x="30" y="84" class="h">정산: 다음 날 준비</text><text x="30" y="128" class="body">• 사망자 부활 / 기지 상태 확인</text><text x="30" y="161" class="body">• 장비·특성·공용 골드 정리</text><text x="30" y="194" class="body">• 다음 구역과 방어 우선순위 합의</text><text x="30" y="227" class="body">• DAY + 1 또는 마왕 도전</text></g>
+  <path d="M690 1242H810" class="path"/><path d="M1120 1242H1240" class="path"/><path d="M1810 1242H1930" class="path"/><path d="M2165 1390 C2165 1470 400 1470 400 1395" class="loop"/><text x="1280" y="1478" text-anchor="middle" class="label">DAY + 1 · 성장 상태 유지 · 적 압박 증가</text>
+</svg>

@@ -1119,6 +1119,49 @@ button {
 .access-launch button:disabled { border-color:#323a37; background:#222827; color:#606966; cursor:not-allowed; }
 .access-launch button i { font-style:normal; font-size:20px; }
 
+/* Asset-led medieval access screen */
+.access-screen { --command-gold:#b99a56; --command-ivory:#d8d1bf; grid-template-columns:20.7% 79.3%; background:#030303; }
+.access-rail { position:relative; z-index:2; min-height:100svh; padding:0; overflow:hidden; isolation:isolate; background:#090909; border:0; box-shadow:none; }
+.access-rail-art { position:absolute; inset:0; z-index:0; background:url('/images/access/sidebar-frame-clean.webp') center/100% 100% no-repeat; animation:access-frame-enter 1s cubic-bezier(.16,1,.3,1) both; }
+.access-auth { position:absolute; z-index:2; top:19%; left:8%; right:8%; margin:0; padding:16px 15px; background:rgba(8,8,8,.96); border-top:1px solid rgba(185,154,86,.34); border-bottom:1px solid rgba(185,154,86,.24); box-shadow:0 18px 42px rgba(0,0,0,.5); animation:command-enter .7s .12s both; }
+.access-auth h2 { margin:0 0 9px; color:var(--command-ivory); font:500 24px/1.25 Georgia,"Noto Serif KR",serif; }
+.access-auth > p:not(.surface-error) { margin:0 0 15px; color:#8b867a; font:11px/1.65 "Noto Serif KR",serif; word-break:keep-all; }
+.google-login { height:42px; color:#171511; background:#c9b77f; font-size:11px; }
+.google-login:hover { background:#e0d3a8; }
+.auth-divider { margin:16px 0; border-color:rgba(216,209,191,.12); }
+.auth-divider span { padding:0 10px; color:#6f6a5f; background:#080808; font:9px/1 "Noto Serif KR",serif; letter-spacing:0; }
+.guest-form label { color:#928b7d; }
+.guest-form > div { grid-template-columns:1fr 62px; }
+.guest-form input { height:42px; padding:0 12px; border-color:rgba(216,209,191,.17); background:#050505; color:#e3ddcf; }
+.guest-form button { border:1px solid var(--command-gold); background:#17140e; color:#cfb875; }
+.access-profile { display:grid; grid-template-columns:46px minmax(0,1fr) auto; gap:12px; align-items:center; padding:0; border:0; }
+.profile-rune { width:44px; height:51px; color:#17130d; background:#ad8c46; font-size:23px; }
+.access-profile > div:nth-child(2) { gap:5px; min-width:0; }
+.access-profile strong { overflow:hidden; color:var(--command-ivory); font-size:18px; text-overflow:ellipsis; white-space:nowrap; }
+.online-label { grid-column:auto; color:#a99668; font-size:10px; }
+.access-profile button { padding:6px 0; border:0; border-bottom:1px solid rgba(216,209,191,.25); background:transparent; color:#8b8579; font-size:10px; cursor:pointer; }
+.access-profile button:hover { color:#d5cdbd; border-color:var(--command-gold); }
+.access-stage { min-height:100svh; position:relative; display:block; padding:0; overflow:hidden; background:#000; isolation:isolate; }
+.access-main-art { position:absolute; inset:0; z-index:-2; background:url('/images/access/main-frame.webp') center/100% 100% no-repeat; animation:access-frame-enter 1.25s cubic-bezier(.16,1,.3,1) both; }
+.access-stage::after { content:""; position:absolute; inset:5.5% 4.5%; z-index:-1; pointer-events:none; background:radial-gradient(circle at 28% 72%,rgba(83,20,15,.13),transparent 32%),linear-gradient(105deg,rgba(255,255,255,.012),transparent 32%); background-size:auto; opacity:1; animation:access-ember-breathe 5s ease-in-out infinite alternate; }
+.access-copy { position:absolute; left:clamp(62px,6vw,116px); bottom:clamp(132px,16vh,190px); width:min(620px,54%); animation:command-enter .8s .22s both; }
+.access-kicker { margin:0 0 16px; color:#9b824e; font:12px/1.2 Georgia,"Noto Serif KR",serif; letter-spacing:.14em; }
+.access-copy h1 { margin:0; color:#d9d3c5; font:500 clamp(54px,5.4vw,94px)/.9 Georgia,"Noto Serif KR",serif; letter-spacing:-.065em; text-shadow:0 18px 55px #000; }
+.access-copy h1 small { margin-bottom:12px; color:#918c80; font:500 clamp(16px,1.4vw,22px)/1.3 "Noto Serif KR",serif; letter-spacing:0; }
+.access-copy > p:not(.access-kicker) { max-width:500px; margin:24px 0 0; color:#8c887f; font:13px/1.8 "Noto Serif KR",serif; }
+.detail-toggle { margin-top:20px; padding:10px 0; align-items:center; gap:30px; border-bottom-color:rgba(185,154,86,.45); color:#b9b1a0; }
+.detail-toggle span { color:var(--command-gold); transition:transform .2s; }
+.detail-toggle:hover span { transform:rotate(90deg); }
+.access-details { flex-wrap:wrap; gap:16px 24px; margin-top:16px; color:#777167; font-size:10px; }
+.access-details span::before { content:""; display:inline-block; width:4px; height:4px; margin:0 8px 2px 0; transform:rotate(45deg); background:var(--command-gold); }
+.access-launch { position:absolute; left:auto; right:clamp(64px,6vw,116px); bottom:clamp(65px,7.5vh,86px); min-height:0; padding:0; display:flex; align-items:center; gap:24px; background:transparent; border:0; backdrop-filter:none; }
+.access-launch p { margin:0; color:#706b61; font:11px/1.5 "Noto Serif KR",serif; }
+.access-launch button { min-width:210px; width:auto; height:54px; padding:0 20px; border:1px solid #947b43; background:linear-gradient(180deg,#1c1810,#0f0d09); color:#cbb477; clip-path:none; box-shadow:inset 0 0 0 1px rgba(0,0,0,.8),0 12px 34px rgba(0,0,0,.5); font:700 13px "Noto Serif KR",serif; transition:border-color .2s,color .2s,transform .2s,box-shadow .2s; }
+.access-launch button:not(:disabled):hover { color:#ead99f; border-color:#c3a45e; filter:none; transform:translateY(-2px); box-shadow:inset 0 0 18px rgba(185,154,86,.08),0 18px 40px rgba(0,0,0,.55); }
+.access-launch button:disabled { border-color:#322f29; color:#565149; background:#0a0a09; }
+@keyframes access-frame-enter { from { opacity:0; filter:brightness(.35); transform:scale(1.015); } to { opacity:1; filter:brightness(1); transform:none; } }
+@keyframes access-ember-breathe { from { opacity:.55; } to { opacity:1; } }
+
 .lobby-screen { --command-gold:#d6b665; min-width:1180px; min-height:100svh; display:grid; grid-template-rows:70px 1fr; background:radial-gradient(circle at 48% -20%,rgba(118,99,52,.14),transparent 40%),#0a0e0f; color:#dce2dc; }
 .operation-bar { padding:0 28px; display:grid; grid-template-columns:1fr auto 1fr; align-items:center; border-bottom:1px solid rgba(255,255,255,.09); background:#0d1213; }
 .operation-brand { justify-self:start; display:flex; align-items:center; gap:12px; border:0; background:transparent; color:#e9ece5; cursor:pointer; }
