@@ -145,18 +145,17 @@ export class LobbyTransport {
 }
 
 async function fetchTicket(csrfToken: string): Promise<string> {
-  try {
-    const response = await fetch("/api/game-ticket", {
-      method: "POST",
-      headers: { "x-csrf-token": csrfToken },
-    });
-    if (!response.ok) return "guest-ticket";
-    const text = await response.text();
-    const value = text ? (JSON.parse(text) as { token?: string }) : {};
-    return value.token || "guest-ticket";
-  } catch {
-    return "guest-ticket";
+  const response = await fetch("/api/game-ticket", {
+    method: "POST",
+    headers: { "x-csrf-token": csrfToken },
+  });
+  const text = await response.text();
+  let value: { token?: string; error?: string } = {};
+  try { value = text ? JSON.parse(text) as typeof value : {}; } catch { /* handled below */ }
+  if (!response.ok || !value.token || value.token.split(".").length !== 3) {
+    throw new Error(value.error || "게임 접속 티켓을 발급하지 못했습니다.");
   }
+  return value.token;
 }
 
 function toSnapshot(roomId: string, state: RawLobbyState): LobbySnapshot {
