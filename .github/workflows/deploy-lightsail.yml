@@ -111,7 +111,8 @@ jobs:
           set +a
           docker compose pull web game-server migrate
           if [ "$RUN_MIGRATION" = "true" ]; then
-            docker compose --profile migration run --rm migrate
+            # Keep the container from consuming the remaining remote script on stdin.
+            docker compose --profile migration run --rm -T migrate </dev/null
           fi
           docker compose up -d --remove-orphans
           for attempt in $(seq 1 12); do
