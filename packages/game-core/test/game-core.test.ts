@@ -28,3 +28,10 @@ test("advances day phases deterministically", () => {
   for (let index = 0; index < 601; index += 1) core.update(0.1);
   assert.equal(core.phase, "night");
 });
+
+test("starts a solo expedition when the lobby fills empty slots with AI", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "solo", minimumPlayers: 1 });
+  core.addPlayer({ userId: "solo-user", displayName: "혼자 온 용사", heroClass: "swordsman" });
+  assert.equal(core.setReady("solo-user", true), true);
+  assert.equal(core.phase, "day");
+});

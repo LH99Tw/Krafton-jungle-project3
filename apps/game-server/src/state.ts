@@ -26,3 +26,23 @@ export class PartyRoomState extends Schema {
   @type("number") gold = 100;
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
 }
+
+export class LobbyPlayerState extends Schema {
+  @type("string") userId = "";
+  @type("string") displayName = "";
+  @type("boolean") ready = false;
+  @type("string") heroClass = "";
+  @type("boolean") connected = true;
+  @type("boolean") inGame = false;
+  @type("number") joinedAt = 0;
+  @type("boolean") isAi = false;
+}
+
+export class LobbyRoomState extends Schema {
+  @type("string") roomName = "";
+  @type("string") hostId = "";
+  @type("string") phase = "waiting";
+  @type("string") sessionMode = "prototype";
+  @type("string") difficulty = "normal";
+  @type({ map: LobbyPlayerState }) players = new MapSchema<LobbyPlayerState>();
+}

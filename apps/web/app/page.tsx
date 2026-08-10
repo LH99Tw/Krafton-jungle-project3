@@ -10,7 +10,7 @@ export default async function Home({ searchParams }: {
   const query = await searchParams;
   const user = await getSessionUser();
   const viewer = user
-    ? { userId: user.id, displayName: user.displayName, email: user.email, csrfToken: await getCsrfToken() ?? "" }
+    ? { userId: user.id, displayName: user.displayName, email: user.email, accountType: user.accountType, csrfToken: await getCsrfToken() ?? "" }
     : null;
 
   return <GameShell

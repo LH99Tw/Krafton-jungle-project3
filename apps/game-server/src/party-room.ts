@@ -21,6 +21,7 @@ export class PartyRoom extends Room<PartyRoomState> {
   private core!: GameCore;
   private matchId = "";
   private finalized = false;
+  private allowedUserIds: Set<string> | null = null;
   private readonly messageWindows = new Map<string, { startedAt: number; count: number }>();
 
   static async onAuth(token: string, _options: unknown, context: AuthContext): Promise<GameTicketClaims> {
@@ -33,13 +34,19 @@ export class PartyRoom extends Room<PartyRoomState> {
 
   async onCreate(rawOptions: unknown): Promise<void> {
     const options = roomOptionsSchema.parse(rawOptions) as RoomOptions;
+    const internalOptions = rawOptions as { allowedUserIds?: unknown; minimumPlayers?: unknown };
+    if (Array.isArray(internalOptions.allowedUserIds)) {
+      this.allowedUserIds = new Set(internalOptions.allowedUserIds.filter((value): value is string => typeof value === "string"));
+    }
     this.setState(new PartyRoomState());
     this.state.protocolVersion = PROTOCOL_VERSION;
     this.core = new GameCore({
       mode: options.sessionMode,
       difficulty: options.difficulty,
       seed: crypto.randomUUID(),
-      minimumPlayers: Number(process.env.MINIMUM_PLAYERS ?? 3),
+      minimumPlayers: typeof internalOptions.minimumPlayers === "number"
+        ? Math.max(1, Math.min(3, internalOptions.minimumPlayers))
+        : Number(process.env.MINIMUM_PLAYERS ?? 3),
     });
     const match = await createMatch({
       roomId: this.roomId,
@@ -62,6 +69,9 @@ export class PartyRoom extends Room<PartyRoomState> {
   }
 
   onJoin(client: Client, rawOptions: unknown, auth: GameTicketClaims): void {
+    if (this.allowedUserIds && !this.allowedUserIds.has(auth.sub)) {
+      throw new ServerError(403, "이 게임방의 파티원이 아닙니다.");
+    }
     const options = roomOptionsSchema.parse(rawOptions);
     const duplicate = [...this.clients].find((item) => item !== client && item.auth?.sub === auth.sub);
     duplicate?.leave(4009, "DUPLICATE_LOGIN");

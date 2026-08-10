@@ -4,16 +4,19 @@ import { cookies, headers } from "next/headers";
 
 export const CSRF_COOKIE = "fdm_csrf";
 
+export type SessionUser = UserRecord & { accountType: "member" | "guest" };
+
 export function sessionCookieName(): string {
   return process.env.NODE_ENV === "production" ? "__Host-fdm_session" : "fdm_session";
 }
 
-export async function getSessionUser(): Promise<UserRecord | null> {
+export async function getSessionUser(): Promise<SessionUser | null> {
   const cookieStore = await cookies();
   const token = cookieStore.get(sessionCookieName())?.value;
   if (!token) return null;
   try {
-    return await findSessionUser(hashToken(token));
+    const user = await findSessionUser(hashToken(token));
+    return user ? { ...user, accountType: user.cognitoSub.startsWith("guest:") ? "guest" : "member" } : null;
   } catch {
     return null;
   }

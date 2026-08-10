@@ -17,6 +17,7 @@ export class ColyseusTransport {
     serverUrl: string;
     csrfToken: string;
     options: Omit<RoomOptions, "protocolVersion">;
+    roomId?: string;
   }): Promise<void> {
     this.disconnect();
     const ticketResponse = await fetch("/api/game-ticket", {
@@ -27,10 +28,13 @@ export class ColyseusTransport {
     const ticket = await ticketResponse.json() as TicketResponse;
     const client = new Client(input.serverUrl);
     client.auth.token = ticket.token;
-    this.room = await client.joinOrCreate(PARTY_ROOM, {
+    const roomOptions = {
       ...input.options,
       protocolVersion: PROTOCOL_VERSION,
-    });
+    };
+    this.room = input.roomId
+      ? await client.joinById(input.roomId, roomOptions)
+      : await client.joinOrCreate(PARTY_ROOM, roomOptions);
     this.send("room.ready", { ready: true });
     this.startInputCapture();
   }

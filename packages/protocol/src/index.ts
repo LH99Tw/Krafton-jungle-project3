@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const PROTOCOL_VERSION = 1;
 export const PARTY_ROOM = "party_room";
+export const LOBBY_ROOM = "lobby_room";
 
 export const heroClassSchema = z.enum(["swordsman", "archer", "mage"]);
 export const sessionModeSchema = z.enum(["prototype", "full"]);
@@ -13,6 +14,19 @@ export const roomOptionsSchema = z.object({
   difficulty: difficultySchema.default("normal"),
   protocolVersion: z.literal(PROTOCOL_VERSION),
 });
+
+export const lobbyPhaseSchema = z.enum(["waiting", "selecting", "in_game"]);
+export const lobbyCreateOptionsSchema = z.object({
+  roomName: z.string().trim().min(2).max(24),
+  sessionMode: sessionModeSchema.default("prototype"),
+  difficulty: difficultySchema.default("normal"),
+  protocolVersion: z.literal(PROTOCOL_VERSION),
+});
+
+export const lobbyReadySchema = z.object({ ready: z.boolean() });
+export const lobbyClassSelectSchema = z.object({ heroClass: heroClassSchema.nullable() });
+export const lobbyChatSchema = z.object({ message: z.string().trim().min(1).max(180) });
+export const lobbyAiRemoveSchema = z.object({ userId: z.string().startsWith("ai:") });
 
 const envelope = {
   v: z.literal(PROTOCOL_VERSION),
@@ -85,6 +99,33 @@ export type ClientCommand = z.infer<typeof clientCommandSchema>;
 export type PlayerInputCommand = z.infer<typeof playerInputSchema>;
 export type RoomOptions = z.infer<typeof roomOptionsSchema>;
 export type HeroClassId = z.infer<typeof heroClassSchema>;
+export type LobbyPhase = z.infer<typeof lobbyPhaseSchema>;
+export type LobbyCreateOptions = z.infer<typeof lobbyCreateOptionsSchema>;
+
+export type LobbyListing = {
+  roomId: string;
+  roomName: string;
+  clients: number;
+  maxClients: 3;
+  phase: LobbyPhase;
+  sessionMode: z.infer<typeof sessionModeSchema>;
+  difficulty: z.infer<typeof difficultySchema>;
+};
+
+export type LobbyChatMessage = {
+  id: string;
+  userId: string;
+  displayName: string;
+  message: string;
+  sentAt: number;
+};
+
+export type LobbyGameStart = {
+  gameRoomId: string;
+  sessionMode: z.infer<typeof sessionModeSchema>;
+  difficulty: z.infer<typeof difficultySchema>;
+  playerClasses: Record<string, HeroClassId>;
+};
 
 export type ServerEvent =
   | { type: "message"; message: string }

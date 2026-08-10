@@ -11,12 +11,10 @@ function formatElapsed(seconds: number): string {
 export function ResultOverlay({
   result,
   heroClass,
-  onRetry,
   onLobby,
 }: {
   result: GameResult | null;
   heroClass: HeroClassId;
-  onRetry: () => void;
   onLobby: () => void;
 }) {
   if (!result) return null;
@@ -41,11 +39,9 @@ export function ResultOverlay({
           <div><dt>시설 기여</dt><dd>{result.stats.structuresBuilt}</dd></div>
         </dl>
         <div className="result-actions">
-          <button type="button" className="secondary-action" onClick={onLobby}>작전실로</button>
-          <button type="button" className="primary-action" onClick={onRetry}>같은 설정으로 재도전</button>
+          <button type="button" className="primary-action" onClick={onLobby}>같은 파티 방으로 복귀</button>
         </div>
       </section>
     </div>
   );
 }
-

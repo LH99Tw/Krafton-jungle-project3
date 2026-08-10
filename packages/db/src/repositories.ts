@@ -20,6 +20,16 @@ export async function upsertCognitoUser(input: {
   return user;
 }
 
+export async function createGuestUser(input: { displayName: string }): Promise<UserRecord> {
+  const guestId = crypto.randomUUID();
+  const [user] = await getDb().insert(users).values({
+    cognitoSub: `guest:${guestId}`,
+    email: `${guestId}@guest.invalid`,
+    displayName: input.displayName,
+  }).returning();
+  return user;
+}
+
 export async function createSession(input: {
   userId: string;
   tokenHash: string;
