@@ -179,7 +179,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     if (!viewer) return;
     setBusy(true); setSurfaceError(""); setMessages([]);
     try { await lobbyTransport.create({ serverUrl: gameServerUrl, csrfToken: viewer.csrfToken, options }); }
-    catch (error) { setSurfaceError(error instanceof Error ? error.message : "방을 만들지 못했습니다."); }
+    catch (error) { setSurfaceError(formatClientError(error, "방을 만들지 못했습니다.")); }
     finally { setBusy(false); }
   }, [gameServerUrl, viewer]);
 
@@ -187,7 +187,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     if (!viewer) return;
     setBusy(true); setSurfaceError(""); setMessages([]);
     try { await lobbyTransport.join({ serverUrl: gameServerUrl, csrfToken: viewer.csrfToken, roomId }); }
-    catch (error) { setSurfaceError(error instanceof Error ? error.message : "방에 참가하지 못했습니다."); }
+    catch (error) { setSurfaceError(formatClientError(error, "방에 참가하지 못했습니다.")); }
     finally { setBusy(false); }
   }, [gameServerUrl, viewer]);
 
@@ -262,4 +262,19 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   if (screen === "lobby" && viewer) return <LobbyScreen viewer={viewer} rooms={rooms} snapshot={lobby} messages={messages} busy={busy} error={surfaceError} onCreate={createLobby} onJoin={joinLobby} onLeave={leaveLobby} onReady={(ready) => lobbyTransport.ready(ready)} onStart={() => lobbyTransport.startSelection()} onChat={(message) => lobbyTransport.chat(message)} onAddAi={() => lobbyTransport.addAi()} onRemoveAi={(userId) => lobbyTransport.removeAi(userId)} onBack={() => setScreen("access")} />;
 
   return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onLogout={logout} onStart={() => { setSurfaceError(""); setScreen("lobby"); }} />;
+}
+
+function formatClientError(error: unknown, fallback: string): string {
+  if (typeof error === "string") return error;
+  if (error && typeof error === "object") {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === "string") return message;
+    if (message && typeof message === "object") {
+      const nested = message as { message?: unknown; code?: unknown };
+      if (typeof nested.message === "string") return nested.message;
+      if (typeof nested.code === "string") return nested.code;
+      try { return JSON.stringify(message); } catch { /* use fallback */ }
+    }
+  }
+  return fallback;
 }
