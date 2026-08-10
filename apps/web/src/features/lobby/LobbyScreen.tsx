@@ -77,7 +77,7 @@ export function LobbyScreen({ viewer, rooms, snapshot, messages, busy, error, on
           <div className="party-roster">
             {[0, 1, 2].map((slot) => {
               const player = snapshot?.players[slot];
-              return player ? <div className={`party-member ${player.isAi ? "is-ai" : ""}`} key={player.userId}><div>{player.displayName.slice(0, 1)}</div><span><strong>{player.displayName}{snapshot?.hostId === player.userId ? <em>LEADER</em> : null}{player.isAi ? <em>AI</em> : null}</strong><small>{player.isAi ? "자동 전투 지원" : player.connected ? player.ready ? "준비 완료" : "준비 중" : "재접속 대기"}</small></span>{player.isAi && snapshot?.hostId === viewer.userId && snapshot.phase === "waiting" ? <button className="remove-ai" type="button" onClick={() => onRemoveAi(player.userId)} aria-label={`${player.displayName} AI 제외`}>×</button> : <i className={player.ready ? "is-ready" : ""} />}</div> : <div className="party-member is-empty" key={slot}><div>+</div><span><strong>빈 슬롯</strong><small>대원 또는 AI 대기 중</small></span>{snapshot?.hostId === viewer.userId ? <button className="add-ai" type="button" onClick={onAddAi}>AI 추가</button> : null}</div>;
+              return player ? <div className="party-member" key={player.userId}><div>{player.displayName.slice(0, 1)}</div><span><strong>{player.displayName}{snapshot?.hostId === player.userId ? <em>LEADER</em> : null}</strong><small>{player.connected ? player.ready ? "준비 완료" : "준비 중" : "재접속 대기"}</small></span><i className={player.ready ? "is-ready" : ""} /></div> : <div className="party-member is-empty" key={slot}><div>+</div><span><strong>빈 슬롯</strong><small>실제 참가자 대기 중</small></span><i /></div>;
             })}
           </div>
           {snapshot ? <dl className="party-settings"><div><dt>세션</dt><dd>{snapshot.sessionMode === "prototype" ? "프로토타입 · 8분" : "정식 흐름 · 25분"}</dd></div><div><dt>난이도</dt><dd>{difficultyLabel(snapshot.difficulty)}</dd></div></dl> : <p className="party-instruction">방을 만들거나 참가하면 이곳에서 준비 상태와 출전 조건을 확인할 수 있습니다.</p>}
@@ -86,6 +86,8 @@ export function LobbyScreen({ viewer, rooms, snapshot, messages, busy, error, on
             {snapshot ? <>
               <button className="leave-room" type="button" onClick={() => void onLeave()} disabled={busy}>퇴장</button>
               <button className="ready-button" type="button" onClick={() => onReady(!me?.ready)}>{me?.ready ? "준비 취소" : "준비"}</button>
+              {snapshot.hostId === viewer.userId && snapshot.players.length < 3 ? <button className="ready-button" type="button" onClick={onAddAi}>AI 추가</button> : null}
+              {snapshot.hostId === viewer.userId ? snapshot.players.filter((player) => player.isAi).map((player) => <button className="ready-button" type="button" key={`remove-${player.userId}`} onClick={() => onRemoveAi(player.userId)}>AI 제외: {player.displayName}</button>) : null}
               {snapshot.hostId === viewer.userId ? <button className="start-select-button" type="button" disabled={!allReady} onClick={onStart}>캐릭터 선택 시작</button> : <span className="leader-wait">방장의 시작을 기다리는 중</span>}
             </> : null}
           </div>

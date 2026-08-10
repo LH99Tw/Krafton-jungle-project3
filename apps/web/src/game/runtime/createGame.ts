@@ -1,6 +1,6 @@
 import * as Phaser from "phaser";
 import type { GameStartOptions } from "../domain/types";
-import { GameScene } from "./GameScene";
+import { RoomGameScene } from "./room/RoomGameScene";
 
 export function createGame(parent: HTMLElement, options: GameStartOptions): Phaser.Game {
   return new Phaser.Game({
@@ -26,6 +26,6 @@ export function createGame(parent: HTMLElement, options: GameStartOptions): Phas
       roundPixels: true,
       powerPreference: "high-performance",
     },
-    scene: [new GameScene(options)],
+    scene: [new RoomGameScene(options)],
   });
 }

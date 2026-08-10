@@ -26,6 +26,7 @@ test("accepts only local return paths", () => {
   assert.equal(safeReturnPath("https://evil.example"), "/");
   assert.equal(safeReturnPath("//evil.example"), "/");
   assert.equal(safeReturnPath("/api/auth/callback"), "/");
+  assert.equal(safeReturnPath("/api/auth/guest?returnTo=/api/auth/guest"), "/");
 });
 
 test("signs a short-lived game ticket and rejects expiration", async () => {

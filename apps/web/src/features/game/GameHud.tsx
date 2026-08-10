@@ -4,6 +4,7 @@ import { CLASS_DEFINITIONS } from "@/src/game/content/classes";
 import { BUILDINGS } from "@/src/game/content/balance";
 import type { GameSnapshot, HeroClassId } from "@/src/game/domain/types";
 import { gameBridge } from "@/src/game/runtime/GameBridge";
+import { RoomMiniMap } from "./RoomMiniMap";
 
 function formatTime(seconds: number): string {
   const safe = Math.max(0, Math.ceil(seconds));
@@ -25,6 +26,24 @@ export function GameHud({
 }) {
   const definition = CLASS_DEFINITIONS[heroClass];
   const phaseWarning = snapshot.phase === "night" || snapshot.phase === "boss";
+  const party = snapshot.party.length > 0
+    ? snapshot.party
+    : [{
+      userId: "local",
+      displayName: "나",
+      heroClass,
+      hp: snapshot.hp,
+      maxHp: snapshot.maxHp,
+      level: snapshot.level,
+      teamPower: snapshot.teamPower,
+      ready: true,
+      connected: true,
+      alive: snapshot.hp > 0,
+      roomId: snapshot.currentRoomId,
+      x: 0,
+      y: 0,
+      isLocal: true,
+    }];
 
   return (
     <div className="hud-root">
@@ -38,22 +57,23 @@ export function GameHud({
 
       <section className="party-panel hud-panel" aria-label="파티 상태">
         <div className="hud-panel-title"><span>EXPEDITION PARTY</span><button type="button" onClick={onExit}>나가기</button></div>
-        {[heroClass, ...(["swordsman", "archer", "mage"] as HeroClassId[]).filter((id) => id !== heroClass)].map((id, index) => {
-          const member = CLASS_DEFINITIONS[id];
-          const hp = index === 0 ? snapshot.hp : snapshot.maxHp * 0.78;
+        {party.map((partyMember) => {
+          const member = CLASS_DEFINITIONS[partyMember.heroClass];
           return (
-            <div className={`party-member ${index === 0 ? "is-you" : ""}`} key={id}>
-              <span className={`party-avatar party-avatar--${id}`}>{member.name.slice(0, 1)}</span>
-              <div><strong>{index === 0 ? `${member.name} · YOU` : `${member.name} · BOT`}</strong><span className="micro-bar" style={barStyle(hp, snapshot.maxHp)} /></div>
-              <small>{Math.ceil(hp)}</small>
+            <div className={`party-member ${partyMember.isLocal ? "is-you" : ""} ${partyMember.connected ? "" : "is-offline"}`} key={partyMember.userId}>
+              <span className={`party-avatar party-avatar--${partyMember.heroClass}`}>{member.name.slice(0, 1)}</span>
+              <div><strong>{partyMember.displayName}{partyMember.isLocal ? " · YOU" : ""}</strong><span className="micro-bar" style={barStyle(partyMember.hp, partyMember.maxHp)} /></div>
+              <small>{partyMember.connected ? Math.ceil(partyMember.hp) : "OFF"}</small>
             </div>
           );
         })}
         <div className="objective-list">
           <span><i className={snapshot.gatesDestroyed >= 3 ? "done" : ""} /> 게이트 파괴 <b>{snapshot.gatesDestroyed}/3</b></span>
-          <span><i className={snapshot.day >= 3 ? "done" : ""} /> 3일차 도달 <b>{snapshot.day}/3</b></span>
+          <span><i className={snapshot.roomsExplored >= 15 ? "done" : ""} /> 구역 탐색 <b>{snapshot.roomsExplored}/15</b></span>
         </div>
       </section>
+
+      <RoomMiniMap rooms={snapshot.roomMap} zone={snapshot.currentZone} />
 
       <section className="resource-panel hud-panel" aria-label="기지 건설">
         <div className="resource-row"><span>TEAM GOLD</span><strong>{snapshot.gold}<small>G</small></strong></div>
@@ -61,22 +81,40 @@ export function GameHud({
           <span><b>베이스 내구도</b><small>{Math.ceil(snapshot.baseHp)} / {snapshot.baseMaxHp}</small></span>
           <span className="base-bar" style={barStyle(snapshot.baseHp, snapshot.baseMaxHp)} />
         </div>
-        <div className="build-tools">
-          <button type="button" className={snapshot.buildMode === "turret" ? "active" : ""} onClick={() => gameBridge.command({ type: "set-build-mode", buildMode: snapshot.buildMode === "turret" ? null : "turret" })}>
-            <span className="build-icon build-icon--turret" /><b>포탑</b><small>{BUILDINGS.turret.cost}G</small>
+        {snapshot.buildSupported && snapshot.inBuildZone ? (
+          <div className="build-tools">
+            <button type="button" className={snapshot.buildMode === "turret" ? "active" : ""} onClick={() => gameBridge.command({ type: "set-build-mode", buildMode: snapshot.buildMode === "turret" ? null : "turret" })}>
+              <span className="build-icon build-icon--turret" /><b>포탑</b><small>{BUILDINGS.turret.cost}G</small>
+            </button>
+            <button type="button" className={snapshot.buildMode === "wall" ? "active" : ""} onClick={() => gameBridge.command({ type: "set-build-mode", buildMode: snapshot.buildMode === "wall" ? null : "wall" })}>
+              <span className="build-icon build-icon--wall" /><b>장벽</b><small>{BUILDINGS.wall.cost}G</small>
+            </button>
+            <button type="button" className={snapshot.buildMode === "upgrade" ? "active" : ""} onClick={() => gameBridge.command({ type: "set-build-mode", buildMode: snapshot.buildMode === "upgrade" ? null : "upgrade" })}>
+              <span className="build-icon build-icon--upgrade">↑</span><b>강화</b><small>클릭</small>
+            </button>
+          </div>
+        ) : <p className="build-zone-hint">{snapshot.buildSupported
+          ? "베이스 건설 구획 안에서만 시설 메뉴가 열립니다."
+          : "멀티플레이 건설은 서버 검증 통합 대기 중입니다."}</p>}
+        {snapshot.waypoint.nearby && (
+          <button className="return-button" type="button" onClick={() => gameBridge.command({
+            type: "travel",
+            waypointId: snapshot.waypoint.id ?? "",
+            destinationId: snapshot.waypoint.destinationId,
+          })}>
+            웨이포인트 집결 · {snapshot.waypoint.presentPlayers}/{snapshot.waypoint.requiredPlayers}
           </button>
-          <button type="button" className={snapshot.buildMode === "wall" ? "active" : ""} onClick={() => gameBridge.command({ type: "set-build-mode", buildMode: snapshot.buildMode === "wall" ? null : "wall" })}>
-            <span className="build-icon build-icon--wall" /><b>장벽</b><small>{BUILDINGS.wall.cost}G</small>
-          </button>
-          <button type="button" className={snapshot.buildMode === "upgrade" ? "active" : ""} onClick={() => gameBridge.command({ type: "set-build-mode", buildMode: snapshot.buildMode === "upgrade" ? null : "upgrade" })}>
-            <span className="build-icon build-icon--upgrade">↑</span><b>강화</b><small>클릭</small>
-          </button>
-        </div>
-        <button className="return-button" type="button" onClick={() => gameBridge.command({ type: "return-base" })}>B · 베이스 즉시 귀환</button>
+        )}
+        {snapshot.waypoint.holdProgress > 0 && <span className="waypoint-progress"><i style={{ width: `${snapshot.waypoint.holdProgress * 100}%` }} /></span>}
         {snapshot.bossAvailable && (
-          <button className="boss-entry-button" type="button" onClick={() => gameBridge.command({ type: "enter-boss" })}>
-            마왕방 입장 <span>준비 완료</span>
+          <button className="boss-entry-button" type="button" onClick={() => gameBridge.command({ type: "travel", waypointId: snapshot.waypoint.id ?? "", destinationId: snapshot.waypoint.destinationId })}>
+            마왕방 집결 <span>전원 5초 점유</span>
           </button>
+        )}
+        {snapshot.equipment.length > 0 && (
+          <div className="equipment-strip" aria-label="장착 장비">
+            {snapshot.equipment.map((item) => <span className={`rarity-${item.rarity}`} key={item.slot}><small>{item.slot}</small><b>{item.name}</b></span>)}
+          </div>
         )}
       </section>
 

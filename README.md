@@ -1,16 +1,25 @@
 # Krafton Jungle Project 3 — 《5일 뒤 마왕》
 
-로그라이트·디펜스·RPG·타이쿤을 결합한 데스크톱 웹 게임 미니 프로젝트입니다.
+로그라이트·디펜스·RPG·타이쿤을 결합한 데스크톱 웹 게임 프로젝트입니다. 0.2의 목표 플레이 모드는 솔로 1인과 실제 사용자 3인 협동입니다.
 
-## 구현 상태와 기술 스택
+## 현재 상태
 
-Cloudflare/Vinext/D1 런타임은 제거했습니다. 현재 저장소는 표준 Next.js Node 서버, Colyseus, Drizzle ORM, PostgreSQL, OAuth + 서버 세션 + 게임 티켓 JWT로 로컬에서 실행됩니다. Phaser 프로토타입의 화면과 싱글 플레이 콘텐츠는 그대로 유지하며, Colyseus가 접속·Room·플레이어 이동·페이즈·결과 저장의 서버 경계를 담당합니다. 전투·건설 규칙 전체의 서버 권위화는 [`packages/game-core`](./packages/game-core)로 단계적으로 옮기는 중입니다.
+저장소의 실행 기반은 Next.js Node, Colyseus, PostgreSQL/Drizzle, Phaser 3, protocol v2로 전환되었습니다. 다만 Colyseus 접속이 된다는 사실과 게임 전체가 서버 권위 멀티플레이로 동작한다는 사실은 구분해야 합니다.
 
-백엔드 계약과 남은 권위화 순서는 [`Document/backend_node_colyseus_postgresql.md`](./Document/backend_node_colyseus_postgresql.md), AWS 무료 범위를 고려한 MVP 배포·운영 절차는 [`Document/aws_lightsail_deployment.md`](./Document/aws_lightsail_deployment.md)를 참고하세요.
+| 영역 | 상태 | 현재 범위 |
+|---|---|---|
+| 웹·인증·DB 기반 | 구현 | Next.js Node, 서버 세션, Cognito 경로, 개발 로그인, 선택적 공개 guest, PostgreSQL repository |
+| 실시간 Room 기반 | 부분 구현 | solo 1명/coop 3명, ready, reconnect, room 이동·aim·phase 동기화 |
+| protocol v2·확장 Schema | 구현 | 엄격한 명령 schema와 rooms/doors/enemies/waypoints/drops 실제 state |
+| 0.2 서버 규칙 | 부분 구현 | 3구역 맵, 기본 전투/AI, 자원/리스폰, XP/draft, 장비, waypoint, 기본 boss 승패 |
+| 클라이언트 서버 연결 | 부분 구현 | `RoomGameScene`이 network mode에서 서버 snapshot만 소비하며 room/player/enemy, 개인 draft·장비·drop, waypoint·재접속·종료 결과를 실제 장면과 UI에 연결 |
+| 남은 게임 규칙·통합 | 목표 | 장비 비교·확인·분해 UI, 스킬·플레이어 부활·건설·보스 공격 패턴, 개인별 결과 상세와 3-client E2E 필요 |
+
+브라우저에는 network mode와 별도의 로컬 수직 슬라이스도 남아 있습니다. network mode의 simulation 원본은 서버이며, 위 미완료 항목 때문에 현재 상태를 완성된 3인 멀티플레이로 보지는 않습니다. 0.2 완료 기준은 [`Document/backend_node_colyseus_postgresql.md`](./Document/backend_node_colyseus_postgresql.md)와 [`apps/web/ARCHITECTURE.md`](./apps/web/ARCHITECTURE.md)에 정리되어 있습니다.
 
 ## 로컬 실행
 
-Node.js 22.13+, pnpm 11, Docker가 필요합니다.
+Node.js 22.13 이상, pnpm 11, Docker가 필요합니다.
 
 ```bash
 pnpm install
@@ -20,30 +29,43 @@ pnpm db:migrate
 pnpm dev
 ```
 
-웹은 `http://localhost:3000`, Colyseus는 `ws://localhost:2567`, 로컬 PostgreSQL은 충돌을 피하기 위해 호스트 `55432` 포트를 사용합니다. 개발 환경에서는 Cognito 설정 없이 로컬 사용자로 로그인할 수 있습니다.
+- Web: `http://localhost:3000`
+- Colyseus: `ws://localhost:2567`
+- PostgreSQL: host `localhost:55432`
+
+`local:setup`이 만드는 `.env.local`은 비운영 개발 로그인 경로를 사용합니다. guest 로그인은 비운영 환경에서 허용되고, production에서는 `PUBLIC_PLAYTEST_ENABLED=true`일 때만 열립니다.
+
+검증 명령:
+
+```bash
+pnpm test
+pnpm typecheck
+pnpm build
+```
 
 ## 저장소 구성
 
 ```text
 apps/
-├─ web/                        Next.js·React·Phaser 웹과 REST/OAuth API
-└─ game-server/                Colyseus 3인 party_room 서버
+├─ web/                         Next.js·React·Phaser UI와 REST/OAuth BFF
+└─ game-server/                 Colyseus party_room과 서버 시뮬레이션
 
 packages/
-├─ auth/                       OAuth 상태·세션 암호·게임 JWT
-├─ db/                         PostgreSQL 스키마·Drizzle 저장소·migration
-├─ game-core/                  Phaser 비의존 서버 게임 규칙
-└─ protocol/                   Zod 기반 버전 명령 계약
+├─ auth/                        OAuth 보조·세션 암호·게임 티켓 JWT
+├─ db/                          PostgreSQL schema·Drizzle repository·migration
+├─ game-core/                   Phaser 비의존 게임 규칙과 0.2 공용 규칙
+└─ protocol/                    client/server 공용 Zod protocol v2
 
-Document/                    기획·설계·협업 문서
-├─ 3인_개발_역할분담_보고서.md    시스템/레벨/백엔드 협업 보고서
-├─ backend_node_colyseus_postgresql.md
-│                                Node·Colyseus·PostgreSQL 설계와 구현 현황
-├─ aws_lightsail_deployment.md    AWS Lightsail 배포·운영 런북
-├─ 협업_데이터_계약_초안.txt      공통 ID·명령·스냅숏 계약
-├─ 게임기획서_고도화_초안.md      고도화된 게임 기획서
-├─ 프로토타입_제안서.md            제작 범위와 완료 기준
-└─ 기획서·추가입력 관련 원문       분석 근거 자료
+Document/                       기획·밸런스·기술·협업 문서
 ```
 
-실행법과 구현 현황은 [`apps/web/README.md`](./apps/web/README.md), 모듈 책임과 확장 경계는 [`apps/web/ARCHITECTURE.md`](./apps/web/ARCHITECTURE.md)를 참고하세요.
+## 핵심 문서
+
+- [`Document/0.2버전_명세서.md`](./Document/0.2버전_명세서.md): 확정 규칙, 구현 상태, 미결정 선택지
+- [`Document/0.2버전_밸런스_데이터.md`](./Document/0.2버전_밸런스_데이터.md): 0.2 수치 원본과 승인 대기 값
+- [`Document/0.2버전_변경사항.md`](./Document/0.2버전_변경사항.md): 0.1 대비 변경과 남은 작업
+- [`Document/backend_node_colyseus_postgresql.md`](./Document/backend_node_colyseus_postgresql.md): 백엔드 실제 구현·부분 구현·목표
+- [`Document/technical_design_and_architecture.md`](./Document/technical_design_and_architecture.md): 기술·게임플레이 아키텍처
+- [`Document/3인_개발_역할분담_보고서.md`](./Document/3인_개발_역할분담_보고서.md): 시스템·레벨·백엔드 협업 경계
+- [`Document/협업_데이터_계약_초안.txt`](./Document/협업_데이터_계약_초안.txt): protocol v2 기반 공통 데이터 계약
+- [`Document/aws_lightsail_deployment.md`](./Document/aws_lightsail_deployment.md): 단일 호스트 MVP 배포·운영 런북

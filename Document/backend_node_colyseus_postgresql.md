@@ -1,528 +1,465 @@
-# Node.js·Colyseus·PostgreSQL 백엔드 아키텍처
+# 0.2 Node.js·Colyseus·PostgreSQL 백엔드 아키텍처
 
-> 상태: 기반 구현 완료, 전투·AI·건설 서버 권위화 진행 중
 > 기준일: 2026-08-10
-> 대상: 《5일 뒤 마왕》 3인 협동 웹 게임 MVP
-> 목표 규모: 동시접속 10~20명, 한 파티 3명
+> 상태: 백엔드 기반과 protocol v2는 구현, 멀티플레이 게임 규칙은 부분 통합
+> 대상: 《5일 뒤 마왕》 솔로 1인 / 실제 사용자 3인 협동 MVP
+> 관련 기획: `0.2버전_명세서.md`, `0.2버전_밸런스_데이터.md`, `0.2버전_변경사항.md`
 
 ## 1. 문서 목적
 
-Cloudflare Worker/Vinext/D1 런타임은 제거되었고 Next.js Node, Colyseus, PostgreSQL 기반이 로컬에서 동작한다. 이 문서는 구현된 계약과 Phaser에 남은 전투 규칙을 서버로 이전하기 위한 완료 조건을 함께 정의한다.
+이 문서는 현재 저장소에 실제로 존재하는 Node.js·Colyseus·PostgreSQL 구조와 아직 목표에 머문 부분을 구분한다. “Colyseus에 연결된다”와 “3인 게임 전체가 서버 권위로 동작한다”를 같은 의미로 사용하지 않는다.
+
+상태 용어:
+
+| 상태 | 의미 |
+|---|---|
+| 구현 | 실제 코드 경로가 있고 핵심 동작이 연결됨 |
+| 부분 구현 | 계약·Schema·일부 동작은 있으나 end-to-end 판정이 완성되지 않음 |
+| 서버 규칙 구현 | 순수 game-core 규칙이 PartyRoom 시뮬레이션과 state에 연결됨 |
+| 목표 | 설계와 완료 조건만 존재 |
+| 운영 검증 필요 | 코드가 있으나 실제 Cognito/AWS/부하 환경 검증이 남음 |
+
+## 2. 실제 실행 구조
 
 ```text
 Browser
-├─ HTTPS ───────> Next.js Node server ───────> PostgreSQL
-│                 ├─ OAuth callback              ├─ users
-│                 ├─ server session              ├─ auth_sessions
-│                 ├─ REST API                    ├─ guestbook_entries
-│                 └─ game-ticket JWT             ├─ matches
-│                                                └─ match_players
-│
-└─ WSS ─────────> Colyseus game server ──────> PostgreSQL
-                  ├─ matchmaking
-                  ├─ party_room (3 players)
-                  ├─ authoritative simulation
-                  └─ final result transaction
+├─ HTTPS ───────> apps/web (Next.js Node)
+│                 ├─ React lobby/HUD
+│                 ├─ Phaser RoomGameScene
+│                 │   ├─ network: server snapshot renderer
+│                 │   └─ local: 별도 수직 슬라이스 simulation
+│                 ├─ OAuth/guest/server session
+│                 ├─ REST: session, guestbook, runs, game-ticket
+│                 └─ Drizzle ───────────────────────────┐
+│                                                       │
+└─ WSS ─────────> apps/game-server (Colyseus)            │
+                  ├─ party_room, auth, reconnect         │
+                  ├─ 20Hz GameCore room/combat/progress │
+                  ├─ protocol v2 validation              │
+                  └─ final result repository ────────────┤
+                                                          ▼
+                                                    PostgreSQL
+                                             users / auth_sessions
+                                             guestbook_entries
+                                             matches / match_players
 ```
 
-초기 배포는 단일 Node.js 호스트에서 실행하지만 `web`, `game-server`, `postgres`는 별도 프로세스와 컨테이너로 분리한다. Redis는 Colyseus 프로세스가 둘 이상일 때만 추가한다.
+초기 배포는 한 호스트에서 `caddy`, `web`, `game-server`, `postgres`를 별도 컨테이너로 실행한다. Redis, RDS, ALB는 현재 구현과 MVP 필수 범위에 없다.
 
-## 2. 구현 상태와 완료 상태
+## 3. 구현 상태 요약
 
-| 영역 | 현재 구현 | 완료 상태 |
-|---|---|---|
-| 웹 런타임 | 표준 Next.js Node 런타임 | 완료 |
-| 인증 | Cognito + Google OAuth 및 개발용 로컬 로그인 | 운영 Cognito 실계정 검증 |
-| 브라우저 세션 | PostgreSQL 서버 세션 + HttpOnly 쿠키 | 완료 |
-| 게임 서버 인증 | 90초 game-ticket JWT + Colyseus `static onAuth` | 키 교체 자동화 |
-| REST | 인증·세션·방명록·전적 조회 | 완료 |
-| DB | PostgreSQL + Drizzle ORM migration | 완료 |
-| 게임 실행 | Colyseus가 Room·이동·시간을, Phaser가 전투·AI·건설을 소유 | 모든 최종 판정을 Colyseus가 소유 |
-| 네트워크 | Colyseus client transport + versioned Zod protocol | Schema 상태를 Phaser 렌더링에 완전 연결 |
-| 결과 저장 | Room 종료 transaction | 승패 판정 이전 후 보상 계산 추가 |
-| 확장 | Redis 없는 단일 Colyseus 프로세스 | 필요 시 Redis 기반 다중 프로세스 |
+| 영역 | 현재 코드 | 상태 | 다음 완료 조건 |
+|---|---|---|---|
+| 웹 런타임 | 표준 Next.js Node | 구현 | production smoke test 유지 |
+| DB | PostgreSQL 17 + Drizzle schema/migration/repository | 구현 | 별도 DB integration/rollback test |
+| Cognito OAuth | Authorization Code+PKCE route와 ID token 검증 | 구현 | 실제 Cognito 운영 계정 검증 |
+| 개발 로그인 | `DEV_AUTH_BYPASS` 서버 세션 | 구현 | 개발 환경에만 제한 확인 |
+| 공개 게스트 | `PUBLIC_PLAYTEST_ENABLED` guest session route | 구현 | 배포 rate limit·정리 정책 검증 |
+| 서버 세션 | DB hash, HttpOnly 쿠키, CSRF | 구현 | session integration test 확대 |
+| game-ticket | 90초 RS256 JWT, 1회 jti 메모리 검사 | 구현 | 다중 키 rotation·다중 프로세스 저장소 |
+| REST | session/guestbook/runs/game-ticket/health | 구현 | REST rate/body 통합 제한 |
+| protocol | strict Zod protocol v2와 session별 공통 seq 거부 | 구현 | phase·거리·소유권 검증 확대 |
+| PartyRoom | solo/coop 옵션, max1/3, ready, lock, reconnect | 부분 구현 | 3-client E2E와 이탈 만료 정책 |
+| 서버 시뮬레이션 | 룸 이동, 자동 공격, 정적/침공 AI, 자원, 정적 리스폰, phase/base | 부분 구현 | 스킬·건설·플레이어 부활·보스 패턴 |
+| 0.2 맵/장비/성장 | game-core + PartyRoom 명령/state + property test | 서버 규칙 구현 | 클라이언트 표현과 3-client E2E |
+| 확장 Schema | 발견 rooms/doors/enemies/waypoints와 개인 drops/draft를 실제 동기화 | 부분 구현 | structures lifecycle과 client 전체 소비 |
+| 클라이언트 state 구독 | RoomGameScene의 room/player/enemy/drop 렌더, draft/equipment/waypoint/result view | 부분 구현 | 장비 비교·분해 UI와 3-client E2E |
+| 전투·AI·드롭·건설 | network는 서버 기본 전투/AI만 소비; 스킬·건설은 준비 전 거부 | 부분 구현 | 스킬·건설·boss pattern과 모든 UI 연결 |
+| 결과 저장 | 서버 결과 broadcast·overlay·전투 통계 transaction | 부분 구현 | 전체 기여 표시와 E2E 단일 저장 검증 |
+| 배포 | Docker/Caddy/Lightsail 구성 파일 | 구현 | staging 배포·복구·부하 검증 |
 
-### 2.1 제거한 Cloudflare 의존성 대체표
-
-| 현재 대상 | 역할 | Node.js 대체 |
-|---|---|---|
-| `worker/index.ts` | Worker 진입점, 이미지 처리 | `next start`; 이미지 처리는 Next.js 기본 기능 |
-| `vite.config.ts` Cloudflare 플러그인 | Worker/D1 로컬 바인딩 | 제거하고 `next.config.ts` 사용 |
-| `.openai/hosting.json` | D1 바인딩 | `.env`의 `DATABASE_URL` |
-| `db/index.ts`의 `cloudflare:workers` | 런타임 DB 접근 | `pg.Pool` + `drizzle-orm/node-postgres` |
-| `drizzle-orm/d1` | SQLite ORM 드라이버 | `drizzle-orm/node-postgres` |
-| `sqlite-core` 스키마 | D1 테이블 선언 | `pg-core` 스키마 선언 |
-| `chatgpt-auth.ts` | 플랫폼 헤더 인증 | Cognito callback + 서버 세션 |
-| `@cloudflare/workers-types` | Worker 타입 | Node.js·`pg` 타입 |
-| Wrangler 빌드/실행 명령 | 로컬/배포 런타임 | Next.js, Colyseus, Docker Compose |
-| Worker 기반 SSR 테스트 | Worker `fetch()` 호출 | 실제 Node 서버 또는 Route Handler 통합 테스트 |
-
-## 3. 목표 저장소 구조와 책임
+## 4. 저장소 책임
 
 ```text
 apps/
-├─ web/                         Next.js UI, OAuth, REST, BFF
-└─ game-server/                 Colyseus 서버와 Room
+├─ web/                         Next.js UI, Phaser, OAuth, REST/BFF
+└─ game-server/                 Colyseus HTTP/WebSocket 서버와 Room
 
 packages/
-├─ game-core/                   Phaser 비의존 순수 게임 규칙
-├─ protocol/                    Zod 입력 스키마와 공유 타입
-├─ db/                          Drizzle 스키마, migration, repository
-└─ auth/                        세션·JWT 발급/검증 공통 코드
+├─ auth/                        OAuth 보조, 암호화, game-ticket
+├─ db/                          PostgreSQL Drizzle schema/repository/migration
+├─ game-core/                   Phaser 비의존 게임 규칙과 현재 기본 Core
+└─ protocol/                    client/server 공용 Zod 계약
 ```
 
-- `apps/web`은 HTML 렌더링, OAuth callback, 서버 세션, 방명록과 전적 조회를 소유한다.
-- `apps/game-server`는 매치메이킹, Room 생명주기, 입력 검증, 게임 상태, 결과 확정을 소유한다.
-- `packages/game-core`는 Phaser, React, Colyseus, DB를 import하지 않는다.
-- `packages/protocol`은 클라이언트와 서버가 공유하는 유일한 네트워크 계약이다.
-- `packages/db`는 두 서버가 공유하지만 HTTP나 Room 타입을 import하지 않는다.
-- `packages/auth`는 쿠키 세션과 game-ticket 로직을 제공하며 UI에 의존하지 않는다.
+- `apps/web`은 DB에 직접 SQL을 쓰지 않고 `packages/db` repository를 사용한다.
+- `apps/game-server`는 인증된 사용자 입력, Room 생명주기, 권위 상태와 결과 저장을 소유한다.
+- `packages/game-core`는 Phaser·React·Colyseus·DB에 의존하지 않는다.
+- `packages/protocol`의 schema가 네트워크 입력 타입의 원본이다.
+- 실시간 entity 상태는 Room 메모리에 두며 매 tick PostgreSQL에 저장하지 않는다.
 
-## 4. 인증과 세션
+## 5. 웹 인증과 서버 세션
 
-### 4.1 OAuth 로그인 흐름
+### 5.1 구현된 로그인 경로
 
-OAuth 제공자는 Google 하나이며 Cognito User Pool Lite가 federation과 기본 토큰 발급을 담당한다. 흐름은 Authorization Code + PKCE로 고정한다.
+1. 운영 후보: `/api/auth/login` → Cognito Managed Login/Google → `/api/auth/callback`.
+2. 개발: 비운영 환경에서 `DEV_AUTH_BYPASS=true`이면 로컬 사용자 세션 생성.
+3. 공개 테스트: 비운영 환경 또는 `PUBLIC_PLAYTEST_ENABLED=true`이면 `/api/auth/guest`가 1일 guest session 생성.
 
-```text
-1. Browser -> GET /api/auth/login?returnTo=/
-2. Next.js -> state, nonce, code_verifier 생성
-3. Next.js -> PKCE/상태 정보를 10분 만료 서명 쿠키에 저장
-4. Browser -> Cognito Managed Login -> Google
-5. Cognito -> GET /api/auth/callback?code=...&state=...
-6. Next.js -> state/nonce 검증, code 교환
-7. Next.js -> Cognito sub 기준 users upsert
-8. Next.js -> auth_sessions 생성
-9. Browser <- 불투명 세션 쿠키 설정 후 검증된 returnTo로 303 redirect
-```
+OAuth route는 state, nonce, PKCE verifier와 동일 origin `returnTo`를 검증한다. Cognito 실서비스 연동은 코드 존재와 별개로 운영 검증이 필요하다.
 
-`returnTo`는 `/`로 시작하는 동일 오리진 상대 경로만 허용하고 `//`, 로그인, callback, logout 경로는 `/`로 치환한다.
+### 5.2 세션
 
-### 4.2 서버 세션
+- 운영 쿠키: `__Host-fdm_session`; 개발: `fdm_session`.
+- `HttpOnly`, `SameSite=Lax`, 운영 `Secure`, `Path=/`.
+- DB에는 세션 원문 대신 SHA-256 hash 저장.
+- 기본 OAuth/개발 세션 7일, guest session 1일.
+- 24시간 idle 이후 조회 거부.
+- 사용자당 활성 세션 최대 5개, 초과분 revoke.
+- refresh token 또는 guest marker는 AES-256-GCM으로 암호화.
+- mutation은 `fdm_csrf` cookie와 `x-csrf-token`, 허용 Origin을 확인.
 
-- 쿠키 이름: `__Host-fdm_session`
-- 속성: `HttpOnly`, `Secure`, `SameSite=Lax`, `Path=/`
-- 쿠키 값: 256비트 CSPRNG 세션 원문을 base64url로 인코딩한 값
-- DB 저장: 세션 원문이 아니라 `SHA-256(session)` 해시
-- 기본 세션 수명: 7일
-- 유휴 세션 수명: 마지막 사용 후 24시간
-- 한 사용자당 활성 세션: 최대 5개; 초과 시 가장 오래된 세션부터 폐기
-- Cognito refresh token: `AUTH_SESSION_ENCRYPTION_KEY`로 AES-256-GCM 암호화 후 DB 저장
-- 로그아웃: 현재 세션을 DB에서 폐기하고 쿠키 만료
-- 사용자 전체 로그아웃: 사용자의 모든 세션을 폐기
+### 5.3 공개 guest의 현재 제약
 
-REST 인증은 세션 쿠키로 처리한다. 브라우저에 Cognito access/refresh token을 노출하거나 `localStorage`에 저장하지 않는다.
+- guest도 `users`와 `auth_sessions` row를 생성한다.
+- guest email은 `.invalid` 주소이며 외부 발송에 사용하지 않는다.
+- 자동 만료 row 청소, IP/user rate limit, guest 전적 보존 기간은 아직 구현 근거가 없다.
+- production에서는 `PUBLIC_PLAYTEST_ENABLED`가 false이면 Google/Cognito 로그인으로 redirect한다.
 
-### 4.3 게임 접속 티켓
+## 6. 게임 접속 티켓
 
-`POST /api/game-ticket`은 유효한 서버 세션과 CSRF 검증 후 90초 만료 RS256 JWT를 반환한다.
+`POST /api/game-ticket`은 서버 세션과 CSRF 검증 후 90초 RS256 JWT를 발급한다.
 
-```json
-{
-  "token": "<jwt>",
-  "expiresAt": "2026-08-10T12:34:56.000Z"
-}
-```
-
-JWT 필수 claim:
+필수 claim:
 
 | claim | 값 |
 |---|---|
 | `iss` | `five-days-web` |
 | `aud` | `five-days-game-server` |
-| `sub` | 내부 `users.id` UUID |
-| `exp` | 발급 후 90초 |
-| `iat` | 발급 시각 |
+| `sub` | 내부 user UUID |
 | `jti` | 매번 새 UUID |
 | `scope` | `room:join` |
-| `protocolVersion` | 현재 프로토콜 정수 버전 |
-| `displayName` | 서버 검증된 표시 이름 |
+| `protocolVersion` | 현재 2 |
+| `displayName` | 서버 세션 사용자 표시명 |
+| `iat`, `exp` | 발급/90초 만료 |
 
-개인키는 web 서버에만 두고 game-server에는 공개키만 배포한다. `kid`를 JWT header에 포함하고 현재 키와 직전 키를 동시에 검증할 수 있게 해 무중단 키 교체를 지원한다.
+현재 game-server는 `static onAuth`에서 JWT와 Origin을 검증하고 사용된 `jti`를 프로세스 메모리에 보관한다.
 
-Colyseus는 Room 생성 전에 `static onAuth`에서 서명과 모든 필수 claim을 검증한다. MVP 단일 프로세스에서는 사용된 `jti`를 만료 시각까지 메모리에 보관해 재사용을 거부한다. 다중 프로세스 전환 시 이 저장소를 Redis TTL key로 교체한다.
+현재 한계:
 
-## 5. 공개 REST 계약
+- public key 하나를 읽으므로 문서상 목표였던 현재/직전 키 동시 rotation은 아직 완성되지 않았다.
+- 다중 game-server에서는 메모리 jti 집합을 공유하지 못한다. 확장 시 Redis TTL key가 필요하다.
 
-모든 응답은 JSON이며 오류 형식은 다음으로 통일한다.
+## 7. REST 계약
 
-```json
+| Method | Path | 인증 | 실제 동작 |
+|---|---|---|---|
+| GET | `/api/auth/login` | 없음 | Cognito 또는 개발 로그인 시작 |
+| GET | `/api/auth/callback` | OAuth state | code 교환과 서버 세션 생성 |
+| GET | `/api/auth/guest` | 환경 flag | 공개 테스트 guest session 생성 |
+| POST | `/api/auth/logout` | 세션+CSRF | 현재 세션 revoke |
+| GET | `/api/session` | 선택 | viewer 또는 null |
+| POST | `/api/game-ticket` | 세션+CSRF | 90초 JWT 발급 |
+| GET | `/api/guestbook` | 없음 | 최근 8개 |
+| POST | `/api/guestbook` | 세션+CSRF | 2~180자 생성 |
+| GET | `/api/runs` | 세션 | 본인 최근 10개 결과 |
+| POST | `/api/runs` | — | 405; 클라이언트 결과 제출 거부 |
+| GET | `/api/health/live` | 없음 | web process 생존 |
+| GET | `/api/health/ready` | 없음 | DB 준비 상태 |
+
+오류 형식은 `{ error: { code, message, requestId } }`다. REST 전역 body 16KiB 제한과 route별 rate limiter는 기존 문서의 목표였으며 현재 구현 완료로 간주하지 않는다.
+
+## 8. protocol v2
+
+### 8.1 RoomOptions
+
+```ts
 {
-  "error": {
-    "code": "AUTH_REQUIRED",
-    "message": "로그인이 필요합니다.",
-    "requestId": "uuid"
-  }
+  heroClass: "swordsman" | "archer" | "mage";
+  sessionMode: "prototype" | "full";
+  difficulty: "easy" | "normal" | "hard";
+  partyMode: "solo" | "coop";
+  protocolVersion: 2;
 }
 ```
 
-| Method | Path | 인증 | 동작 |
-|---|---|---|---|
-| `GET` | `/api/auth/login` | 없음 | PKCE 로그인 시작 후 Cognito로 redirect |
-| `GET` | `/api/auth/callback` | OAuth state | code 교환, 사용자/세션 생성 |
-| `POST` | `/api/auth/logout` | 세션 + CSRF | 현재 세션 폐기 |
-| `GET` | `/api/session` | 선택 | `{ viewer: null }` 또는 사용자 공개 정보 반환 |
-| `POST` | `/api/game-ticket` | 세션 + CSRF | 90초 Colyseus JWT 발급 |
-| `GET` | `/api/guestbook` | 없음 | 최근 8개 공개 방명록 조회 |
-| `POST` | `/api/guestbook` | 세션 + CSRF | 2~180자 방명록 생성 |
-| `GET` | `/api/runs` | 세션 | 자신의 최근 10개 매치 결과 조회 |
+- solo Room은 `maxClients=1`, 시작 요구 1명.
+- coop Room은 `maxClients=3`, 시작 요구도 정확히 3명으로 코드에 고정돼 있다.
+- Room 생성 옵션과 다른 party/session/difficulty로 join하면 409.
+- 진행 시작 후 Room을 lock하고 신규 사용자를 거부한다.
 
-기존 `POST /api/runs`는 제거한다. 결과는 클라이언트가 아닌 Colyseus가 직접 DB transaction으로 저장한다.
+### 8.2 명령 envelope
 
-### 5.1 상태 코드
-
-- `200`: 조회/로그아웃/티켓 발급 성공
-- `201`: 방명록 생성 성공
-- `303`: OAuth 로그인·callback redirect
-- `400`: JSON 또는 입력 스키마 오류
-- `401`: 로그인 또는 게임 티켓 오류
-- `403`: CSRF, Origin, 권한 오류
-- `409`: 중복 세션, 중복 결과 등 충돌
-- `429`: rate limit
-- `503`: DB 또는 인증 제공자 일시 장애
-
-### 5.2 CSRF와 rate limit
-
-- 상태 변경 REST 요청은 세션 쿠키와 함께 double-submit CSRF token을 요구한다.
-- `Origin`이 설정된 요청은 허용 목록과 정확히 일치해야 한다.
-- 로그인 시작: IP당 분당 10회
-- game-ticket: 사용자당 분당 10회
-- 방명록 작성: 사용자당 30초에 1회, IP당 분당 10회
-- REST body 최대 크기: 16KiB
-- 초기 단일 서버 rate limit 저장소는 메모리이며 다중 서버 전환 시 Redis로 이동한다.
-
-## 6. Colyseus 계약
-
-### 6.1 Room 정책
-
-| 항목 | 값 |
-|---|---|
-| Room type | `party_room` |
-| 최대 인원 | 3명 |
-| 최소 시작 인원 | 1명(MVP 테스트), 운영 기본 3명 |
-| 서버 simulation | 20Hz, 고정 50ms step |
-| 상태 patch | Colyseus Schema 기본 patch, 최대 20Hz |
-| 재접속 유예 | 20초 |
-| 게임 최대 시간 | 35분 |
-| 빈 Room | 즉시 dispose |
-| protocol version 불일치 | join 거부 |
-
-클라이언트 한 명당 활성 Room 연결은 하나만 허용한다. 새 연결이 인증되면 이전 연결을 `DUPLICATE_LOGIN` 코드로 종료한다.
-
-### 6.2 메시지 envelope
-
-모든 클라이언트 입력은 Zod로 검증하며 공통 envelope를 사용한다.
+모든 schema는 strict object다.
 
 ```ts
-type ClientCommand<TType extends string, TPayload> = {
-  v: number;
-  type: TType;
+{
+  v: 2;
   seq: number;
   clientTime: number;
-  payload: TPayload;
-};
+  type: string;
+  payload: object;
+}
 ```
 
-- `v`: protocol version
-- `seq`: 연결별 0부터 증가하는 정수
-- `clientTime`: 관측/로그용이며 판정 시간으로 신뢰하지 않음
-- 서버는 마지막 처리 `seq` 이하를 중복으로 폐기한다.
-- 단일 메시지 직렬화 크기는 4KiB 이하로 제한한다.
-- 사용자당 초당 30개를 초과하면 경고하고 반복 초과 시 연결을 종료한다.
-
-### 6.3 클라이언트 명령
-
-| type | payload | 검증 |
+| 명령 | schema | 서버 의미 처리 |
 |---|---|---|
-| `player.input` | 이동축 `x/y`, 조준각, 입력 bitmask | 축 -1~1, 정규화, 유효 bit만 허용 |
-| `skill.cast` | `skillId`, 조준점 | 보유 스킬, cooldown, 거리, 생존 여부 |
-| `build.place` | `buildingId`, grid 좌표 | 비용, 격자, 충돌, 경로 유효성 |
-| `build.upgrade` | `structureId` | 소유 Room, 거리, 최대 레벨, 비용 |
-| `upgrade.choose` | `draftId`, `upgradeId` | 서버가 발급한 현재 draft에 포함 |
-| `room.ready` | 준비 여부 | 로비 phase에서만 허용 |
+| `room.ready` | 구현 | 구현 |
+| `player.input` | 구현 | 이동·aim 구현 |
+| `skill.cast` | 구현 | `SKILL_NOT_READY` 거부 |
+| `build.place` | 구현 | `BUILD_NOT_READY` 거부 |
+| `build.upgrade` | 구현 | `BUILD_NOT_READY` 거부 |
+| `upgrade.choose` | 구현 | draft ID·선택지 검증 후 적용 |
+| `player.interact` | 구현 | drop·waypoint·인접 door 처리 |
+| `travel.request` | 구현 | 활성·목적지·전원 위치 검증 후 5초 점유 |
+| `recall.request` | 구현 | 활성 waypoint·전원 정족수 검증 후 base 방향 5초 점유 시작 |
+| `equipment.equip` | 구현 | 소유자·동일 room·미획득 검증 후 장착 |
 
-`enter-boss`, `return-base`, `restart`와 같은 기존 UI 명령은 서버 phase와 웨이포인트 규칙을 통과한 의도 명령으로 재정의한다. 클라이언트는 HP, 피해, 골드, XP, 타이머, 승패 또는 결과 통계를 직접 전송하지 않는다.
+중요한 현재 한계:
 
-### 6.4 서버 상태와 이벤트
+- PartyRoom은 client session별 마지막 seq를 기록해 모든 명령의 중복·역순을 `STALE_SEQUENCE`로 거부한다.
+- input은 GameCore에서도 user별 `lastSeq`를 다시 확인한다.
+- 각 명령의 phase·물리 거리·대상 공개 범위 검증은 명령별로 강도가 달라 보강이 필요하다.
+- 스킬과 건설은 schema만 허용하고 서버가 명시적으로 준비 전 오류를 반환한다.
 
-Colyseus Schema state의 최소 루트:
+### 8.3 전송 제한
 
-```ts
-type PartyRoomState = {
-  protocolVersion: number;
-  matchId: string;
-  phase: "lobby" | "day" | "night" | "standby" | "boss" | "ended";
-  day: number;
-  serverTime: number;
-  phaseEndsAt: number;
-  baseHp: number;
-  gold: number;
-  players: MapSchema<PlayerState>;
-  enemies: MapSchema<EnemyState>;
-  structures: MapSchema<StructureState>;
-};
-```
+- 메시지 직렬화 크기 4KiB 초과 시 거부.
+- session ID 기준 초당 30개 초과 시 `RATE_LIMITED`.
+- Colyseus WebSocket max payload 4KiB.
+- `clientTime`은 관측용이며 판정 시각으로 신뢰하지 않는다.
 
-서버 상태에는 UI에 필요한 권위 값만 포함한다. 고빈도 투사체는 가능한 경우 `patternId`, seed, 시작 시각 이벤트로 재생하고 서버가 피격만 확정한다. 숨겨야 하는 드롭 테이블, 미선택 upgrade 후보, AI 내부 타깃은 state에 넣지 않는다.
+## 9. PartyRoom과 GameCore
 
-### 6.5 서버 권위와 클라이언트 예측
+### 9.1 현재 구현
 
-- 서버 소유: 시간, phase, 좌표 유효성, 적 AI, 스폰, 공격 대상, 피해, HP, 골드, XP, 드롭, 건설, upgrade draft, 승패.
-- 클라이언트 소유: 입력 수집, 화면 렌더링, 카메라, 사운드, 이펙트.
-- 클라이언트 예측: 로컬 플레이어 이동과 즉시 이펙트만 허용.
-- 보정: 서버 위치와 오차가 작으면 100ms 내 보간하고 임계치를 넘으면 즉시 스냅한다.
-- 서버는 한 프레임 delta를 최대 100ms로 제한하고 누적 지연을 여러 fixed step으로 처리한다.
+- Room 생성 시 match row와 random UUID seed 생성.
+- 인증 사용자 중복 접속 시 기존 연결 종료.
+- solo/coop에 따른 max/min 인원과 ready 시작.
+- 시작 후 Room lock.
+- 20Hz simulation과 최대 delta 100ms.
+- 모든 command의 session별 단조 증가 seq와 초당 30개/4KiB 제한.
+- 결정론적 3구역 5×5/15방 world와 room-local 이동·door 전환.
+- cursor 원뿔 자동 공격, 피해·사망·전멸, 팀 XP와 개인 draft.
+- 피격 후 반격하는 정적/히든 적, 밤 8초 간격 침공 적, base 피해.
+- 발견한 자원 방마다 +1골드/5초와 일반 정적 적 prototype30/full90초 리스폰.
+- 게이트 파괴, 연결·생존 사용자 전원 5초 waypoint 점유, 구역 이동과 boss room 진입.
+- 활성 waypoint에서 같은 정족수/5초 규칙을 재사용하는 base recall.
+- 개인 hidden drop, 자동 상위 장비 교체, 남은 drop의 소유권 기반 장착.
+- day/night/standby, 5일 종료 패배, base 파괴 패배, 기본 boss HP/처치 승리.
+- rooms/doors/enemies/waypoints/drops와 player 장비/draft를 Schema에 동기화.
+- 공격 피해·boss 피해·처치·사망·게이트 파괴 기여 통계 누적.
+- `onLeave`에서 입력을 0으로 만들고 비정상 이탈이면 20초 재접속을 시도.
+- Room 생성 후 최대 35분이 지나면 abandoned로 종료.
+- dispose 시 abandoned 결과 저장 시도.
 
-### 6.6 이탈과 재접속
+### 9.2 아직 구현되지 않았거나 단순화된 핵심
 
-- 예기치 않은 연결 종료는 `onDrop`에서 20초 재접속을 허용한다.
-- 재접속 중 캐릭터는 AI가 제어하되 upgrade 선택과 보상 소비는 하지 않는다.
-- 20초 내 복귀하면 동일 player state에 재연결한다.
-- 유예 만료 후에도 Room은 진행하며 해당 플레이어를 AI 동료로 유지한다.
-- 모든 사람이 이탈하면 20초 유예 후 match를 `abandoned`로 끝내고 저장한다.
-- 프로세스 장애 시 메모리 Room 복원은 MVP 범위 밖이다. 매치가 사라질 수 있음을 운영 제한으로 명시한다.
+- Q/E 스킬 효과와 button bitmask의 회피/스킬 판정.
+- 개별 플레이어 부활 규칙.
+- 히든 적의 투사체 패턴과 보스 공격·장판·소환·광폭화 패턴.
+- 건설 배치·강화, 비용·충돌·경로 검증, `structures` lifecycle.
+- room 내부 장애물 충돌과 더 정밀한 침공 적 이동 표현.
+- 명령별 phase·물리 거리·대상 공개 범위 검증의 일관성.
+- 20초 재접속 실패 후 avatar 제거·match 정족수 정책.
+- 개인 drop·전투 event·미구현 규칙까지 포함한 Phaser lifecycle과 실제 3-client end-to-end.
 
-## 7. PostgreSQL 모델
+AI 동료는 0.2 명세에서 금지한다. 연결 종료자를 AI로 전환한다는 이전 문서 규칙은 폐기됐다.
 
-모든 PK는 `uuid`, 시각은 `timestamp with time zone`, 금액/통계는 범위가 정해진 `integer`를 사용한다.
+## 10. Colyseus Schema와 클라이언트 연결
 
-### 7.1 `users`
+### 10.1 정의된 Schema
 
-| 컬럼 | 제약 |
+Root에는 seed, phase, zone, day, server time, base, gold, team XP와 다음 map이 정의되어 있다.
+
+- players
+- rooms / doors
+- enemies
+- waypoints
+- structures
+- drops
+
+Player에는 room ID, 좌표, HP, alive/connected, 장비 요약, 개인 upgrade draft가 정의돼 있다.
+
+### 10.2 실제 동기화 범위
+
+현재 `PartyRoom.syncState()`는 root와 player뿐 아니라 발견된 rooms/doors/enemies/waypoints를 GameCore 값으로 채우고, 개인 장비 요약과 upgrade draft, drops도 동기화한다. draft와 drop은 Colyseus `StateView`로 해당 사용자에게만 전달한다. `structures`는 건설 미구현으로 비어 있다.
+
+클라이언트 `ColyseusTransport`는 player/root, 발견 rooms/doors/enemies/waypoints, 개인 draft·장비·drop과 terminal result를 view model로 변환하고 서버 20초 예약보다 짧은 18초 deadline 안에서 reconnect를 재시도한다. 현재 `createGame.ts`는 `RoomGameScene`을 실행하며 이 장면은 network mode의 `update()`에서 로컬 session·전투·AI·경제 tick을 실행하지 않는다. 서버 room을 `RoomRenderer`로 전환하고 같은 방의 player/enemy와 소유자 drop을 state 위치로 표현하며, drop 클릭 equip·draft 선택·waypoint/travel/recall과 종료 결과를 UI 경계에 전달한다. 이전 `GameScene.ts`는 저장소에 남아 있지만 현재 Phaser scene 목록에는 없다.
+
+부분 구현으로 남은 클라이언트 경계:
+
+- 장비 비교·확인·분해, 특수 옵션과 폐기 lifecycle UI.
+- server skill/build가 없으므로 network mode의 Q/E/Space와 건설 기능.
+- boss 공격 pattern/피격 표현과 전투 이펙트의 state/event 계약.
+- server 개인별 기여 통계를 결과 overlay에 표시하는 별도 상세 payload.
+- room 전환 보간·오류 복구와 실제 세 브라우저 동시 검증.
+
+목표:
+
+- 남은 structure/event를 Phaser 표현 객체에 일대일 매핑하고 장비 관리 UI를 완성.
+- 위치 예측을 추가하더라도 HP·피해·경제는 server patch로 확정.
+- 위치 오차는 보간하고 큰 오차는 snap.
+- network mode snapshot-only 원칙을 회귀 테스트로 고정.
+
+## 11. `game-core` 0.2 규칙
+
+`packages/game-core/src/v02`에는 다음 순수 규칙이 구현돼 root export되며, `GameCore`와 `PartyRoom`이 일부를 실제 시뮬레이션에 사용한다.
+
+- 결정론적 seed PRNG.
+- 구역당 5×5/15방, 시작 `(0,4)`, 게이트 `(4,0)`, 히든 degree1 맵.
+- 장비 rarity/slot과 개인 Legendary80/Mythic20 드롭.
+- 레벨30, XP, 일반10종·클래스별 전직5종, 결정론적 3-choice draft.
+- room-local 이동, 자동 공격, 정적/침공 AI, waypoint, 기본 boss와 결과 처리.
+
+검증된 범위:
+
+- 맵 1,000 seed × 3구역 property test.
+- 드롭 20,000회 경계·분포 test.
+- 3클래스 × 250 경로 × 레벨2~30 draft test.
+- world 생성, room 전환, 자동 공격, 적 AI, draft, hidden drop, waypoint/boss, 침공 경로, 자원 생산, 리스폰, recall integration test.
+
+PartyRoom과 기본 room/player/enemy/draft/equipment/waypoint 화면 연결까지 진행됐다. 개인 drop lifecycle 완결, 스킬·건설·플레이어 부활·보스 공격 패턴은 아직 남아 있다.
+
+## 12. PostgreSQL
+
+### 12.1 실제 테이블
+
+| 테이블 | 용도 |
 |---|---|
-| `id` | PK, UUID |
-| `cognito_sub` | NOT NULL, UNIQUE, 변경 불가 |
-| `email` | NOT NULL |
-| `display_name` | NOT NULL, 1~60자 |
-| `created_at` | NOT NULL, now |
-| `updated_at` | NOT NULL, now |
+| `users` | Cognito/guest 식별자, email, 표시명 |
+| `auth_sessions` | hash token, 암호화 refresh marker, 만료/revoke |
+| `guestbook_entries` | 공개 방명록, 선택 author FK |
+| `matches` | room, mode, difficulty, state, text seed, version, 결과 |
+| `match_players` | 사용자별 클래스·레벨·기여 통계 |
 
-인증 식별자는 이메일이 아니라 `cognito_sub`다. 이메일은 변경될 수 있으므로 FK나 PK로 사용하지 않는다.
+현재 `matches`에는 `partyMode` 컬럼이 없다. 솔로/협동 결과를 구분해 분석하려면 migration이 필요하다.
 
-### 7.2 `auth_sessions`
+### 12.2 결과 저장
 
-| 컬럼 | 제약 |
-|---|---|
-| `id` | PK, UUID |
-| `user_id` | FK users, NOT NULL, index |
-| `token_hash` | NOT NULL, UNIQUE |
-| `encrypted_refresh_token` | NOT NULL |
-| `expires_at` | NOT NULL, index |
-| `last_seen_at` | NOT NULL |
-| `revoked_at` | nullable |
-| `created_at` | NOT NULL, now |
+`finalizeMatch()`는 match row를 `FOR UPDATE`로 잠그고 running 상태일 때만 종료 상태와 player 결과를 기록한다. `(match_id,user_id)` unique와 upsert가 중복 player 결과를 막는다.
 
-### 7.3 `guestbook_entries`
+제약:
 
-기존 필드를 유지하되 `author_id`를 `users.id` FK로 바꾼다. 사용자 탈퇴 후에도 기록을 유지하기 위해 삭제는 `ON DELETE SET NULL`로 처리하고 표시 이름 snapshot은 그대로 둔다.
+- 기본 server combat는 damage/bossDamage/kills/deaths/gates를 누적한다. terminal state의 승패·사유와 최종 팀 집계 snapshot은 결과 overlay에 연결됐지만, 개인별 불변 결과 payload와 스킬·건설 통계는 아직 없다.
+- DB repository 코드는 있으나 빈 DB migration, rollback, 동시 finalize의 별도 integration test는 현재 test 목록에 없다.
 
-### 7.4 `matches`
+### 12.3 migration 정책
 
-| 컬럼 | 제약 |
-|---|---|
-| `id` | PK, UUID; game-server가 Room 생성 시 생성 |
-| `room_id` | NOT NULL, UNIQUE |
-| `mode` | `prototype` 또는 `full` |
-| `difficulty` | `easy`, `normal`, `hard` |
-| `state` | `running`, `victory`, `defeat`, `abandoned`, `server_error` |
-| `seed` | NOT NULL, bigint |
-| `protocol_version` | NOT NULL |
-| `server_version` | NOT NULL |
-| `started_at` | NOT NULL |
-| `ended_at` | nullable |
-| `duration_seconds` | nullable |
-| `day` | 1~5 |
-| `result_reason` | 최대 240자 |
+- `packages/db/src/schema.ts`가 원본.
+- `drizzle-kit generate`로 SQL 생성 후 리뷰.
+- 적용은 `drizzle-kit migrate`; 운영에서 schema `push` 사용 금지.
+- migration은 compose의 one-shot `migrate` profile 한 곳에서 실행.
+- 파괴적 변경은 expand/migrate/contract 단계로 분리.
 
-### 7.5 `match_players`
+## 13. 보안: 현재와 목표
 
-| 컬럼 | 제약 |
-|---|---|
-| `id` | PK, UUID |
-| `match_id` | FK matches, NOT NULL |
-| `user_id` | FK users, NOT NULL |
-| `hero_class` | NOT NULL |
-| `level`, `team_power` | NOT NULL, 0 이상 |
-| `damage`, `boss_damage`, `kills`, `deaths` | NOT NULL, 0 이상 |
-| `structures_built`, `gold_spent`, `gates_destroyed` | NOT NULL, 0 이상 |
-| `joined_at`, `left_at` | 시각 |
-| `disconnected` | NOT NULL, boolean |
+### 13.1 현재 코드에 있는 방어
 
-`UNIQUE(match_id, user_id)`로 결과 중복을 차단하고 `(user_id, joined_at DESC)` 인덱스로 전적 조회를 지원한다.
+- OAuth state/nonce/PKCE와 안전한 return path.
+- HttpOnly session, hash 저장, AES-256-GCM refresh 암호화.
+- CSRF double-submit과 Origin allowlist.
+- 90초 RS256 game-ticket, issuer/audience/version, jti 1회 사용.
+- Colyseus Origin 검증, strict Zod, 4KiB, 초당 30개.
+- 브라우저의 `POST /api/runs` 결과 제출 거부.
+- DB unique/check/FK와 result transaction.
 
-### 7.6 결과 transaction
+### 13.2 목표/보강 필요
 
-Room 종료 시 다음 작업을 하나의 Drizzle transaction으로 수행한다.
+- REST 로그인·guest·ticket·방명록 rate limit.
+- REST 공통 body 크기 제한.
+- 모든 command의 phase·거리·대상 공개 범위 검증 보강.
+- guest 계정 정리와 악용 제한.
+- key rotation과 secret rotation 절차.
+- 구조화 로그의 민감정보 redaction test.
+- 운영 DB 계정 DDL 분리와 backup restore 훈련.
 
-1. `matches.id`를 잠그고 상태가 `running`인지 확인한다.
-2. `matches` 최종 상태와 종료 시각을 갱신한다.
-3. 각 `match_players` 통계를 upsert한다.
-4. 향후 메타 보상이 생기면 같은 transaction 안에서 지급한다.
-5. 이미 종료된 match면 기존 결과를 반환하고 다시 지급하지 않는다.
+## 14. 관측성과 운영
 
-게임 tick, 위치, 탄막, 적 AI 상태는 PostgreSQL에 매 tick 저장하지 않는다.
+구현된 health endpoint:
 
-## 8. 마이그레이션 정책
+- web `/api/health/live`, `/api/health/ready`.
+- game `/health/live`, `/health/ready`.
 
-- TypeScript `pg-core` schema가 source of truth다.
-- 개발자는 `drizzle-kit generate --name <name>`으로 SQL을 생성한다.
-- 생성 SQL과 snapshot을 코드 리뷰하고 Git에 포함한다.
-- 운영 배포는 `drizzle-kit migrate`만 사용하며 `push`를 사용하지 않는다.
-- 배포 전 `pg_dump`를 만들고 migration 실패 시 애플리케이션 전환을 중단한다.
-- 컬럼 삭제·rename은 expand/migrate/contract 세 단계로 나눠 이전 버전 롤백을 가능하게 한다.
-- migration은 단일 one-shot 프로세스만 실행하고 web/game 컨테이너가 동시에 실행하지 않는다.
-
-## 9. 보안 정책
-
-- 모든 외부 통신은 HTTPS/WSS를 사용한다.
-- OAuth `state`, `nonce`, PKCE를 모두 검증하고 redirect URI는 고정 목록만 허용한다.
-- 세션 원문, JWT, OAuth code, refresh token, 이메일은 로그에 남기지 않는다.
-- refresh token과 JWT private key는 서로 다른 키로 보호한다.
-- DB 계정은 애플리케이션용과 migration용을 분리한다. 앱 계정에는 DDL 권한을 주지 않는다.
-- PostgreSQL 포트는 외부에 공개하지 않는다.
-- 방명록은 plain text로 저장하고 React text node로 렌더링한다. HTML을 허용하지 않는다.
-- 모든 REST payload와 Colyseus message는 런타임 스키마로 검증한다.
-- 클라이언트가 제출한 사용자 ID, 표시 이름, 통계, 보상 값은 신뢰하지 않는다.
-- 에러 응답은 내부 stack, SQL, 토큰 검증 세부사항을 포함하지 않는다.
-
-## 10. 관측성과 운영
-
-구조화 JSON 로그 공통 필드:
+목표 공통 로그 필드:
 
 ```text
 timestamp, level, service, environment, requestId,
 userId, roomId, matchId, event, durationMs, errorCode
 ```
 
-민감정보는 값 자체를 기록하지 않고 존재 여부나 내부 UUID만 기록한다.
+활성 Room, 연결 수, tick p95, event-loop lag, rejected message, reconnect, DB latency, container restart metric은 운영 목표이며 현재 완비됐다고 간주하지 않는다.
 
-필수 metric:
+## 15. 배포
 
-- web: 요청 수, 상태 코드, p50/p95 latency, OAuth 실패, DB pool 대기
-- game: 활성 Room/연결 수, tick duration, event-loop lag, 메시지 거부, 재접속
-- DB: query latency, pool 사용률, transaction 실패, 디스크 사용량
-- host: CPU, memory, swap, disk, container restart
+저장소에는 다음 기반이 있다.
 
-health endpoint:
+- `Dockerfile.web`, `Dockerfile.game`.
+- `compose.yml`: Caddy/web/game-server/migrate/postgres.
+- `compose.local.yml`: localhost:55432 PostgreSQL.
+- Caddy HTTPS/WSS reverse proxy.
+- Lightsail bootstrap/configure/deploy 문서와 workflow.
 
-- web `/api/health/live`: 프로세스 생존만 확인
-- web `/api/health/ready`: PostgreSQL `SELECT 1` 포함
-- game `/health/live`: 프로세스 생존
-- game `/health/ready`: 신규 Room 수용 가능 여부와 PostgreSQL 연결 확인
+운영 완료를 주장하려면 staging에서 migration, health failure rollback, DB backup/restore, 3-client WebSocket, 20명 부하를 별도로 검증해야 한다.
 
-## 11. 구현 로드맵과 완료 조건
+## 16. 환경 변수
 
-### 단계 1. Node.js 웹 런타임
-
-- Cloudflare Worker, Wrangler, D1 바인딩을 제거한다.
-- 표준 Next.js `dev/build/start`로 전환한다.
-- 기존 SSR, Phaser 로딩, 방명록 UI가 유지된다.
-
-완료 조건: Node.js에서 production build/start가 성공하고 기존 렌더링 smoke test가 통과한다.
-
-### 단계 2. PostgreSQL
-
-- workspace와 `packages/db`를 구성한다.
-- D1 스키마를 위 PostgreSQL 모델로 교체하고 초기 migration을 생성한다.
-- 방명록과 전적 API를 repository로 전환한다.
-
-완료 조건: 빈 DB migration, CRUD, transaction rollback, 중복 match 결과 테스트가 통과한다.
-
-### 단계 3. Cognito·세션·game-ticket
-
-- Google/Cognito OAuth, callback, 세션, logout을 구현한다.
-- 90초 JWT 발급과 키 rotation 검증을 구현한다.
-- 기존 플랫폼 헤더 인증을 제거한다.
-
-완료 조건: 정상 로그인, state/nonce 오류, 만료 세션, 로그아웃, 만료/재사용 game-ticket 테스트가 통과한다.
-
-### 단계 4. `game-core`와 protocol 분리
-
-- 현재 Phaser `GameScene`에서 시간, 진행, 피해, 경제, 승패 규칙을 순수 모듈로 추출한다.
-- 입력과 snapshot 계약을 versioned Zod schema로 만든다.
-- Phaser는 adapter와 렌더링만 소유한다.
-
-완료 조건: 브라우저 없이 seed를 고정한 전체 세션 시뮬레이션 테스트가 재현 가능하게 통과한다.
-
-### 단계 5. Colyseus
-
-- `party_room`, 인증, 20Hz simulation, 상태 patch, 재접속을 구현한다.
-- 브라우저에 Colyseus transport를 연결하되 local transport를 개발 옵션으로 유지한다.
-- Room 종료 결과를 PostgreSQL에 저장한다.
-
-완료 조건: 3클라이언트 접속, 중복 입력, 불법 스킬/건설, 재접속, 이탈 AI, 승패 저장 테스트가 통과한다.
-
-### 단계 6. 배포와 운영
-
-- Docker Compose, Caddy, GitHub Actions, migration job을 구성한다.
-- Lightsail에 staging을 배포하고 health check, 백업, 복구, rollback을 검증한다.
-
-완료 조건: 동시접속 20명, 여러 Room, 30분 실행에서 crash가 없고 월 1회 복구 훈련이 성공한다.
-
-### 단계 7. 확장
-
-다음 조건 중 하나를 만족할 때만 Redis/RDS/다중 서버로 전환한다.
-
-- 단일 프로세스 CPU가 15분 이상 70% 초과
-- event-loop lag p95가 50ms 초과
-- Room 수용량 때문에 매치 생성 실패
-- 단일 서버 장애 허용이 제품 요구를 충족하지 못함
-
-전환 시 PostgreSQL은 RDS, Presence/Driver와 rate limit/jti 저장소는 Redis, 게임 서버는 여러 Colyseus 프로세스로 이동한다.
-
-## 12. 테스트 매트릭스
-
-| 영역 | 필수 시나리오 |
-|---|---|
-| OAuth | 정상, state/nonce/PKCE 오류, callback 재사용, provider 장애 |
-| 세션 | 생성, 만료, 폐기, 최대 5개, 쿠키 변조, 전체 로그아웃 |
-| JWT | 정상, 만료, 잘못된 issuer/audience/signature/version, jti 재사용 |
-| REST | 인증·CSRF·Origin·body 크기·rate limit·DB 장애 |
-| DB | 빈 DB migration, rollback, unique/FK, 중복 결과, backup restore |
-| Room | 1/2/3명, 중복 접속, 20초 재접속, 이탈 AI, dispose |
-| 게임 권위 | 속도 핵, cooldown 우회, 비용 부족, 불법 위치, 결과 위조 |
-| 프로토콜 | 구버전 거부, 잘못된 type/payload, 중복/out-of-order seq |
-| 부하 | 20명, 여러 Room, 30분, tick p95, memory 증가 추세 |
-| 배포 | migration 실패, health 실패, 이전 image rollback, DB 복구 |
-
-## 13. 환경 변수 계약
-
-저장소에는 `.env.example`만 포함하고 실제 값은 GitHub Secrets와 서버의 권한 제한 파일에 둔다.
+핵심 현재 계약:
 
 ```text
 NODE_ENV
 APP_ORIGIN
 GAME_SERVER_PUBLIC_URL
 DATABASE_URL
+DATABASE_SSL
+DB_POOL_MAX
 
-COGNITO_REGION
-COGNITO_USER_POOL_ID
-COGNITO_CLIENT_ID
-COGNITO_CLIENT_SECRET
-COGNITO_ISSUER
-COGNITO_REDIRECT_URI
+DEV_AUTH_BYPASS
+PUBLIC_PLAYTEST_ENABLED
 AUTH_SESSION_ENCRYPTION_KEY
 GAME_TICKET_PRIVATE_KEY_BASE64
 GAME_TICKET_PUBLIC_KEY_BASE64
 GAME_TICKET_ACTIVE_KID
-PROTOCOL_VERSION
+PROTOCOL_VERSION=2
+
+COGNITO_CLIENT_ID
+COGNITO_CLIENT_SECRET
+COGNITO_ISSUER
+COGNITO_DOMAIN
+COGNITO_REDIRECT_URI
 
 ALLOWED_ORIGINS
-MINIMUM_PLAYERS
 SERVER_VERSION
 LOG_LEVEL
 ```
 
-Google client secret은 Cognito에만 필요한 구성이면 애플리케이션 컨테이너에 주입하지 않는다. 실제 배포 시 Cognito 구성 방식에 맞춰 불필요한 두 변수를 제거한다.
+실제 secret은 Git에 저장하지 않는다. `PROTOCOL_VERSION` 환경값과 코드 상수의 이중 원본을 만들지 말고 배포 검증용으로만 사용한다.
 
-## 14. 명시적 비범위
+## 17. 0.2 통합 순서
 
-- MVP Room의 프로세스 장애 복원
-- Redis, RDS, ALB, 다중 Availability Zone
-- 3명을 초과하는 파티
-- 관전자와 중도 참가
-- 자체 비밀번호 회원가입
-- 실시간 게임 상태의 PostgreSQL tick 저장
-- 영구 랭킹·상점·결제
+완료된 기반은 v02 map의 GameCore world 적재, room-local 좌표, 기본 자동 공격/AI/피해, 자원·정적 리스폰, XP/draft, hidden drop/equip, waypoint와 기본 boss 승패, Schema 및 RoomGameScene의 기본 연결이다.
 
-이 항목은 초기 구현 완료 조건에 포함하지 않는다.
+남은 순서:
+
+1. 개인 drop state를 RoomGameScene과 equip UI에 연결하고 StateView privacy를 E2E 검증한다.
+2. 스킬·회피, 플레이어 부활을 GameCore와 protocol event에 추가한다.
+3. build 명령과 `structures` lifecycle, 비용·경로 검증을 연결한다.
+4. boss 패턴과 기여 통계 payload를 완성하고 결과 transaction/overlay를 E2E 검증한다.
+5. 모든 command의 phase·거리·대상 공개 범위 검증을 통일한다.
+6. disconnect 만료, guest rate/cleanup, DB integration test를 보강한다.
+7. 3-browser E2E, staging, backup/restore, load test를 수행한다.
+
+## 18. 테스트 매트릭스
+
+| 영역 | 현재 자동 검증 | 남은 필수 검증 |
+|---|---|---|
+| auth | 암호화·return path·JWT 만료 | 실제 Cognito, session/CSRF route |
+| protocol | strict schema, v1 거부, v2 명령 | phase·거리·대상 공개 범위 |
+| Schema | 발견 entity 적재, 개인 draft/drop StateView | client lifecycle, structures, private E2E |
+| 기본 Core | ready, seq, phase | 부활·스킬·건설·boss pattern |
+| v02 시뮬레이션 | map과 room/attack/AI/resource/respawn/travel/recall/boss | PartyRoom/Phaser E2E |
+| 장비 | rarity·분포·개인 결정론, GameCore 소유권·장착 | protocol 중복 seq와 client UI |
+| 성장 | 레벨30·draft 경로, server XP·선택 | client draft UI E2E |
+| DB | 타입·repository 코드 | migration/rollback/concurrency integration |
+| Room | ticket jti unit | solo/3-client/reconnect/dispose E2E |
+| 배포 | 구성 파일 | staging rollback·restore·부하 |
+
+## 19. 비범위
+
+- 3명을 초과하는 파티, 2인 동적 보정, 관전자, 신규 중도 참가.
+- Room 프로세스 장애 후 실시간 복원.
+- Redis/RDS/ALB/다중 AZ.
+- 실시간 tick의 PostgreSQL 저장.
+- 영구 장비·랭킹·상점·결제.
+
+이 비범위는 “현재 미구현”과 구분한다. 0.2 필수 기능인 전투·AI·웨이포인트·장비의 서버 권위화는 비범위가 아니다.
