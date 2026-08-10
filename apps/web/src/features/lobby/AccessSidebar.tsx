@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import type { Viewer } from "../game/GameShell";
+import { FantasyButton } from "@/src/components/ui/FantasyButton";
 
 export function AccessSidebar({
   viewer,
@@ -36,19 +37,19 @@ export function AccessSidebar({
               <strong>{viewer.displayName}</strong>
               <span className="online-label">접속됨</span>
             </div>
-            <button type="button" disabled={busy} onClick={() => void onLogout()}>로그아웃</button>
+            <FantasyButton variant="quiet" size="small" type="button" disabled={busy} onClick={() => void onLogout()}>로그아웃</FantasyButton>
           </div>
         ) : (
           <>
             <h2>원정대에 합류하기</h2>
             <p>기록을 남길 계정으로 접속하거나, 이름만 정하고 바로 시작하세요.</p>
-            <a className="google-login" href="/api/auth/login?returnTo=/">Google 계정으로 접속</a>
+            <FantasyButton className="google-login" variant="primary" href="/api/auth/login?returnTo=/" fullWidth>Google 계정으로 접속</FantasyButton>
             <div className="auth-divider"><span>게스트 입장</span></div>
             <form className="guest-form" onSubmit={submitGuest}>
               <label htmlFor="guest-name">용사의 이름</label>
               <div>
                 <input id="guest-name" value={guestName} onChange={(event) => setGuestName(event.target.value)} maxLength={16} placeholder="2~16자 이름" autoComplete="nickname" />
-                <button disabled={busy} type="submit">입장</button>
+                <FantasyButton className="guest-enter" variant="secondary" size="small" disabled={busy} type="submit">입장</FantasyButton>
               </div>
             </form>
           </>

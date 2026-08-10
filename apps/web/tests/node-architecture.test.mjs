@@ -58,3 +58,40 @@ test("renders the dedicated access sidebar with the clean decorative asset", asy
   assert.doesNotMatch(accessScreen, /className="access-rail"/);
   assert.match(styles, /sidebar-frame-clean\.webp/);
 });
+
+test("keeps the lobby room list scrollable without shifting the join controls", async () => {
+  const lobby = await readFile(new URL("src/features/lobby/LobbyScreen.tsx", root), "utf8");
+  const styles = await readFile(new URL("app/globals.css", root), "utf8");
+
+  assert.match(lobby, /className="room-list-scroll"/);
+  assert.match(styles, /\.room-column \{[^}]*grid-template-rows:auto minmax\(0,1fr\) auto/s);
+  assert.match(styles, /\.room-list-scroll \{[^}]*overflow-y:auto[^}]*scrollbar-gutter:stable/s);
+  assert.match(styles, /\.room-join-strip \{[^}]*align-self:end/s);
+  assert.match(styles, /lobby-hall\.webp/);
+  await access(new URL("public/images/lobby/lobby-hall.webp", root));
+});
+
+test("reuses the fantasy controls across access and lobby screens", async () => {
+  const button = await readFile(new URL("src/components/ui/FantasyButton.tsx", root), "utf8");
+  const accessSidebar = await readFile(new URL("src/features/lobby/AccessSidebar.tsx", root), "utf8");
+  const accessScreen = await readFile(new URL("src/features/lobby/AccessScreen.tsx", root), "utf8");
+  const lobby = await readFile(new URL("src/features/lobby/LobbyScreen.tsx", root), "utf8");
+
+  assert.match(button, /export function FantasyButton/);
+  assert.match(button, /fantasy-button--\$\{variant\}/);
+  assert.match(accessSidebar, /<FantasyButton[^>]+google-login/);
+  assert.match(accessSidebar, /<FantasyButton[^>]+guest-enter/);
+  assert.match(accessScreen, /<FantasyButton[\s\S]*원정대 찾기/);
+  assert.match(lobby, /FantasySectionHeading/);
+  assert.match(lobby, /FantasyFrame/);
+
+  const generatedAssets = ["button-frame.webp", "panel-frame.webp", "section-header.webp", "room-row.webp", "party-slot.webp", "input-frame.webp"];
+  await Promise.all(generatedAssets.map((file) => access(new URL(`public/images/ui/fantasy/${file}`, root))));
+});
+
+test("keeps the party creation dialog centered above the lobby", async () => {
+  const styles = await readFile(new URL("app/globals.css", root), "utf8");
+
+  assert.match(styles, /\.lobby-screen > \.create-backdrop \{[^}]*position:fixed[^}]*inset:0[^}]*z-index:100/s);
+  assert.match(styles, /\.create-dialog > div \.fantasy-button\[type="submit"\] \{[^}]*color:#ead8a7/s);
+});

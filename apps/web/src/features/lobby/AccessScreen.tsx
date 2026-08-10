@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { Viewer } from "../game/GameShell";
 import { AccessSidebar } from "./AccessSidebar";
+import { FantasyButton } from "@/src/components/ui/FantasyButton";
 
 export function AccessScreen({
   viewer,
@@ -38,9 +39,7 @@ export function AccessScreen({
         </div>
         <div className="access-launch">
           <p>{viewer ? "함께 싸울 원정대를 찾으세요." : "왼쪽에서 먼저 접속해 주세요."}</p>
-          <button type="button" onClick={onStart} disabled={!viewer || busy}>
-            <span>원정대 찾기</span><i aria-hidden="true">→</i>
-          </button>
+          <FantasyButton variant="secondary" size="large" type="button" onClick={onStart} disabled={!viewer || busy} trailingIcon="→">원정대 찾기</FantasyButton>
         </div>
       </section>
     </main>
