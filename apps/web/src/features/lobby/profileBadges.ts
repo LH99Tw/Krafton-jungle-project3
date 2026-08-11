@@ -1,4 +1,4 @@
-export const PROFILE_BADGES = [
+const PROFILE_BADGES = [
   { name: "검의 문장", src: "/images/ui/profile-badges/sword.png" },
   { name: "까마귀의 문장", src: "/images/ui/profile-badges/raven.png" },
   { name: "달의 문장", src: "/images/ui/profile-badges/moon.png" },

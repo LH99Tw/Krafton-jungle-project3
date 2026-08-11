@@ -9,11 +9,3 @@ export const BUILDINGS = {
   wall: { cost: 28, upgradeCost: [0, 38, 58], maxLevel: 3 },
 } as const;
 
-export const ENEMY_ARCHETYPES = {
-  grunt: { hp: 32, damage: 7, speed: 82, rewardXp: 4, rewardGold: 4 },
-  runner: { hp: 20, damage: 5, speed: 135, rewardXp: 3, rewardGold: 3 },
-  elite: { hp: 450, damage: 24, speed: 78, rewardXp: 120, rewardGold: 45 },
-  gate: { hp: 220, damage: 0, speed: 0, rewardXp: 30, rewardGold: 25 },
-  boss: { hp: 1600, damage: 32, speed: 60, rewardXp: 200, rewardGold: 100 },
-} as const;
-

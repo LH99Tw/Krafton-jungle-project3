@@ -1,6 +1,6 @@
 import { HERO_SPRITE_PATHS } from "./render/heroSprites";
 
-export const GAMEPLAY_IMAGE_ASSETS = [
+const GAMEPLAY_IMAGE_ASSETS = [
   ...Object.values(HERO_SPRITE_PATHS),
   "/Asset/zone-1-vegetation.png",
   "/Asset/zone-1-room-corridor-atlas.png",
