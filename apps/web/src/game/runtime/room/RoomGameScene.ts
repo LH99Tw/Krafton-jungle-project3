@@ -857,6 +857,7 @@ export class RoomGameScene extends Phaser.Scene {
         const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchor.x, anchor.y, ENEMY_COLLISION_RADIUS);
         enemy.sprite.setPosition(clamped.x, clamped.y);
         this.lastWalkableEnemyPositions.set(enemy.id, clamped);
+        this.updateLocalEnemyHpBar(enemy);
         continue;
       }
       if (["hidden", "gate", "boss"].includes(enemy.kind)) {
@@ -865,10 +866,12 @@ export class RoomGameScene extends Phaser.Scene {
         const config = enemyPatternConfig(patternTier(enemy.kind));
         const interval = (config.telegraphSeconds + config.cooldownSeconds) * 1_000;
         if (!enemy.patternActive && time - enemy.lastShotAt >= interval) this.fireLocalEnemyPattern(enemy, time);
+        this.updateLocalEnemyHpBar(enemy);
         continue;
       }
       if (!enemy.engaged) {
         enemy.sprite.setVelocity(0);
+        this.updateLocalEnemyHpBar(enemy);
         continue;
       }
 
@@ -884,6 +887,7 @@ export class RoomGameScene extends Phaser.Scene {
         const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchor.x, anchor.y, ENEMY_COLLISION_RADIUS);
         enemy.sprite.setPosition(clamped.x, clamped.y);
         this.lastWalkableEnemyPositions.set(enemy.id, clamped);
+        this.updateLocalEnemyHpBar(enemy);
         continue;
       }
 
