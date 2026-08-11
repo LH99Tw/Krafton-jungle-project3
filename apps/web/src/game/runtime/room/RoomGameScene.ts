@@ -168,6 +168,12 @@ const BASE_MAX_HP = 900;
 const NETWORK_ENEMY_SPAWN_BUDGET_MS = 3;
 const NETWORK_ENEMY_SPAWN_LIMIT = 12;
 
+type PredictionWorld = {
+  walkable: readonly { x: number; y: number; width: number; height: number }[];
+  rooms: readonly { id: string; rect: { x: number; y: number; width: number; height: number }; zone: number }[];
+  maxAccessibleZone: number;
+};
+
 export class RoomGameScene extends Phaser.Scene {
   private readonly classDefinition;
   private readonly difficulty;
@@ -614,7 +620,10 @@ export class RoomGameScene extends Phaser.Scene {
     });
   }
 
-  private networkPredictionWorld(snapshot: NetworkWorldSnapshot) {
+  private predictionWorldCache: { snapshot: NetworkWorldSnapshot; world: PredictionWorld } | null = null;
+
+  private networkPredictionWorld(snapshot: NetworkWorldSnapshot): PredictionWorld {
+    if (this.predictionWorldCache?.snapshot === snapshot) return this.predictionWorldCache.world;
     const bossAccessible = areAuthoredBossGatesCleared(
       snapshot.day,
       OFFICIAL_MAP_MANIFEST.world.gateRoomIds,
@@ -626,12 +635,14 @@ export class RoomGameScene extends Phaser.Scene {
     const currentZoneCleared = currentZoneGateIds.length === 0 || currentZoneGateIds.every((gateRoomId) => (
       snapshot.rooms.some((room) => room.id === gateRoomId && room.cleared)
     ));
-    return {
+    const world: PredictionWorld = {
       ...(bossAccessible ? OFFICIAL_OPEN_PREDICTION_WORLD : OFFICIAL_LOCKED_PREDICTION_WORLD),
       maxAccessibleZone: currentZoneCleared
         ? Math.min(3, snapshot.currentZone + 1)
         : snapshot.currentZone,
     };
+    this.predictionWorldCache = { snapshot, world };
+    return world;
   }
 
   private updateNetworkTransforms(): void {

@@ -1,0 +1,822 @@
+import { createSeededRandom, hashSeed } from "../../v02/random";
+import {
+  createInvaderEnemy,
+  doorId,
+  type CoreEnemy,
+  type CoreRoomId,
+} from "../../v02/simulation";
+import { corridorRectBetween, resolveWalkableDiscPointIndexed, resolveWalkablePoint, roomContainingPoint } from "../../v02/world";
+import type { GameCore } from "../GameCore";
+import type { CorePlayer, GameCoreOptions, InvaderNavigation, InvaderSimulationTiers, InvaderWaveBatch } from "../types";
+import {
+  ABSOLUTE_MAX_LIVE_INVADERS,
+  ACTOR_COLLISION_RADIUS,
+  DEFAULT_MAX_LIVE_INVADERS,
+  INVADER_AGGRO_RADIUS,
+  INVADER_BASE_RADIUS,
+  INVADER_BLOCKED_EDGE_SECONDS,
+  INVADER_COMBAT_RADIUS,
+  INVADER_CORRIDOR_LANE_OFFSET,
+  INVADER_DAY_WAVES,
+  INVADER_MICRO_SPAWN_COUNT,
+  INVADER_MICRO_SPAWN_INTERVAL_SECONDS,
+  INVADER_NIGHT_WAVES,
+  INVADER_RELEASE_RADIUS,
+  INVADER_REPLAN_BUDGET_PER_TICK,
+  INVADER_RETRY_SECONDS,
+  INVADER_SPAWN_SLOTS,
+  INVADER_STALL_DISTANCE,
+  INVADER_STALL_SECONDS,
+  MAX_PENDING_INVADERS,
+  SIMULATION_EPSILON,
+  durations,
+} from "../constants";
+import { clamp, clampUpdateRate, invaderEdgeKey } from "../helpers";
+import type { ZoneId } from "../../v02/map";
+
+/**
+ * Owns every gate-invader concern: wave queues, per-enemy navigation state,
+ * tiered (hot/warm/cold) LOD simulation, and O(1) population counters.
+ * Mutates shared world state through the owning {@link GameCore}.
+ */
+export class InvaderDirector {
+  readonly maxLiveInvaders: number;
+  private readonly warmInvaderDivisor: number;
+  private readonly coldInvaderDivisor: number;
+  private readonly invaderNavigation = new Map<string, InvaderNavigation>();
+  private readonly invaderWaveQueue: InvaderWaveBatch[] = [];
+  private readonly routeCache = new Map<string, readonly CoreRoomId[]>();
+  private readonly playerTargetScratch = new Map<string, CorePlayer>();
+  private readonly playerRoomsScratch = new Set<CoreRoomId>();
+  private readonly playerZoneScratch: Array<{ player: CorePlayer; zone: ZoneId | undefined }> = [];
+  private invaderSpawnAccumulator = 0;
+  private invaderSpawnReleaseAccumulator = 0;
+  private invaderWaveIndex = 0;
+  private invaderSerial = 0;
+  private retiredInvaders = 0;
+  private invaderCapHits = 0;
+  private microSpawnedInvaders = 0;
+  private completedInvaderReplans = 0;
+  private liveInvaders = 0;
+  private pendingInvaders = 0;
+  private invaderSimulationTick = 0;
+  private invaderTierCounts: InvaderSimulationTiers = { hot: 0, warm: 0, cold: 0 };
+  private warmRoomCache: { key: string; rooms: ReadonlySet<CoreRoomId> } | null = null;
+  private readonly pendingInvaderReplans = new Map<string, boolean>();
+
+  constructor(
+    private readonly core: GameCore,
+    options: GameCoreOptions,
+  ) {
+    const requestedInvaderLimit = options.maxLiveInvaders ?? DEFAULT_MAX_LIVE_INVADERS;
+    this.maxLiveInvaders = Number.isFinite(requestedInvaderLimit)
+      ? Math.max(1, Math.min(ABSOLUTE_MAX_LIVE_INVADERS, Math.floor(requestedInvaderLimit)))
+      : DEFAULT_MAX_LIVE_INVADERS;
+    const warmHz = clampUpdateRate(options.invaderUpdateRates?.warmHz ?? 60);
+    const coldHz = clampUpdateRate(options.invaderUpdateRates?.coldHz ?? 60);
+    this.warmInvaderDivisor = Math.max(1, Math.round(60 / warmHz));
+    this.coldInvaderDivisor = Math.max(this.warmInvaderDivisor, Math.round(60 / coldHz));
+  }
+
+  get liveCount(): number {
+    return this.liveInvaders;
+  }
+
+  get pendingCount(): number {
+    return this.pendingInvaders;
+  }
+
+  get retiredCount(): number {
+    return this.retiredInvaders;
+  }
+
+  get capHitCount(): number {
+    return this.invaderCapHits;
+  }
+
+  get simulationTiers(): InvaderSimulationTiers {
+    return { ...this.invaderTierCounts };
+  }
+
+  /** @internal current spawn serial, used by the core for deterministic gate selection. */
+  get currentSpawnSerial(): number {
+    return this.invaderSerial;
+  }
+
+  /** @internal work accounting consumed by server metrics and white-box tests. */
+  get workMetrics(): Readonly<{
+    microSpawned: number;
+    pendingReplans: number;
+    completedReplans: number;
+    oldestPendingWaveSeconds: number;
+  }> {
+    return {
+      microSpawned: this.microSpawnedInvaders,
+      pendingReplans: this.pendingInvaderReplans.size,
+      completedReplans: this.completedInvaderReplans,
+      oldestPendingWaveSeconds: Math.max(0, this.core.elapsed - (this.invaderWaveQueue[0]?.queuedAt ?? this.core.elapsed)),
+    };
+  }
+
+  /** Resets wave progress when the phase changes. */
+  resetWaveProgress(): void {
+    this.invaderSpawnAccumulator = 0;
+    this.invaderWaveIndex = 0;
+  }
+
+  spawn(zone: ZoneId = this.core.currentZone, gateEnemyId?: string): CoreEnemy {
+    if (this.liveInvaders >= this.maxLiveInvaders) {
+      this.invaderCapHits += 1;
+      throw new RangeError(`Live invader limit of ${this.maxLiveInvaders} reached`);
+    }
+    const spawnIndex = this.invaderSerial;
+    const requestedGate = gateEnemyId ? this.core.enemies.get(gateEnemyId) : null;
+    const explicitGate = requestedGate?.kind === "gate" && requestedGate.alive ? requestedGate : null;
+    const authoredGate = this.core.authoredWorld ? explicitGate ?? this.core.authoredSpawnGate(zone) : null;
+    const authoredPath = authoredGate
+      ? this.core.shortestRoomPath(authoredGate.roomId, this.core.authoredWorld!.baseRoomId)
+      : null;
+    const authoredPosition = authoredGate ? this.core.roomWorldCenterOf(authoredGate.roomId) : null;
+    const invader = createInvaderEnemy(
+      this.core.options.seed,
+      zone,
+      this.invaderSerial,
+      this.core.maps,
+      this.core.options.difficulty,
+      authoredGate && authoredPath && authoredPosition
+        ? { roomId: authoredGate.roomId, path: authoredPath, position: authoredPosition }
+        : undefined,
+    );
+    const gate = authoredGate ?? explicitGate ?? this.core.livingGateInZone(zone);
+    if (gate) {
+      const spawn = this.invaderSpawnPosition(zone, gate, spawnIndex);
+      invader.x = spawn.x;
+      invader.y = spawn.y;
+      invader.spawnX = spawn.x;
+      invader.spawnY = spawn.y;
+    }
+    this.invaderSerial += 1;
+    this.liveInvaders += 1;
+    this.core.enemies.set(invader.id, invader);
+    this.invaderNavigation.set(invader.id, this.createInvaderNavigation(invader));
+    this.replanInvader(invader, this.invaderNavigation.get(invader.id) as InvaderNavigation, true);
+    return invader;
+  }
+
+  update(delta: number): void {
+    this.invaderSimulationTick += 1;
+    this.assignInvaderPlayerTargets(this.playerTargetScratch);
+    this.collectPlayerRooms(this.playerRoomsScratch);
+    const playerTargets = this.playerTargetScratch;
+    const playerRooms = this.playerRoomsScratch;
+    const warmRooms = this.invaderWarmRooms(playerRooms);
+    let hotCount = 0;
+    let warmCount = 0;
+    let coldCount = 0;
+    for (const enemy of this.core.enemies.values()) {
+      if (!enemy.alive || enemy.behavior !== "invader") continue;
+      const navigation = this.invaderNavigation.get(enemy.id) ?? this.createInvaderNavigation(enemy);
+      this.invaderNavigation.set(enemy.id, navigation);
+      navigation.accumulatedDelta = Math.min(0.1, navigation.accumulatedDelta + delta);
+
+      const playerTarget = playerTargets.get(enemy.id) ?? null;
+      const playerDistance = playerTarget && playerTarget.roomId === enemy.roomId
+        ? Math.hypot(playerTarget.x - enemy.x, playerTarget.y - enemy.y)
+        : Number.POSITIVE_INFINITY;
+      const baseDestination = this.invaderBaseDestination(enemy);
+      const baseCenter = enemy.roomId === baseDestination ? this.core.roomWorldCenterOf(baseDestination) : null;
+      const baseDistance = baseCenter ? Math.hypot(baseCenter.x - enemy.x, baseCenter.y - enemy.y) : Number.POSITIVE_INFINITY;
+      const hot = playerDistance <= Math.max(INVADER_COMBAT_RADIUS, enemy.attackRange + enemy.speed * 0.1)
+        || baseDistance <= Math.max(INVADER_COMBAT_RADIUS, INVADER_BASE_RADIUS + enemy.speed * 0.1);
+      const warm = !hot && (Boolean(playerTarget) || playerRooms.has(enemy.roomId) || warmRooms.has(enemy.roomId));
+      if (hot) hotCount += 1;
+      else if (warm) warmCount += 1;
+      else coldCount += 1;
+      const divisor = hot ? 1 : warm ? this.warmInvaderDivisor : this.coldInvaderDivisor;
+      if (divisor > 1 && (this.invaderSimulationTick + navigation.cohort) % divisor !== 0) continue;
+      const stepDelta = navigation.accumulatedDelta;
+      navigation.accumulatedDelta = 0;
+      enemy.attackCooldown = Math.max(0, enemy.attackCooldown - stepDelta);
+      navigation.retryRemaining = Math.max(0, navigation.retryRemaining - stepDelta);
+      const targetId = playerTarget?.userId ?? "base";
+      const targetRoomId = playerTarget?.roomId ?? this.invaderBaseDestination(enemy);
+      if (enemy.targetId !== targetId || navigation.targetRoomId !== targetRoomId) {
+        enemy.targetId = targetId;
+        navigation.targetRoomId = targetRoomId;
+        if (playerTarget?.roomId === enemy.roomId) {
+          enemy.path = [enemy.roomId];
+          enemy.pathIndex = 0;
+          navigation.retryRemaining = 0;
+          navigation.portalPassed = false;
+          navigation.corridorWaypointIndex = 0;
+          navigation.corridorConnectionId = null;
+          this.pendingInvaderReplans.delete(enemy.id);
+          this.resetInvaderStall(enemy, navigation);
+        } else {
+          this.scheduleInvaderReplan(enemy.id, true);
+          continue;
+        }
+      }
+
+      if (enemy.path[enemy.pathIndex] !== enemy.roomId && navigation.retryRemaining <= 0) {
+        this.scheduleInvaderReplan(enemy.id, false);
+        continue;
+      }
+
+      if (playerTarget && playerTarget.roomId === enemy.roomId) {
+        const distance = Math.hypot(playerTarget.x - enemy.x, playerTarget.y - enemy.y);
+        if (distance <= enemy.attackRange) {
+          this.resetInvaderStall(enemy, navigation);
+          if (enemy.attackCooldown <= 0) {
+            enemy.attackSequence += 1;
+            enemy.attackCooldown = 1;
+            this.core.damagePlayer(playerTarget, enemy.damage);
+          }
+        } else {
+          this.moveInvaderWorld(enemy, navigation, playerTarget.x, playerTarget.y, stepDelta, null);
+        }
+        continue;
+      }
+
+      if (enemy.pathIndex + 1 < enemy.path.length) {
+        const nextRoomId = enemy.path[enemy.pathIndex + 1] as CoreRoomId;
+        if (!this.isInvaderEdgeTraversable(enemy.roomId, nextRoomId, navigation)) {
+          this.scheduleInvaderReplan(enemy.id, false);
+          continue;
+        }
+        this.moveInvaderThroughConnection(enemy, navigation, nextRoomId, stepDelta);
+        continue;
+      }
+
+      if (enemy.targetId === "base") {
+        const baseTarget = this.core.roomWorldCenterOf(this.invaderBaseDestination(enemy));
+        const distance = Math.hypot(baseTarget.x - enemy.x, baseTarget.y - enemy.y);
+        if (distance > INVADER_BASE_RADIUS) {
+          this.moveInvaderWorld(enemy, navigation, baseTarget.x, baseTarget.y, stepDelta, null);
+        } else if (this.core.rooms.get(enemy.roomId)?.zone === 1) {
+          this.core.damageBase(enemy.damage);
+          enemy.alive = false;
+          this.invaderNavigation.delete(enemy.id);
+          this.pendingInvaderReplans.delete(enemy.id);
+        } else {
+          this.transferInvaderToPreviousZone(enemy, navigation);
+        }
+      } else if (navigation.retryRemaining <= 0) {
+        this.scheduleInvaderReplan(enemy.id, false);
+      }
+    }
+    this.releasePendingInvaderReplans(playerTargets, playerRooms);
+    this.invaderTierCounts = { hot: hotCount, warm: warmCount, cold: coldCount };
+  }
+
+  updateSpawning(delta: number): void {
+    this.pruneInvaderWaveQueue();
+    const spawnGate = this.core.authoredWorld
+      ? this.core.authoredSpawnGate(this.core.currentZone)
+      : this.core.livingGateInZone(this.core.currentZone);
+    if (!spawnGate) {
+      this.invaderSpawnAccumulator = 0;
+      this.invaderSpawnReleaseAccumulator = 0;
+      this.invaderWaveIndex = 0;
+      this.invaderWaveQueue.length = 0;
+      this.pendingInvaders = 0;
+      return;
+    }
+    this.invaderSpawnReleaseAccumulator += delta;
+    while (this.invaderSpawnReleaseAccumulator + SIMULATION_EPSILON >= INVADER_MICRO_SPAWN_INTERVAL_SECONDS) {
+      this.invaderSpawnReleaseAccumulator -= INVADER_MICRO_SPAWN_INTERVAL_SECONDS;
+      this.releaseOldestInvaderWave();
+    }
+    if (this.core.phase !== "day" && this.core.phase !== "night") return;
+    const isNight = this.core.phase === "night";
+    const waveCount = isNight ? INVADER_NIGHT_WAVES : INVADER_DAY_WAVES;
+    const interval = durations[this.core.options.mode][this.core.phase] / waveCount;
+    this.invaderSpawnAccumulator += delta;
+    if (this.invaderSpawnAccumulator + SIMULATION_EPSILON < interval) return;
+    this.invaderSpawnAccumulator = Math.max(0, this.invaderSpawnAccumulator - interval);
+    const count = isNight ? 3 + this.invaderWaveIndex * 2 : this.invaderWaveIndex + 1;
+    this.invaderWaveIndex = Math.min(waveCount, this.invaderWaveIndex + 1);
+    this.enqueueInvaderWave(spawnGate.id, this.core.currentZone, count);
+  }
+
+  /** @internal called by the GameCore test bridge. */
+  enqueueWave(gateEnemyId: string, zone: ZoneId, count: number): void {
+    this.enqueueInvaderWave(gateEnemyId, zone, count);
+  }
+
+  /** @internal called by the GameCore test bridge. */
+  releaseOldestWave(): void {
+    this.releaseOldestInvaderWave();
+  }
+
+  /** @internal called by the GameCore test bridge. */
+  pruneWaveQueue(): void {
+    this.pruneInvaderWaveQueue();
+  }
+
+  /** @internal called by the GameCore test bridge. */
+  spawnPosition(zone: ZoneId, gateEnemy: CoreEnemy, spawnIndex: number): { x: number; y: number } {
+    return this.invaderSpawnPosition(zone, gateEnemy, spawnIndex);
+  }
+
+  /** @internal called by the GameCore test bridge. */
+  scheduleReplan(enemyId: string, allowRandom: boolean): void {
+    this.scheduleInvaderReplan(enemyId, allowRandom);
+  }
+
+  /** @internal called by the GameCore test bridge. */
+  releaseReplans(
+    playerTargets: ReadonlyMap<string, CorePlayer>,
+    playerRooms: ReadonlySet<CoreRoomId>,
+  ): void {
+    this.releasePendingInvaderReplans(playerTargets, playerRooms);
+  }
+
+  retireInactive(): void {
+    for (const [id, enemy] of this.core.enemies) {
+      if (enemy.behavior !== "invader" || enemy.alive) continue;
+      this.core.enemies.delete(id);
+      this.invaderNavigation.delete(id);
+      this.pendingInvaderReplans.delete(id);
+      this.core.forgetEnemyMarks(id);
+      this.liveInvaders = Math.max(0, this.liveInvaders - 1);
+      this.retiredInvaders += 1;
+    }
+  }
+
+  private collectPlayerRooms(output: Set<CoreRoomId>): void {
+    output.clear();
+    for (const player of this.core.players.values()) {
+      if (player.alive && player.connected) output.add(player.roomId);
+    }
+  }
+
+  /** Fills `output` with each invader's nearest in-zone player target. */
+  private assignInvaderPlayerTargets(output: Map<string, CorePlayer>): void {
+    output.clear();
+    const playerZones = this.playerZoneScratch;
+    playerZones.length = 0;
+    for (const player of this.core.players.values()) {
+      if (!player.alive || !player.connected) continue;
+      playerZones.push({ player, zone: this.core.rooms.get(player.roomId)?.zone });
+    }
+    for (const enemy of this.core.enemies.values()) {
+      if (!enemy.alive || enemy.behavior !== "invader") continue;
+      const enemyZone = this.core.rooms.get(enemy.roomId)?.zone;
+      let selected: CorePlayer | null = null;
+      let selectedDistanceSquared = Number.POSITIVE_INFINITY;
+      for (const entry of playerZones) {
+        if (entry.zone !== enemyZone) continue;
+        const player = entry.player;
+        const radius = enemy.targetId === player.userId ? INVADER_RELEASE_RADIUS : INVADER_AGGRO_RADIUS;
+        const dx = player.x - enemy.x;
+        const dy = player.y - enemy.y;
+        const distanceSquared = dx * dx + dy * dy;
+        if (distanceSquared > radius * radius) continue;
+        if (distanceSquared < selectedDistanceSquared
+          || (distanceSquared === selectedDistanceSquared && player.userId.localeCompare(selected?.userId ?? "") < 0)) {
+          selected = player;
+          selectedDistanceSquared = distanceSquared;
+        }
+      }
+      if (selected) output.set(enemy.id, selected);
+    }
+  }
+
+  private invaderWarmRooms(playerRooms: ReadonlySet<CoreRoomId>): ReadonlySet<CoreRoomId> {
+    const key = [...playerRooms].sort().join("|");
+    if (this.warmRoomCache?.key === key) return this.warmRoomCache.rooms;
+    const visited = new Set<CoreRoomId>(playerRooms);
+    let frontier = [...playerRooms];
+    for (let depth = 0; depth < 2; depth += 1) {
+      const next: CoreRoomId[] = [];
+      for (const roomId of frontier) {
+        for (const connected of this.core.rooms.get(roomId)?.connections ?? []) {
+          if (visited.has(connected)) continue;
+          visited.add(connected);
+          next.push(connected);
+        }
+      }
+      frontier = next;
+    }
+    this.warmRoomCache = { key, rooms: visited };
+    return visited;
+  }
+
+  private invaderBaseDestination(enemy: CoreEnemy): CoreRoomId {
+    if (this.core.authoredWorld) return this.core.authoredWorld.baseRoomId;
+    const zone = this.core.rooms.get(enemy.roomId)?.zone ?? 1;
+    return this.core.maps.zones[zone - 1].startRoomId;
+  }
+
+  private createInvaderNavigation(enemy: CoreEnemy): InvaderNavigation {
+    return {
+      replanSequence: 0,
+      targetRoomId: null,
+      portalPassed: false,
+      corridorWaypointIndex: 0,
+      corridorConnectionId: null,
+      retryRemaining: 0,
+      stallElapsed: 0,
+      stallX: enemy.x,
+      stallY: enemy.y,
+      blockedEdge: null,
+      blockedUntil: 0,
+      accumulatedDelta: 0,
+      cohort: hashSeed(enemy.id),
+    };
+  }
+
+  private enqueueInvaderWave(gateEnemyId: string, zone: ZoneId, count: number): void {
+    const available = Math.max(0, MAX_PENDING_INVADERS - this.pendingInvaders);
+    const accepted = Math.min(Math.max(0, Math.floor(count)), available);
+    if (accepted > 0) {
+      this.invaderWaveQueue.push({ gateEnemyId, zone, remaining: accepted, queuedAt: this.core.elapsed });
+      this.pendingInvaders += accepted;
+    }
+    if (accepted < count) this.invaderCapHits += 1;
+  }
+
+  private releaseOldestInvaderWave(): void {
+    const batch = this.invaderWaveQueue[0];
+    if (!batch) return;
+    const gate = this.core.enemies.get(batch.gateEnemyId);
+    if (!gate?.alive || gate.kind !== "gate") return;
+    const available = Math.max(0, this.maxLiveInvaders - this.liveInvaders);
+    const requestedCount = Math.min(batch.remaining, available, INVADER_MICRO_SPAWN_COUNT);
+    if (available < batch.remaining && requestedCount === available) this.invaderCapHits += 1;
+    let spawnCount = 0;
+    while (spawnCount < requestedCount) {
+      const spawn = this.invaderSpawnPosition(batch.zone, gate, this.invaderSerial);
+      const congested = [...this.core.enemies.values()].some((enemy) => (
+        enemy.alive
+        && enemy.behavior === "invader"
+        && Math.hypot(enemy.x - spawn.x, enemy.y - spawn.y) < ACTOR_COLLISION_RADIUS * 2 + 4
+      ));
+      if (congested) break;
+      this.spawn(batch.zone, batch.gateEnemyId);
+      this.microSpawnedInvaders += 1;
+      spawnCount += 1;
+    }
+    batch.remaining -= spawnCount;
+    this.pendingInvaders = Math.max(0, this.pendingInvaders - spawnCount);
+    if (batch.remaining <= 0) this.invaderWaveQueue.shift();
+  }
+
+  private invaderSpawnPosition(zone: ZoneId, gate: CoreEnemy, spawnIndex: number): { x: number; y: number } {
+    const roomCenter = this.core.roomWorldCenterOf(gate.roomId);
+    const dx = roomCenter.x - gate.x;
+    const dy = roomCenter.y - gate.y;
+    const distance = Math.hypot(dx, dy) || 1;
+    const world = this.core.zoneWorlds.get(zone);
+    const roomRect = this.core.roomRectOf(gate.roomId);
+    const slot = spawnIndex % INVADER_SPAWN_SLOTS;
+    const angle = slot * Math.PI * (3 - Math.sqrt(5));
+    const radius = 72 + Math.floor(slot / 6) * 48;
+    const anchorX = gate.x + dx / distance * 132;
+    const anchorY = gate.y + dy / distance * 132;
+    const desiredX = clamp(anchorX + Math.cos(angle) * radius, roomRect.x + 72, roomRect.x + roomRect.width - 72);
+    const desiredY = clamp(anchorY + Math.sin(angle) * radius, roomRect.y + 72, roomRect.y + roomRect.height - 72);
+    return world
+      ? resolveWalkablePoint(world.rects, desiredX, desiredY, gate.x, gate.y)
+      : { x: gate.x, y: gate.y };
+  }
+
+  private pruneInvaderWaveQueue(): void {
+    for (let index = this.invaderWaveQueue.length - 1; index >= 0; index -= 1) {
+      const batch = this.invaderWaveQueue[index]!;
+      const gate = this.core.enemies.get(batch.gateEnemyId);
+      if (!gate || gate.kind !== "gate" || !gate.alive || batch.zone !== this.core.currentZone) {
+        this.invaderWaveQueue.splice(index, 1);
+        this.pendingInvaders = Math.max(0, this.pendingInvaders - batch.remaining);
+      }
+    }
+  }
+
+  private scheduleInvaderReplan(enemyId: string, allowRandom: boolean): void {
+    const previous = this.pendingInvaderReplans.get(enemyId) ?? false;
+    this.pendingInvaderReplans.set(enemyId, previous || allowRandom);
+  }
+
+  private releasePendingInvaderReplans(
+    playerTargets: ReadonlyMap<string, CorePlayer>,
+    playerRooms: ReadonlySet<CoreRoomId>,
+  ): void {
+    if (this.pendingInvaderReplans.size === 0) return;
+    const candidates = [...this.pendingInvaderReplans.entries()]
+      .map(([enemyId, allowRandom]) => {
+        const enemy = this.core.enemies.get(enemyId);
+        const navigation = this.invaderNavigation.get(enemyId);
+        if (!enemy?.alive || enemy.behavior !== "invader" || !navigation) {
+          this.pendingInvaderReplans.delete(enemyId);
+          return null;
+        }
+        const target = playerTargets.get(enemyId);
+        const combatPriority = target?.roomId === enemy.roomId || playerRooms.has(enemy.roomId);
+        const blockedPriority = navigation.blockedEdge !== null && navigation.blockedUntil > this.core.elapsed;
+        return { enemy, navigation, allowRandom, priority: combatPriority ? 0 : blockedPriority ? 1 : 2 };
+      })
+      .filter((candidate): candidate is NonNullable<typeof candidate> => candidate !== null)
+      .sort((left, right) => left.priority - right.priority || left.enemy.id.localeCompare(right.enemy.id));
+
+    for (const candidate of candidates.slice(0, INVADER_REPLAN_BUDGET_PER_TICK)) {
+      this.pendingInvaderReplans.delete(candidate.enemy.id);
+      this.replanInvader(candidate.enemy, candidate.navigation, candidate.allowRandom);
+      this.completedInvaderReplans += 1;
+    }
+  }
+
+  private replanInvader(enemy: CoreEnemy, navigation: InvaderNavigation, allowRandom: boolean): void {
+    this.pendingInvaderReplans.delete(enemy.id);
+    const destination = enemy.targetId && enemy.targetId !== "base"
+      ? this.core.players.get(enemy.targetId)?.roomId
+      : this.invaderBaseDestination(enemy);
+    navigation.targetRoomId = destination ?? null;
+    navigation.portalPassed = false;
+    navigation.corridorWaypointIndex = 0;
+    navigation.corridorConnectionId = null;
+    navigation.replanSequence += 1;
+    this.resetInvaderStall(enemy, navigation);
+    if (!destination) {
+      enemy.path = [enemy.roomId];
+      enemy.pathIndex = 0;
+      navigation.retryRemaining = INVADER_RETRY_SECONDS;
+      return;
+    }
+
+    const path = this.findInvaderPath(enemy, destination, navigation, allowRandom);
+    enemy.path = path ?? [enemy.roomId];
+    enemy.pathIndex = 0;
+    navigation.retryRemaining = path ? 0 : INVADER_RETRY_SECONDS;
+  }
+
+  private findInvaderPath(
+    enemy: CoreEnemy,
+    destination: CoreRoomId,
+    navigation: InvaderNavigation,
+    allowRandom: boolean,
+  ): CoreRoomId[] | null {
+    const shortest = this.shortestInvaderPath(enemy.roomId, destination, navigation);
+    if (!shortest || !allowRandom || shortest.length <= 1) return shortest;
+    const random = createSeededRandom(`${this.core.options.seed}:${enemy.id}:${navigation.replanSequence}`);
+    if (random.next() >= 0.2) return shortest;
+
+    const alternatives = this.invaderSimplePaths(
+      enemy.roomId,
+      destination,
+      shortest.length + 2,
+      navigation,
+    ).filter((path) => path.length > shortest.length);
+    if (alternatives.length === 0) return shortest;
+    const weights = alternatives.map((path) => 1 / (path.length - shortest.length));
+    const total = weights.reduce((sum, weight) => sum + weight, 0);
+    let roll = random.next() * total;
+    for (let index = 0; index < alternatives.length; index += 1) {
+      roll -= weights[index] as number;
+      if (roll <= 0) return alternatives[index] as CoreRoomId[];
+    }
+    return alternatives.at(-1) as CoreRoomId[];
+  }
+
+  private shortestInvaderPath(
+    from: CoreRoomId,
+    destination: CoreRoomId,
+    navigation: InvaderNavigation,
+  ): CoreRoomId[] | null {
+    const blocked = navigation.blockedEdge && navigation.blockedUntil > this.core.elapsed;
+    if (!blocked) {
+      const key = `invader:${this.core.doorTopologyKey()}:${from}>${destination}`;
+      const cached = this.routeCache.get(key);
+      if (cached) return [...cached];
+      const path = this.core.weightedRoomPath(from, destination, (current, next) => (
+        this.isInvaderEdgeTraversable(current, next, navigation)
+      ));
+      if (path) this.routeCache.set(key, path);
+      return path;
+    }
+    return this.core.weightedRoomPath(from, destination, (current, next) => (
+      this.isInvaderEdgeTraversable(current, next, navigation)
+    ));
+  }
+
+  private invaderSimplePaths(
+    from: CoreRoomId,
+    destination: CoreRoomId,
+    maxRooms: number,
+    navigation: InvaderNavigation,
+  ): CoreRoomId[][] {
+    const paths: CoreRoomId[][] = [];
+    const visit = (current: CoreRoomId, path: CoreRoomId[]): void => {
+      if (path.length > maxRooms) return;
+      if (current === destination) {
+        paths.push(path);
+        return;
+      }
+      for (const next of [...(this.core.rooms.get(current)?.connections ?? [])].sort()) {
+        if (path.includes(next) || !this.isInvaderEdgeTraversable(current, next, navigation)) continue;
+        visit(next, [...path, next]);
+      }
+    };
+    visit(from, [from]);
+    return paths;
+  }
+
+  private isInvaderEdgeTraversable(
+    from: CoreRoomId,
+    to: CoreRoomId,
+    navigation: InvaderNavigation,
+  ): boolean {
+    const edge = invaderEdgeKey(from, to);
+    if (navigation.blockedEdge === edge && navigation.blockedUntil > this.core.elapsed) return false;
+    const fromRoom = this.core.rooms.get(from);
+    const toRoom = this.core.rooms.get(to);
+    if (!fromRoom || !toRoom || (!this.core.authoredWorld && fromRoom.zone !== toRoom.zone) || !fromRoom.connections.includes(to)) return false;
+    const door = this.core.doors.get(doorId(from, to));
+    return Boolean(door?.open && !door.locked);  }
+
+  private moveInvaderThroughConnection(
+    enemy: CoreEnemy,
+    navigation: InvaderNavigation,
+    nextRoomId: CoreRoomId,
+    delta: number,
+  ): void {
+    const room = this.core.rooms.get(enemy.roomId);
+    const nextRoom = this.core.rooms.get(nextRoomId);
+    if (!room || !nextRoom) {
+      this.scheduleInvaderReplan(enemy.id, false);
+      return;
+    }
+    const authoredConnection = this.core.authoredConnectionsByEdge.get(invaderEdgeKey(enemy.roomId, nextRoomId));
+    const corridor = authoredConnection ? null : corridorRectBetween(
+      { x: room.gridX, y: room.gridY },
+      { x: nextRoom.gridX, y: nextRoom.gridY },
+    );
+    if (!corridor && !authoredConnection) {
+      navigation.blockedEdge = invaderEdgeKey(enemy.roomId, nextRoomId);
+      navigation.blockedUntil = this.core.elapsed + INVADER_BLOCKED_EDGE_SECONDS;
+      this.scheduleInvaderReplan(enemy.id, false);
+      return;
+    }
+    const authoredPoints = authoredConnection
+      ? (authoredConnection.from === enemy.roomId ? authoredConnection.points : [...authoredConnection.points].reverse())
+      : null;
+    if (authoredPoints && navigation.corridorConnectionId !== authoredConnection?.id) {
+      navigation.corridorWaypointIndex = this.core.furthestReachableConnectionPoint(enemy.x, enemy.y, authoredPoints);
+      navigation.corridorConnectionId = authoredConnection?.id ?? null;
+    }
+    if (authoredPoints && navigation.corridorWaypointIndex < authoredPoints.length) {
+      const rawTarget = authoredPoints[navigation.corridorWaypointIndex]!;
+      const toward = authoredPoints[navigation.corridorWaypointIndex + 1] ?? this.core.roomWorldCenterOf(nextRoomId);
+      const target = this.invaderLanePoint(enemy, rawTarget, toward);
+      if (Math.hypot(target.x - enemy.x, target.y - enemy.y) <= 20) {
+        navigation.corridorWaypointIndex += 1;
+        if (navigation.corridorWaypointIndex >= authoredPoints.length) navigation.portalPassed = true;
+      }
+      else {
+        this.moveInvaderWorld(enemy, navigation, target.x, target.y, delta, null);
+        return;
+      }
+    }
+    const rawPortal = authoredPoints?.at(-1) ?? authoredConnection?.portal ?? { x: corridor!.x + corridor!.width / 2, y: corridor!.y + corridor!.height / 2 };
+    const nextCenter = this.core.roomWorldCenterOf(nextRoomId);
+    const portal = this.invaderLanePoint(enemy, rawPortal, nextCenter);
+    if (!navigation.portalPassed && Math.hypot(portal.x - enemy.x, portal.y - enemy.y) <= 20) {
+      navigation.portalPassed = true;
+      this.resetInvaderStall(enemy, navigation);
+    }
+    const target = navigation.portalPassed ? this.invaderFormationPoint(enemy, nextRoomId) : portal;
+    this.moveInvaderWorld(enemy, navigation, target.x, target.y, delta, nextRoomId);
+  }
+
+  private invaderLanePoint(
+    enemy: CoreEnemy,
+    point: Readonly<{ x: number; y: number }>,
+    toward: Readonly<{ x: number; y: number }>,
+  ): { x: number; y: number } {
+    const dx = toward.x - point.x;
+    const dy = toward.y - point.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const lane = hashSeed(enemy.id) % 3 - 1;
+    return {
+      x: point.x - dy / length * lane * INVADER_CORRIDOR_LANE_OFFSET,
+      y: point.y + dx / length * lane * INVADER_CORRIDOR_LANE_OFFSET,
+    };
+  }
+
+  private invaderFormationPoint(enemy: CoreEnemy, roomId: CoreRoomId): { x: number; y: number } {
+    const center = this.core.roomWorldCenterOf(roomId);
+    const rect = this.core.roomRectOf(roomId);
+    const slot = hashSeed(enemy.id) % INVADER_SPAWN_SLOTS;
+    const angle = slot * Math.PI * (3 - Math.sqrt(5));
+    const radius = 48 + Math.floor(slot / 8) * 44;
+    return {
+      x: clamp(center.x + Math.cos(angle) * radius, rect.x + 64, rect.x + rect.width - 64),
+      y: clamp(center.y + Math.sin(angle) * radius, rect.y + 64, rect.y + rect.height - 64),
+    };
+  }
+
+  private moveInvaderWorld(
+    enemy: CoreEnemy,
+    navigation: InvaderNavigation,
+    targetX: number,
+    targetY: number,
+    delta: number,
+    expectedRoomId: CoreRoomId | null,
+  ): void {
+    const previousX = enemy.x;
+    const previousY = enemy.y;
+    const previousRoomId = enemy.roomId;
+    const zone = this.core.rooms.get(enemy.roomId)?.zone;
+    const world = zone ? this.core.zoneWorlds.get(zone) : null;
+    if (!world) {
+      navigation.retryRemaining = INVADER_RETRY_SECONDS;
+      return;
+    }
+    const dx = targetX - enemy.x;
+    const dy = targetY - enemy.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance <= 0) return;
+    const step = Math.min(distance, enemy.speed * delta);
+    const desiredX = enemy.x + dx / distance * step;
+    const desiredY = enemy.y + dy / distance * step;
+    const resolved = this.core.authoredSpatialIndex
+      ? resolveWalkableDiscPointIndexed(this.core.authoredSpatialIndex, desiredX, desiredY, enemy.x, enemy.y, ACTOR_COLLISION_RADIUS)
+      : resolveWalkablePoint(world.rects, desiredX, desiredY, enemy.x, enemy.y);
+    enemy.x = resolved.x;
+    enemy.y = resolved.y;
+
+    const containing = this.core.authoredWorld
+      ? this.core.authoredRoomAt(enemy.x, enemy.y)
+      : roomContainingPoint(world.grid, enemy.x, enemy.y) as CoreRoomId | null;
+    if (expectedRoomId && containing === expectedRoomId) {
+      enemy.roomId = expectedRoomId;
+      enemy.pathIndex += 1;
+      navigation.portalPassed = false;
+      navigation.corridorWaypointIndex = 0;
+      navigation.corridorConnectionId = null;
+      this.core.markEnemyTransform(enemy, previousX, previousY, previousRoomId, delta);
+      this.resetInvaderStall(enemy, navigation);
+      return;
+    }
+    if (containing && containing !== enemy.roomId && containing !== expectedRoomId) {
+      enemy.roomId = containing;
+      this.core.markEnemyTransform(enemy, previousX, previousY, previousRoomId, delta);
+      this.scheduleInvaderReplan(enemy.id, false);
+      return;
+    }
+    this.core.markEnemyTransform(enemy, previousX, previousY, previousRoomId, delta);
+    this.updateInvaderStall(enemy, navigation, delta, distance, expectedRoomId);
+  }
+
+  private updateInvaderStall(
+    enemy: CoreEnemy,
+    navigation: InvaderNavigation,
+    delta: number,
+    goalDistance: number,
+    nextRoomId: CoreRoomId | null,
+  ): void {
+    if (goalDistance <= 24) {
+      this.resetInvaderStall(enemy, navigation);
+      return;
+    }
+    navigation.stallElapsed += delta;
+    if (navigation.stallElapsed + SIMULATION_EPSILON < INVADER_STALL_SECONDS) return;
+    const progress = Math.hypot(enemy.x - navigation.stallX, enemy.y - navigation.stallY);
+    if (progress < INVADER_STALL_DISTANCE) {
+      if (nextRoomId) {
+        navigation.blockedEdge = invaderEdgeKey(enemy.roomId, nextRoomId);
+        navigation.blockedUntil = this.core.elapsed + INVADER_BLOCKED_EDGE_SECONDS;
+      }
+      this.scheduleInvaderReplan(enemy.id, false);
+      navigation.retryRemaining = INVADER_RETRY_SECONDS;
+      return;
+    }
+    this.resetInvaderStall(enemy, navigation);
+  }
+
+  private resetInvaderStall(enemy: CoreEnemy, navigation: InvaderNavigation): void {
+    navigation.stallElapsed = 0;
+    navigation.stallX = enemy.x;
+    navigation.stallY = enemy.y;
+  }
+
+  private transferInvaderToPreviousZone(enemy: CoreEnemy, navigation: InvaderNavigation): void {
+    const zone = this.core.rooms.get(enemy.roomId)?.zone;
+    if (!zone || zone === 1) return;
+    const previousZone = (zone - 1) as ZoneId;
+    const gateRoomId = this.core.maps.zones[previousZone - 1].gateRoomId;
+    const gate = [...this.core.enemies.values()].find((candidate) => (
+      candidate.kind === "gate" && candidate.roomId === gateRoomId
+    ));
+    const destination = gate ? { x: gate.spawnX, y: gate.spawnY } : this.core.roomWorldCenterOf(gateRoomId);
+    enemy.roomId = gateRoomId;
+    enemy.x = destination.x;
+    enemy.y = destination.y;
+    enemy.transformRevision += 1;
+    enemy.lastMoveSpeed = 0;
+    navigation.blockedEdge = null;
+    navigation.blockedUntil = 0;
+    navigation.targetRoomId = this.core.maps.zones[previousZone - 1].startRoomId;
+    this.replanInvader(enemy, navigation, true);
+  }
+}

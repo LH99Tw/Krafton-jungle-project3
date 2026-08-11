@@ -502,7 +502,7 @@ export class PartyRoom extends Room<PartyRoomState> {
   private handleInputFrame(client: Client, raw: unknown, channel: "webtransport" | "websocket" = "websocket"): void {
     if (!this.allowInputMessage(client.sessionId)) return;
     const parsed = inputFrameSchema.safeParse(raw);
-    if (!parsed.success || JSON.stringify(raw).length > 4096) return;
+    if (!parsed.success) return;
     recordRealtimeInput(channel);
     this.applyInputFrame(client, parsed.data);
   }
@@ -537,8 +537,9 @@ export class PartyRoom extends Room<PartyRoomState> {
       this.simulationAccumulatorMs = Math.max(0, this.simulationAccumulatorMs - skippedSimulationMs);
     }
     let simulatedTicks = 0;
+    const inputLeaseCheckAt = Date.now();
     while (simulatedTicks < simulationTicksToRun) {
-      this.expireStaleInputs(Date.now());
+      this.expireStaleInputs(inputLeaseCheckAt);
       const coreStartedAt = performance.now();
       this.core.update(SIMULATION_STEP_MS / 1000);
       recordRealtimeTiming("coreUpdate", performance.now() - coreStartedAt);
@@ -776,9 +777,16 @@ export class PartyRoom extends Room<PartyRoomState> {
       };
       this.enemySchemaSnapshots ??= new Map<string, EnemySchemaSnapshot>();
       const previousSnapshot = this.enemySchemaSnapshots.get(enemy.id);
-      const revisionChanged = !previousSnapshot || Object.keys(nextSnapshot).some((key) => (
-        nextSnapshot[key as keyof EnemySchemaSnapshot] !== previousSnapshot[key as keyof EnemySchemaSnapshot]
-      ));
+      const revisionChanged = !previousSnapshot
+        || previousSnapshot.hp !== nextSnapshot.hp
+        || previousSnapshot.targetId !== nextSnapshot.targetId
+        || previousSnapshot.roomId !== nextSnapshot.roomId
+        || previousSnapshot.alive !== nextSnapshot.alive
+        || previousSnapshot.patternKind !== nextSnapshot.patternKind
+        || previousSnapshot.patternPhase !== nextSnapshot.patternPhase
+        || previousSnapshot.patternRemaining !== nextSnapshot.patternRemaining
+        || previousSnapshot.patternIndex !== nextSnapshot.patternIndex
+        || previousSnapshot.attackSequence !== nextSnapshot.attackSequence;
       if (isNew || revisionChanged) {
         Object.assign(state, {
           id: enemy.id,
