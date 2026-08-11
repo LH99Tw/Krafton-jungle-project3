@@ -31,7 +31,7 @@ import type {
 import type { InputFrame, WorldFrame } from "@five-days/protocol";
 import { ProgressionModel } from "../../systems/ProgressionModel";
 import { colyseusTransport } from "../../transport/ColyseusTransport";
-import { predictPlayerTransform, RealtimeTransformBuffer } from "../../netcode/RealtimeBuffer";
+import { predictPlayerTransform, RealtimeTransformBuffer, shouldRenderPartyMember } from "../../netcode/RealtimeBuffer";
 import { gameBridge, type GameCommand } from "../GameBridge";
 import {
   BASE_CORE,
@@ -360,7 +360,9 @@ export class RoomGameScene extends Phaser.Scene {
 
   private updateNetworkTransforms(): void {
     const snapshot = this.latestNetwork;
-    if (!snapshot) return;
+    const localState = snapshot?.players.find((member) => member.isLocal)
+      ?? snapshot?.players.find((member) => member.userId === this.options.userId);
+    if (!snapshot || !localState) return;
     const now = performance.now();
     if (this.localPrediction) {
       const correctionAge = this.localCorrection ? now - this.localCorrection.startedAt : 100;
@@ -378,7 +380,7 @@ export class RoomGameScene extends Phaser.Scene {
       const transform = this.transformBuffer.sample(member.userId);
       if (!sprite || !transform) continue;
       const point = clampToWorld(this.zoneWorld.bounds, transform.x, transform.y);
-      sprite.setPosition(point.x, point.y).setVisible(this.transformBuffer.isFresh(member.userId) && member.connected);
+      sprite.setPosition(point.x, point.y).setVisible(shouldRenderPartyMember(member, localState.roomId));
     }
     for (const enemy of snapshot.enemies) {
       const sprite = this.networkEnemies.get(enemy.id);
@@ -1089,7 +1091,7 @@ export class RoomGameScene extends Phaser.Scene {
         this.localPrediction = { x: member.x, y: member.y, roomId: member.roomId };
         sprite.setPosition(member.x, member.y);
       }
-      sprite.setVisible(isLocal || (member.roomId === localRoomId && member.connected)).setActive(member.connected);
+      sprite.setVisible(isLocal || shouldRenderPartyMember(member, localRoomId)).setActive(member.connected);
       sprite.setAlpha(isLocal ? 1 : 0.82);
     }
   }

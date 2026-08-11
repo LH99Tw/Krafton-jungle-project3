@@ -8,11 +8,19 @@ import {
 import { randomBytes, scrypt, timingSafeEqual } from "node:crypto";
 import { promisify } from "node:util";
 import { apiError, getSessionState } from "@/app/auth/session";
-import { clientIp, consumeRateLimit, payloadError, rateLimited, readJsonLimited, securityNumber } from "@/app/security/request";
+import {
+  clientIp,
+  consumeRateLimit,
+  hasAllowedOrigin,
+  payloadError,
+  rateLimited,
+  readJsonLimited,
+  securityNumber,
+} from "@/app/security/request";
 
 const MAX_ENTRIES = 80;
 const DEFAULT_AUTHOR = "익명의 방문자";
-const ADMIN_DELETE_KEY = process.env.GUESTBOOK_ADMIN_DELETE_KEY ?? "admin@";
+const ADMIN_DELETE_KEY = process.env.GUESTBOOK_ADMIN_DELETE_KEY;
 const scryptAsync = promisify(scrypt);
 let guestbookCache: { expiresAt: number; entries: Awaited<ReturnType<typeof listGuestbookEntries>> } = { expiresAt: 0, entries: [] };
 
@@ -141,6 +149,9 @@ async function mutationAccess(request: Request): Promise<
   | { response: Response; authorId: null }
   | { response: null; authorId: string | null }
 > {
+  if (!hasAllowedOrigin(request)) {
+    return { response: await apiError("ORIGIN_INVALID", "요청을 확인할 수 없습니다.", 403), authorId: null };
+  }
   const ip = clientIp(request);
   const capacity = securityNumber("GUESTBOOK_PER_MINUTE", 5);
   const ipDecision = consumeRateLimit("guestbook-write-ip", ip, {
@@ -178,7 +189,7 @@ function validPassword(value: unknown): string | null {
 }
 
 function isAdminDeleteKey(value: unknown): boolean {
-  if (typeof value !== "string") return false;
+  if (!ADMIN_DELETE_KEY || typeof value !== "string") return false;
   const candidate = Buffer.from(value);
   const expected = Buffer.from(ADMIN_DELETE_KEY);
   return candidate.length === expected.length && timingSafeEqual(candidate, expected);

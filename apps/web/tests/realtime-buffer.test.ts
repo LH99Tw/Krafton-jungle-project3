@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { PROTOCOL_VERSION, transformFlags, type TransformSample, type WorldFrame } from "@five-days/protocol";
-import { RealtimeTransformBuffer, predictPlayerTransform } from "../src/game/netcode/RealtimeBuffer";
+import {
+  RealtimeTransformBuffer,
+  predictPlayerTransform,
+  shouldRenderPartyMember,
+} from "../src/game/netcode/RealtimeBuffer";
 
 function sample(overrides: Partial<TransformSample> = {}): TransformSample {
   return {
@@ -88,4 +92,10 @@ test("local prediction normalizes diagonal input before applying class speed", (
   assert.ok(predicted.y > 360);
   assert.ok(Math.abs(predicted.x - 640) < 10);
   assert.ok(Math.abs(predicted.y - 360) < 10);
+});
+
+test("remote party visibility follows reliable room and connection state", () => {
+  assert.equal(shouldRenderPartyMember({ connected: true, roomId: "forest:0" }, "forest:0"), true);
+  assert.equal(shouldRenderPartyMember({ connected: false, roomId: "forest:0" }, "forest:0"), false);
+  assert.equal(shouldRenderPartyMember({ connected: true, roomId: "forest:1" }, "forest:0"), false);
 });
