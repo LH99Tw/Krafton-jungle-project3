@@ -14,15 +14,22 @@
     "dev:web": "dotenv -e .env.local -- pnpm --filter @five-days/web dev",
     "dev:game": "dotenv -e .env.local -- pnpm --filter @five-days/game-server dev",
     "build": "pnpm -r build",
-    "lint": "pnpm -r lint",
+    "deadcode": "knip",
+    "lint": "pnpm -r lint && eslint scripts",
     "map:generate": "pnpm --filter @five-days/web map:generate",
     "map:check": "pnpm --filter @five-days/web map:check",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
+    "verify": "pnpm audit --prod --audit-level low && pnpm lint && pnpm typecheck && pnpm deadcode && pnpm test && pnpm build",
     "db:generate": "pnpm --filter @five-days/db db:generate",
     "db:migrate": "dotenv -e .env.local -- pnpm --filter @five-days/db db:migrate"
   },
   "devDependencies": {
-    "dotenv-cli": "11.0.0"
+    "@eslint/js": "9.39.4",
+    "dotenv-cli": "11.0.0",
+    "eslint": "9.39.4",
+    "globals": "16.4.0",
+    "knip": "^6.32.1",
+    "typescript-eslint": "8.59.3"
   }
 }

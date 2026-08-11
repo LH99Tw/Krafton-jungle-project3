@@ -173,7 +173,7 @@ type PartyStateLike = {
   drops?: SchemaCollection<DropStateLike>;
 };
 
-export class ColyseusTransport {
+class ColyseusTransport {
   private client: Client | null = null;
   private room: Room | null = null;
   private generation = 0;

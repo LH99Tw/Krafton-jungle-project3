@@ -1,10 +1,10 @@
 import type { HeroClassId } from "../../domain/types";
 
 export const HERO_SPRITE_FRAME_SIZE = 362;
-export const HERO_SPRITE_DISPLAY_SIZE = 52.8;
+const HERO_SPRITE_DISPLAY_SIZE = 52.8;
 export const HERO_SPRITE_SCALE = HERO_SPRITE_DISPLAY_SIZE / HERO_SPRITE_FRAME_SIZE;
 export const HERO_DIRECTION_COUNT = 4;
-export const HERO_ANIMATION_ROW_COUNT = 3;
+const HERO_ANIMATION_ROW_COUNT = 3;
 export const HERO_TOTAL_FRAME_COUNT = HERO_DIRECTION_COUNT * HERO_ANIMATION_ROW_COUNT;
 export const HERO_WALK_PHASE_DURATION_MS = 140;
 
@@ -14,8 +14,7 @@ export const HERO_SPRITE_PATHS: Record<HeroClassId, string> = {
   mage: "/Asset/sprites/MageSprite.png",
 };
 
-export const HERO_FACING_DIRECTIONS = ["down", "right", "up", "left"] as const;
-export type HeroFacingDirection = (typeof HERO_FACING_DIRECTIONS)[number];
+export type HeroFacingDirection = "down" | "right" | "up" | "left";
 
 export const DEFAULT_HERO_FACING: HeroFacingDirection = "down";
 

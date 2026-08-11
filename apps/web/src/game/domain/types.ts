@@ -1,20 +1,12 @@
 import type { AugmentId } from "@five-days/game-core";
 import type { MiniMapGeometry } from "@five-days/protocol";
 import type { EditorMapDefinition } from "./mapEditor";
-export type {
-  FastLaneOffer,
-  InputFrame,
-  TransformSample,
-  TransportMode,
-  WorldFrame,
-} from "@five-days/protocol";
-
 export type HeroClassId = "swordsman" | "archer" | "mage";
-export type SessionMode = "prototype" | "full";
-export type PartyMode = "solo" | "coop";
+type SessionMode = "prototype" | "full";
+type PartyMode = "solo" | "coop";
 export type Phase = "day" | "night" | "standby" | "boss" | "ended";
 export type BuildMode = "turret" | "wall" | "upgrade" | null;
-export type ResultState = "victory" | "defeat";
+type ResultState = "victory" | "defeat";
 
 export type HeroStats = {
   maxHp: number;

@@ -1,26 +1,14 @@
-import { PLAYER_VISION_RADIUS } from "@five-days/protocol";
-
 export {
   computeVisibilityPolygon,
   computeVisibilityRays,
   createWallSpatialIndex,
-  pointInVisibilityPolygon,
   visibilityPolygonFromRays,
-  wallsNear,
   type VisibilityRay,
   type VisionWallSegment,
   type WallSpatialIndex,
 } from "@five-days/game-core";
 
-export const MAX_VISION_REVEAL_SOURCES = 8;
-
-export function isWithinPlayerVision(
-  viewer: Readonly<{ x: number; y: number }>,
-  candidate: Readonly<{ x: number; y: number }>,
-  radius = PLAYER_VISION_RADIUS,
-): boolean {
-  return Math.hypot(candidate.x - viewer.x, candidate.y - viewer.y) <= radius;
-}
+const MAX_VISION_REVEAL_SOURCES = 8;
 
 export type VisionRevealSource = {
   id: string;

@@ -15,6 +15,7 @@ deploy/.secrets/
 .wrangler/
 .vinext/
 out/
+tmp/
 Document/aws-icons/users.svg
 Document/aws-icons/s3.svg
 Document/aws-icons/lightsail.svg

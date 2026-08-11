@@ -7,6 +7,8 @@ export const LOBBY_ROOM = "lobby_room";
 export const GLOBAL_CHAT_ROOM = "global_chat";
 export const gameTicketRoomSchema = z.enum(["global_chat", "lobby", "party"]);
 
+// The explicit ASCII control range is intentional: public text must remain printable.
+// eslint-disable-next-line no-control-regex
 const unsafeTextPattern = /[<>\u0000-\u001f\u007f]/u;
 
 export function normalizePublicText(value: string): string {

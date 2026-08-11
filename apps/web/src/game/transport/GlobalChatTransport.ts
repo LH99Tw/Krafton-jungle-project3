@@ -12,7 +12,7 @@ type GlobalChatEventMap = {
   disconnected: { code: number; reason: string };
 };
 
-export class GlobalChatTransport {
+class GlobalChatTransport {
   private room: Room | null = null;
   private readonly listeners = new Map<keyof GlobalChatEventMap, Set<(value: never) => void>>();
 
