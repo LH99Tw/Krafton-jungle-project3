@@ -56,6 +56,8 @@ export function GameHud({
       x: 0,
       y: 0,
       aim: 0,
+      attackSequence: 0,
+      attackTargetId: "",
       isLocal: true,
       equipment: snapshot.equipment,
     }];

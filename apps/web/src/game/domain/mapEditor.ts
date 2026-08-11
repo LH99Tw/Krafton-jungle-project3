@@ -3,6 +3,14 @@ import { buildEditorGeometry } from "./editorGeometry";
 export const EDITOR_MAP_STORAGE_KEY = "five-days:local-map:v1";
 export const EDITOR_MIN_COORDINATE = -128;
 export const EDITOR_MAX_COORDINATE = 127;
+export const EDITOR_MIN_ROOM_WIDTH = 2;
+export const EDITOR_MAX_ROOM_WIDTH = 6;
+export const EDITOR_MIN_ROOM_HEIGHT = 2;
+export const EDITOR_MAX_ROOM_HEIGHT = 5;
+
+const EDITOR_ROOM_TYPES = ["start", "empty", "resource", "static-monster", "hidden-monster", "gate", "boss"] as const;
+const EDITOR_ASSET_THEMES = ["forest", "marsh", "wastes"] as const;
+const EDITOR_PORT_SIDES = ["north", "east", "south", "west"] as const;
 
 export type EditorRoomType = "start" | "empty" | "resource" | "static-monster" | "hidden-monster" | "gate" | "boss";
 export type EditorAssetTheme = "forest" | "marsh" | "wastes";
@@ -59,12 +67,22 @@ export const DEFAULT_EDITOR_MAP: EditorMapDefinition = {
 
 export function validateEditorMap(map: EditorMapDefinition): string[] {
   const failures: string[] = [];
+  if (!map.title.trim()) failures.push("맵 이름을 입력해 주세요.");
   if (map.rooms.length < 2) failures.push("방을 두 개 이상 배치해 주세요.");
   if (map.rooms.filter((room) => room.type === "start").length !== 1) failures.push("시작 방은 정확히 하나여야 합니다.");
   if (map.rooms.filter((room) => room.type === "boss").length !== 1) failures.push("보스룸은 정확히 하나여야 합니다.");
   if (!map.rooms.some((room) => room.type === "gate")) failures.push("몬스터 게이트를 하나 이상 배치해 주세요.");
   const ids = new Set(map.rooms.map((room) => room.id));
   if (ids.size !== map.rooms.length) failures.push("방 ID가 중복되었습니다.");
+  if (map.rooms.some((room) => !room.id.trim() || !room.name.trim())) failures.push("방 ID와 이름은 비워둘 수 없습니다.");
+  if (map.rooms.some((room) => (
+    !Number.isInteger(room.width)
+    || room.width < EDITOR_MIN_ROOM_WIDTH
+    || room.width > EDITOR_MAX_ROOM_WIDTH
+    || !Number.isInteger(room.height)
+    || room.height < EDITOR_MIN_ROOM_HEIGHT
+    || room.height > EDITOR_MAX_ROOM_HEIGHT
+  ))) failures.push(`방 크기는 가로 ${EDITOR_MIN_ROOM_WIDTH}..${EDITOR_MAX_ROOM_WIDTH}, 세로 ${EDITOR_MIN_ROOM_HEIGHT}..${EDITOR_MAX_ROOM_HEIGHT}의 정수여야 합니다.`);
   if (map.rooms.some((room) => (
     !Number.isInteger(room.x)
     || !Number.isInteger(room.y)
@@ -76,6 +94,9 @@ export function validateEditorMap(map: EditorMapDefinition): string[] {
   if (map.connections.some((connection) => connection.from === connection.to || !ids.has(connection.from) || !ids.has(connection.to))) {
     failures.push("유효하지 않은 통로가 있습니다.");
   }
+  const connectionIds = map.connections.map((connection) => connection.id);
+  if (connectionIds.some((id) => !id.trim())) failures.push("통로 ID는 비워둘 수 없습니다.");
+  if (new Set(connectionIds).size !== connectionIds.length) failures.push("통로 ID가 중복되었습니다.");
   for (const connection of map.connections) {
     const from = map.rooms.find((room) => room.id === connection.from);
     const to = map.rooms.find((room) => room.id === connection.to);
@@ -102,8 +123,57 @@ export function validateEditorMap(map: EditorMapDefinition): string[] {
     }
     if (visited.size !== map.rooms.length) failures.push("모든 방이 시작 방과 통로로 연결되어야 합니다.");
   }
-  failures.push(...buildEditorGeometry(map, { cellWidth: 1, cellHeight: 1, corridorWidth: 0.5 }).errors);
+  const dimensionsValid = !map.rooms.some((room) => (
+    !Number.isInteger(room.width)
+    || room.width < EDITOR_MIN_ROOM_WIDTH
+    || room.width > EDITOR_MAX_ROOM_WIDTH
+    || !Number.isInteger(room.height)
+    || room.height < EDITOR_MIN_ROOM_HEIGHT
+    || room.height > EDITOR_MAX_ROOM_HEIGHT
+  ));
+  if (dimensionsValid) failures.push(...buildEditorGeometry(map, { cellWidth: 1, cellHeight: 1, corridorWidth: 0.5 }).errors);
   return failures;
+}
+
+export function isEditorMapDefinition(value: unknown): value is EditorMapDefinition {
+  if (!value || typeof value !== "object") return false;
+  const map = value as Partial<EditorMapDefinition>;
+  if (map.version !== 1 || typeof map.title !== "string" || map.title.trim().length === 0 || map.title.length > 80) return false;
+  if (!Array.isArray(map.rooms) || !Array.isArray(map.connections)) return false;
+  return map.rooms.every(isEditorRoom) && map.connections.every(isEditorConnection);
+}
+
+function isEditorRoom(value: unknown): value is EditorRoom {
+  if (!value || typeof value !== "object") return false;
+  const room = value as Partial<EditorRoom>;
+  return typeof room.id === "string" && room.id.trim().length > 0 && room.id.length <= 96
+    && typeof room.name === "string" && room.name.trim().length > 0 && room.name.length <= 80
+    && EDITOR_ROOM_TYPES.includes(room.type as EditorRoomType)
+    && EDITOR_ASSET_THEMES.includes(room.asset as EditorAssetTheme)
+    && Number.isInteger(room.x) && Number.isInteger(room.y)
+    && room.x! >= EDITOR_MIN_COORDINATE && room.y! >= EDITOR_MIN_COORDINATE
+    && Number.isInteger(room.width) && room.width! >= EDITOR_MIN_ROOM_WIDTH && room.width! <= EDITOR_MAX_ROOM_WIDTH
+    && Number.isInteger(room.height) && room.height! >= EDITOR_MIN_ROOM_HEIGHT && room.height! <= EDITOR_MAX_ROOM_HEIGHT
+    && room.x! + room.width! - 1 <= EDITOR_MAX_COORDINATE
+    && room.y! + room.height! - 1 <= EDITOR_MAX_COORDINATE;
+}
+
+function isEditorConnection(value: unknown): value is EditorConnection {
+  if (!value || typeof value !== "object") return false;
+  const connection = value as Partial<EditorConnection>;
+  return typeof connection.id === "string" && connection.id.trim().length > 0 && connection.id.length <= 96
+    && typeof connection.from === "string" && connection.from.trim().length > 0 && connection.from.length <= 96
+    && typeof connection.to === "string" && connection.to.trim().length > 0 && connection.to.length <= 96
+    && (connection.fromPort === undefined || isEditorConnectionPort(connection.fromPort))
+    && (connection.toPort === undefined || isEditorConnectionPort(connection.toPort));
+}
+
+function isEditorConnectionPort(value: unknown): value is EditorConnectionPort {
+  if (!value || typeof value !== "object") return false;
+  const port = value as Partial<EditorConnectionPort>;
+  return EDITOR_PORT_SIDES.includes(port.side as EditorPortSide)
+    && Number.isInteger(port.offset)
+    && port.offset! >= 0;
 }
 
 export function cloneEditorMap(map: EditorMapDefinition): EditorMapDefinition {
@@ -123,7 +193,7 @@ export function editorPortSpan(room: EditorRoom, side: EditorPortSide): number {
 }
 
 export function isValidEditorPort(room: EditorRoom, port: EditorConnectionPort): boolean {
-  return ["north", "east", "south", "west"].includes(port.side)
+  return EDITOR_PORT_SIDES.includes(port.side)
     && Number.isInteger(port.offset)
     && port.offset >= 0
     && port.offset < editorPortSpan(room, port.side);

@@ -23,6 +23,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm audit --prod --audit-level moderate
+      - run: pnpm map:check
       - run: pnpm lint
       - run: pnpm typecheck
       - run: pnpm test

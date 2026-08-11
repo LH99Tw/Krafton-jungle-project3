@@ -25,3 +25,15 @@ test("runtime preloads four-direction hero sheets and selects a movement-facing 
   assert.match(renderer, /setFrame\(heroFrameForPose\(facing, moving, time\)\)/);
   assert.doesNotMatch(generatedTextures, /key: "hero-/);
 });
+
+test("network enemy hp bars follow the same interpolated position as their sprites", () => {
+  const scene = readFileSync(new URL("../src/game/runtime/room/RoomGameScene.ts", import.meta.url), "utf8");
+  const transformUpdate = scene.slice(
+    scene.indexOf("  private updateNetworkTransforms(): void"),
+    scene.indexOf("  private configureInput(): void"),
+  );
+  assert.match(transformUpdate, /sprite\.setPosition\(point\.x, point\.y\)/);
+  assert.match(transformUpdate, /networkEnemyHpBars\.get\(enemy\.id\)[\s\S]*?\.setPosition\(point\.x, point\.y\)/);
+  assert.match(scene, /graphics\.clear\(\)\.setPosition\(x, y\)/);
+  assert.match(scene, /const barX = -width \/ 2/);
+});

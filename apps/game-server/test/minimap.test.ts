@@ -20,7 +20,9 @@ test("official party exploration publishes one wall-aware shared area", () => {
   assert.equal(init.geometry.areaId, "official-map");
   assert.equal(init.geometry.visionRadius, PLAYER_VISION_RADIUS);
   assert.ok(init.geometry.wallSegments.length > 0);
-  assert.ok(init.geometry.cellSize <= 32);
+  assert.ok(init.geometry.cellSize >= 32);
+  assert.ok(init.geometry.columns <= 256);
+  assert.ok(init.geometry.rows <= 256);
   const mask = decodeMask(init.explorationMask, Math.ceil(init.geometry.columns * init.geometry.rows / 8));
   assert.equal(isExplored(mask, cellIndexAt(init.geometry, player.x, player.y)), true);
   const boss = OFFICIAL_WORLD.rooms.find((room) => room.id === OFFICIAL_WORLD.bossRoomId)!;

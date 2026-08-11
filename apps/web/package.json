@@ -8,6 +8,8 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint . --ignore-pattern .next",
+    "map:generate": "tsx scripts/generate-official-map.ts",
+    "map:check": "tsx scripts/generate-official-map.ts --check",
     "test": "tsx --test tests/*.test.mjs tests/*.test.ts",
     "typecheck": "next typegen && tsc --noEmit"
   },

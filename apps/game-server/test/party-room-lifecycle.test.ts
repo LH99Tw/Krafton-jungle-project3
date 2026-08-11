@@ -7,7 +7,7 @@ import {
   PartyRoom,
   runWithTimeoutAndRetry,
 } from "../src/party-room";
-import { PROTOCOL_VERSION } from "@five-days/protocol";
+import { PROTOCOL_VERSION, transformFlags } from "@five-days/protocol";
 
 test("bounded persistence retries use the configured backoff and stop after success", async () => {
   const attempts: number[] = [];
@@ -191,6 +191,35 @@ test("input lease stops movement after a lost key-up frame", () => {
   expire.call(harness as unknown as PartyRoom, 1_000 + INPUT_LEASE_MS + 1);
   assert.equal(player.inputX, 0);
   assert.equal(player.inputY, 0);
+});
+
+test("crossing into a connected room keeps a continuous transform while a real teleport snaps", () => {
+  const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
+  const previousTransforms = new Map<string, { roomId: string; x: number; y: number; at: number }>();
+  harness.previousTransforms = previousTransforms;
+  const transformSample = (PartyRoom.prototype as unknown as {
+    transformSample(
+      this: PartyRoom,
+      cacheKey: string,
+      id: string,
+      roomId: string,
+      x: number,
+      y: number,
+      aim: number,
+      serverTime: number,
+    ): { flags: number; vx: number };
+  }).transformSample;
+
+  transformSample.call(harness as unknown as PartyRoom, "enemy:e1", "e1", "room-a", 100, 100, 0, 1_000);
+  previousTransforms.set("enemy:e1", { roomId: "room-a", x: 100, y: 100, at: 1_000 });
+  const doorwayCrossing = transformSample.call(harness as unknown as PartyRoom, "enemy:e1", "e1", "room-b", 103, 100, 0, 1_033);
+  assert.equal(doorwayCrossing.flags, transformFlags.none);
+  assert.ok(doorwayCrossing.vx > 0);
+
+  previousTransforms.set("enemy:e1", { roomId: "room-b", x: 103, y: 100, at: 1_033 });
+  const teleport = transformSample.call(harness as unknown as PartyRoom, "enemy:e1", "e1", "base", 500, 500, 0, 1_066);
+  assert.equal(teleport.flags, transformFlags.discontinuity);
+  assert.equal(teleport.vx, 0);
 });
 
 test("unreliable input sequence does not reject a reliable command", () => {

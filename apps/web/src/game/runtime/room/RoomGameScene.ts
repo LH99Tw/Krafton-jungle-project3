@@ -38,7 +38,7 @@ import type {
   TeamStats,
   UpgradeId,
 } from "../../domain/types";
-import { PLAYER_VISION_RADIUS, type InputFrame, type WorldFrame } from "@five-days/protocol";
+import { PLAYER_VISION_RADIUS, transformFlags, type InputFrame, type WorldFrame } from "@five-days/protocol";
 import { resolveSharedPartyProgress } from "../../domain/sharedPartyProgress";
 import { editorThemeZone, type EditorConnection } from "../../domain/mapEditor";
 import { buildEditorCoreWorld, editorCoreRoomId } from "@/src/features/map-editor/editorCoreWorld";
@@ -46,7 +46,7 @@ import { localCoreSession } from "@/src/features/map-editor/LocalCoreSession";
 import { ProgressionModel } from "../../systems/ProgressionModel";
 import { HERO_SPRITE_FRAME_SIZE, HERO_SPRITE_PATHS, HERO_TOTAL_FRAME_COUNT } from "../../client/render/heroSprites";
 import { colyseusTransport } from "../../transport/ColyseusTransport";
-import { predictPlayerTransform, RealtimeTransformBuffer, shouldRenderPartyMember } from "../../netcode/RealtimeBuffer";
+import { areAuthoredBossGatesCleared, predictPlayerTransform, RealtimeTransformBuffer, shouldRenderPartyMember } from "../../netcode/RealtimeBuffer";
 import { aimAngleBetween } from "../../netcode/aim";
 import { gameBridge, type GameCommand } from "../GameBridge";
 import {
@@ -189,6 +189,7 @@ export class RoomGameScene extends Phaser.Scene {
   private readonly networkEnemyHp = new Map<string, number>();
   private readonly networkEnemyHpBars = new Map<string, Phaser.GameObjects.Graphics>();
   private readonly networkEnemyAttackSequence = new Map<string, number>();
+  private readonly networkPlayerAttackSequence = new Map<string, number>();
   private readonly networkDrops = new Map<string, Phaser.GameObjects.Container>();
   private readonly networkDropRequests = new Map<string, number>();
   private readonly visitedRooms = new Set<string>();
@@ -483,7 +484,7 @@ export class RoomGameScene extends Phaser.Scene {
       this.renderedNetworkRoomKey = roomKey;
       this.renderNetworkRoom(snapshot, local);
     }
-    this.syncNetworkPlayers(snapshot.players, local);
+    this.syncNetworkPlayers(snapshot, local);
     this.syncNetworkEnemies(snapshot, local);
     this.syncNetworkDrops(snapshot, local.roomId);
     this.emitSnapshot();
@@ -513,8 +514,7 @@ export class RoomGameScene extends Phaser.Scene {
     const visualY = this.player.y;
     const error = Math.hypot(visualX - reconciled.x, visualY - reconciled.y);
     const hardSnap = this.options.runtimeMode === "editor-core"
-      || authoritative.roomId !== this.localPrediction?.roomId
-      || (authoritative.flags & 1) !== 0
+      || (authoritative.flags & transformFlags.discontinuity) !== 0
       || error > 96;
     this.localPrediction = reconciled;
     if (hardSnap) {
@@ -550,8 +550,11 @@ export class RoomGameScene extends Phaser.Scene {
   }
 
   private networkPredictionWorld(snapshot: NetworkWorldSnapshot) {
-    const bossAccessible = snapshot.day >= 3
-      && snapshot.rooms.some((room) => room.type === "gate" && room.cleared);
+    const bossAccessible = areAuthoredBossGatesCleared(
+      snapshot.day,
+      OFFICIAL_MAP_MANIFEST.world.gateRoomIds,
+      snapshot.rooms,
+    );
     return bossAccessible ? OFFICIAL_OPEN_PREDICTION_WORLD : OFFICIAL_LOCKED_PREDICTION_WORLD;
   }
 
@@ -593,6 +596,9 @@ export class RoomGameScene extends Phaser.Scene {
       const visible = enemy.alive
         && this.sharesNetworkVisionZone(localState.roomId, resolved.roomId);
       sprite.setPosition(point.x, point.y).setVisible(visible);
+      this.networkEnemyHpBars.get(enemy.id)
+        ?.setPosition(point.x, point.y)
+        .setVisible(visible && enemy.hp > 0);
     }
   }
 
@@ -715,7 +721,7 @@ export class RoomGameScene extends Phaser.Scene {
     maxHp: number,
     kind: LocalEnemyKind,
   ): void {
-    graphics.clear();
+    graphics.clear().setPosition(x, y);
     if (hp <= 0 || maxHp <= 0) return;
 
     const isBoss = kind === "boss";
@@ -723,8 +729,8 @@ export class RoomGameScene extends Phaser.Scene {
     const width = isBoss ? 56 : isElite ? 38 : 28;
     const height = isBoss ? 6 : 4;
     const offsetY = isBoss ? 36 : isElite ? 26 : 20;
-    const barX = x - width / 2;
-    const barY = y - offsetY;
+    const barX = -width / 2;
+    const barY = -offsetY;
 
     const hpRatio = Math.max(0, Math.min(1, hp / maxHp));
 
@@ -1449,12 +1455,14 @@ export class RoomGameScene extends Phaser.Scene {
     return viewerZone !== undefined && viewerZone === candidateZone;
   }
 
-  private syncNetworkPlayers(players: PartyMemberSnapshot[], local: PartyMemberSnapshot): void {
+  private syncNetworkPlayers(snapshot: NetworkWorldSnapshot, local: PartyMemberSnapshot): void {
+    const players = snapshot.players;
     const activeIds = new Set(players.map((member) => member.userId));
     for (const [userId, sprite] of this.remotePlayers) {
       if (!activeIds.has(userId)) {
         sprite.destroy();
         this.remotePlayers.delete(userId);
+        this.networkPlayerAttackSequence.delete(userId);
       }
     }
     for (const member of players) {
@@ -1473,6 +1481,12 @@ export class RoomGameScene extends Phaser.Scene {
       );
       sprite.setVisible(visible).setActive(member.connected);
       sprite.setAlpha(isLocal ? 1 : 0.82);
+      const previousAttackSequence = this.networkPlayerAttackSequence.get(member.userId);
+      if (previousAttackSequence !== undefined && member.attackSequence > previousAttackSequence && visible) {
+        const target = snapshot.enemies.find((enemy) => enemy.id === member.attackTargetId);
+        if (target) this.roomRenderer.showClassAttack(member.heroClass, sprite, target.x, target.y);
+      }
+      this.networkPlayerAttackSequence.set(member.userId, member.attackSequence);
     }
   }
 
@@ -1512,21 +1526,11 @@ export class RoomGameScene extends Phaser.Scene {
 
       const previousHp = this.networkEnemyHp.get(enemy.id);
       if (previousHp !== undefined && enemy.hp < previousHp && visible) {
-        const attacker = snapshot.players
-          .filter((member) => member.alive && member.roomId === enemy.roomId)
-          .map((member) => ({
-            member,
-            sprite: member.isLocal || member.userId === this.options.userId ? this.player : this.remotePlayers.get(member.userId),
-            distance: Phaser.Math.Distance.Between(member.x, member.y, enemy.x, enemy.y),
-          }))
-          .filter((candidate) => candidate.sprite)
-          .sort((left, right) => left.distance - right.distance)[0];
-        if (attacker?.sprite) this.roomRenderer.showClassAttack(attacker.member.heroClass, attacker.sprite, enemy.x, enemy.y);
         this.roomRenderer.showImpact(enemy.x, enemy.y, 30, 0xffffff);
       }
       this.networkEnemyHp.set(enemy.id, enemy.hp);
       if (visible) {
-        this.drawMonsterHpBar(hpBar, enemy.x, enemy.y, enemy.hp, enemy.maxHp, kind);
+        this.drawMonsterHpBar(hpBar, sprite.x, sprite.y, enemy.hp, enemy.maxHp, kind);
         hpBar.setVisible(true);
       } else {
         hpBar.clear().setVisible(false);
@@ -1647,6 +1651,8 @@ export class RoomGameScene extends Phaser.Scene {
         x: this.player.x,
         y: this.player.y,
         aim: 0,
+        attackSequence: this.attackCounter,
+        attackTargetId: this.lastLocalTargetId ?? "",
         isLocal: true,
         equipment: equipped,
       }],

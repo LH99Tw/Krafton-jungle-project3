@@ -56,6 +56,8 @@ export class PlayerState extends Schema {
   @type("number") structuresBuilt = 0;
   @type("number") goldSpent = 0;
   @type("number") gatesDestroyed = 0;
+  @type("number") attackSequence = 0;
+  @type("string") attackTargetId = "";
   @type("boolean") alive = true;
   @type("boolean") ready = false;
   @type("boolean") connected = true;

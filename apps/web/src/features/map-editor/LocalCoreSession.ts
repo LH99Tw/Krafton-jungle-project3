@@ -294,6 +294,8 @@ function playerSnapshot(core: GameCore, player: CorePlayer, isLocal: boolean): P
     x: player.x,
     y: player.y,
     aim: player.aim,
+    attackSequence: player.attackCount,
+    attackTargetId: player.lastAttackTargetId ?? "",
     isLocal,
     equipment,
   };

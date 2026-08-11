@@ -2,7 +2,7 @@ import { Client, matchMaker, Room, ServerError, type AuthContext } from "@colyse
 import { StateView } from "@colyseus/schema";
 import { type GameTicketClaims } from "@five-days/auth";
 import { createMatch, finalizeMatch } from "@five-days/db/repositories";
-import { BOSS_ROOM_ID, GameCore, OFFICIAL_WORLD, createCoreViewSnapshot, type CoreRoomId } from "@five-days/game-core";
+import { BOSS_ROOM_ID, GameCore, OFFICIAL_MAP_MANIFEST, OFFICIAL_WORLD, createCoreViewSnapshot, type CoreRoomId } from "@five-days/game-core";
 import {
   PARTY_ROOM,
   PROTOCOL_VERSION,
@@ -64,6 +64,12 @@ export const INPUT_LEASE_MS = 100;
 const MAX_CATCH_UP_TICKS = 4;
 const KEYFRAME_INTERVAL_MS = 500;
 const DISCONTINUITY_DISTANCE = 96;
+
+export function assertOfficialMapRevision(mapRevision: string): void {
+  if (mapRevision !== OFFICIAL_MAP_MANIFEST.mapRevision) {
+    throw new ServerError(409, "MAP_REVISION_MISMATCH");
+  }
+}
 
 export class OperationTimeoutError extends Error {
   constructor(
@@ -176,6 +182,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       throw new ServerError(503, "활성 게임 한도에 도달했습니다.");
     }
     const options = roomOptionsSchema.parse(rawOptions);
+    assertOfficialMapRevision(options.mapRevision);
     const internalOptions = rawOptions as { allowedUserIds?: unknown; aiPlayers?: unknown };
     if (Array.isArray(internalOptions.allowedUserIds)) {
       this.allowedUserIds = new Set(internalOptions.allowedUserIds.filter((value): value is string => typeof value === "string"));
@@ -260,6 +267,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       throw new ServerError(403, "이 게임방의 파티원이 아닙니다.");
     }
     const options = roomOptionsSchema.parse(rawOptions);
+    assertOfficialMapRevision(options.mapRevision);
     if (
       options.partyMode !== this.roomOptions.partyMode
       || options.sessionMode !== this.roomOptions.sessionMode
@@ -548,6 +556,8 @@ export class PartyRoom extends Room<PartyRoomState> {
         structuresBuilt: player.structuresBuilt,
         goldSpent: player.goldSpent,
         gatesDestroyed: player.gatesDestroyed,
+        attackSequence: player.attackCount,
+        attackTargetId: player.lastAttackTargetId ?? "",
         alive: player.alive,
         ready: player.ready,
         connected: player.connected,
@@ -785,7 +795,7 @@ export class PartyRoom extends Room<PartyRoomState> {
     const previous = this.previousTransforms.get(cacheKey);
     const deltaSeconds = previous ? Math.max(0.001, (serverTime - previous.at) / 1000) : 0;
     const distance = previous ? Math.hypot(x - previous.x, y - previous.y) : 0;
-    const discontinuity = Boolean(previous && (previous.roomId !== roomId || distance > DISCONTINUITY_DISTANCE));
+    const discontinuity = Boolean(previous && distance > DISCONTINUITY_DISTANCE);
     return {
       id,
       roomId,

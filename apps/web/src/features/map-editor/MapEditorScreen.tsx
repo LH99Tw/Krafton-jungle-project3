@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { OFFICIAL_MAP_COMPILER_VERSION, officialMapRevisionPayload } from "@five-days/game-core";
 import {
   clampEditorPort,
   cloneEditorMap,
@@ -295,14 +296,16 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
       return;
     }
     const normalizedMap = cloneEditorMap(map);
-    const bytes = new TextEncoder().encode(JSON.stringify(normalizedMap));
+    const world = { ...buildEditorCoreWorld(normalizedMap), id: "official-map" };
+    const bytes = new TextEncoder().encode(JSON.stringify(officialMapRevisionPayload(normalizedMap, world)));
     const digest = await window.crypto.subtle.digest("SHA-256", bytes);
     const mapRevision = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
     const manifest = {
       schemaVersion: 1 as const,
+      compilerVersion: OFFICIAL_MAP_COMPILER_VERSION,
       mapRevision,
       map: normalizedMap,
-      world: { ...buildEditorCoreWorld(normalizedMap), id: "official-map" },
+      world,
     };
     const blob = new Blob([`${JSON.stringify(manifest, null, 2)}\n`], { type: "application/json" });
     const url = URL.createObjectURL(blob);

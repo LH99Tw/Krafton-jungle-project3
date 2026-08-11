@@ -77,6 +77,8 @@ test("server auto attack picks the nearest enemy inside the cursor cone", () => 
   core.enemies.set(outsideCone.id, outsideCone);
 
   assert.equal(core.performAutoAttack("p1")?.id, near.id);
+  assert.equal(player.attackCount, 1);
+  assert.equal(player.lastAttackTargetId, near.id);
   assert.ok(near.hp < near.maxHp);
   assert.equal(near.aggroed, true);
   assert.equal(far.hp, far.maxHp);
@@ -398,7 +400,7 @@ test("gate invaders use 24 deterministic, non-overlapping spawn slots", () => {
   assert.deepEqual(firstPositions, secondPositions);
 });
 
-test("at most six invaders engage one player while the rest continue toward the base", () => {
+test("every nearby invader keeps player aggro even when a large wave stacks up", () => {
   const core = startedCore("invader-attacker-slots");
   const player = core.players.get("p1")!;
   const invaders = Array.from({ length: 12 }, () => core.spawnInvader(1));
@@ -410,8 +412,8 @@ test("at most six invaders engage one player while the rest continue toward the 
     invader.y = player.y;
   }
   core.update(0.01);
-  assert.equal(invaders.filter((invader) => invader.targetId === player.userId).length, 6);
-  assert.equal(invaders.filter((invader) => invader.targetId === "base").length, 6);
+  assert.equal(invaders.filter((invader) => invader.targetId === player.userId).length, invaders.length);
+  assert.equal(invaders.filter((invader) => invader.targetId === "base").length, 0);
 });
 
 test("a 21-invader wave leaves its distributed gate slots without corridor deadlock", () => {

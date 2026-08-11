@@ -103,7 +103,9 @@ test("an official-map follower does not oscillate when its leader retargets acro
   follower.hp = 1_000_000;
   follower.maxHp = 1_000_000;
 
-  core.movePlayerToRoom(human.userId, "editor:room-gate");
+  const baseRoom = OFFICIAL_WORLD.rooms.find((room) => room.id === OFFICIAL_WORLD.baseRoomId)!;
+  const corridorTarget = baseRoom.connections[0]!;
+  core.movePlayerToRoom(human.userId, corridorTarget);
   for (let step = 0; step < 280; step += 1) core.update(0.05);
   assert.notEqual(follower.roomId, OFFICIAL_WORLD.baseRoomId, "the follower should leave the base before retargeting");
 

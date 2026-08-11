@@ -206,6 +206,28 @@ test("editor validation rejects overlapping rooms and duplicate corridors", () =
   assert.match(failures, /중복 통로/);
 });
 
+test("editor validation rejects duplicate corridor ids and invalid room dimensions", () => {
+  const map = cloneEditorMap(DEFAULT_EDITOR_MAP);
+  map.connections[1] = { ...map.connections[1]!, id: map.connections[0]!.id };
+  map.rooms[0] = { ...map.rooms[0]!, width: 0, height: 2.5 };
+  const failures = validateEditorMap(map).join(" ");
+  assert.match(failures, /통로 ID가 중복/);
+  assert.match(failures, /방 크기/);
+});
+
+test("local map library drops records with malformed nested map fields", () => {
+  const malformed = createStoredEditorMap("broken", DEFAULT_EDITOR_MAP, 100);
+  (malformed.map.rooms[0] as unknown as { width: unknown }).width = "3";
+  const valid = createStoredEditorMap("valid", DEFAULT_EDITOR_MAP, 200);
+  const library = parseEditorMapLibrary(JSON.stringify({
+    version: 1,
+    activeMapId: "broken",
+    maps: [malformed, valid],
+  }));
+  assert.equal(library?.activeMapId, "valid");
+  assert.deepEqual(library?.maps.map((record) => record.id), ["valid"]);
+});
+
 test("editor validation requires a wall-and-corridor gap between touching rooms", () => {
   const map = cloneEditorMap(DEFAULT_EDITOR_MAP);
   map.rooms[0] = { ...map.rooms[0]!, width: 4 };

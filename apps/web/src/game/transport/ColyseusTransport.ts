@@ -12,7 +12,7 @@ import {
   type TransportMode,
 } from "@five-days/protocol";
 import { normalizeAimAngle } from "../netcode/aim";
-import { applyCellRanges, decodeMask } from "@five-days/game-core";
+import { applyCellRanges, decodeMask, OFFICIAL_MAP_MANIFEST } from "@five-days/game-core";
 import type {
   HeroClassId,
   EquipmentSummary,
@@ -58,6 +58,8 @@ type PlayerStateLike = {
   alive?: boolean;
   roomId?: string;
   aim?: number;
+  attackSequence?: number;
+  attackTargetId?: string;
   x?: number;
   y?: number;
   upgradeDraft?: {
@@ -199,7 +201,7 @@ export class ColyseusTransport {
     serverUrl: string;
     csrfToken: string;
     userId: string;
-    options: Omit<RoomOptions, "protocolVersion">;
+    options: Omit<RoomOptions, "protocolVersion" | "mapRevision">;
     roomId?: string;
   }): Promise<NetworkWorldSnapshot | null> {
     this.disconnect();
@@ -220,6 +222,7 @@ export class ColyseusTransport {
     const roomOptions = {
       ...input.options,
       protocolVersion: PROTOCOL_VERSION,
+      mapRevision: OFFICIAL_MAP_MANIFEST.mapRevision,
     };
     const room = input.roomId
       ? await client.joinById(input.roomId, roomOptions)
@@ -572,6 +575,8 @@ export class ColyseusTransport {
       x: player.x ?? 0,
       y: player.y ?? 0,
       aim: player.aim ?? 0,
+      attackSequence: player.attackSequence ?? 0,
+      attackTargetId: player.attackTargetId ?? "",
       isLocal: player.userId === this.localUserId,
       equipment: equipmentSummaries(player.equipment),
     }));

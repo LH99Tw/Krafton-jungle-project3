@@ -1,5 +1,6 @@
 import { matchMaker, Room, ServerError, type AuthContext, type Client } from "@colyseus/core";
 import { type GameTicketClaims } from "@five-days/auth";
+import { OFFICIAL_MAP_MANIFEST } from "@five-days/game-core";
 import {
   LOBBY_ROOM,
   PARTY_ROOM,
@@ -153,6 +154,7 @@ export class GameLobbyRoom extends Room<LobbyRoomState, LobbyMetadata> {
         sessionMode: this.state.sessionMode,
         difficulty: this.state.difficulty,
         protocolVersion: PROTOCOL_VERSION,
+        mapRevision: OFFICIAL_MAP_MANIFEST.mapRevision,
         allowedUserIds: humans.map((player) => player.userId),
         aiPlayers: players.filter((player) => player.isAi).map((player) => ({
           userId: player.userId,

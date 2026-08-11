@@ -86,6 +86,8 @@ export type PartyMemberSnapshot = {
   x: number;
   y: number;
   aim: number;
+  attackSequence: number;
+  attackTargetId: string;
   isLocal: boolean;
   equipment: EquipmentSummary[];
 };

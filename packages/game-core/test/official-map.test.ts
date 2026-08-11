@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import test from "node:test";
-import { GameCore, OFFICIAL_MAP_MANIFEST, OFFICIAL_WORLD } from "../src/index";
+import { GameCore, OFFICIAL_MAP_COMPILER_VERSION, OFFICIAL_MAP_MANIFEST, OFFICIAL_WORLD, officialMapRevisionPayload } from "../src/index";
 
-test("official manifest revision matches its canonical authored map", () => {
-  const revision = crypto.createHash("sha256").update(JSON.stringify(OFFICIAL_MAP_MANIFEST.map)).digest("hex");
+test("official manifest revision covers compiler version, authored map, and compiled world", () => {
+  const revision = crypto.createHash("sha256")
+    .update(JSON.stringify(officialMapRevisionPayload(OFFICIAL_MAP_MANIFEST.map, OFFICIAL_MAP_MANIFEST.world)))
+    .digest("hex");
   assert.equal(OFFICIAL_MAP_MANIFEST.schemaVersion, 1);
+  assert.equal(OFFICIAL_MAP_MANIFEST.compilerVersion, OFFICIAL_MAP_COMPILER_VERSION);
   assert.equal(OFFICIAL_MAP_MANIFEST.mapRevision, revision);
 });
 
@@ -47,11 +50,11 @@ test("an undiscovered official gate spawns invaders that pathfind to and damage 
   const player = core.addPlayer({ userId: "player", displayName: "Player", heroClass: "swordsman" });
   core.setReady(player.userId, true);
   core.setConnected(player.userId, false);
-  const gate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate")!;
-  assert.equal(core.discoveredRooms.has(gate.roomId), false);
   const updateInvaderSpawning = (core as unknown as { updateInvaderSpawning(delta: number): void }).updateInvaderSpawning.bind(core);
   updateInvaderSpawning(60 / 8);
   const invader = [...core.enemies.values()].find((enemy) => enemy.kind === "invader")!;
+  const gate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate" && enemy.roomId === invader.spawnRoomId)!;
+  assert.equal(core.discoveredRooms.has(gate.roomId), false);
   assert.equal(invader.kind, "invader");
   assert.equal(invader.spawnRoomId, gate.roomId);
   assert.equal(invader.path[0], gate.roomId);
@@ -60,7 +63,10 @@ test("an undiscovered official gate spawns invaders that pathfind to and damage 
 
   const baseHp = core.baseHp;
   const updateInvaders = (core as unknown as { updateInvaders(delta: number): void }).updateInvaders.bind(core);
-  for (let index = 0; index < 1_200 && invader.alive; index += 1) updateInvaders(0.1);
+  // The official map may contain long, bent routes across many rooms. Give the
+  // invader enough simulated time to traverse the authored path rather than
+  // baking the previous six-room map's travel time into this assertion.
+  for (let index = 0; index < 12_000 && invader.alive; index += 1) updateInvaders(0.1);
   assert.equal(invader.alive, false);
   assert.equal(invader.roomId, OFFICIAL_WORLD.baseRoomId);
   assert.ok(core.baseHp < baseHp);

@@ -170,7 +170,6 @@ const INVADER_BLOCKED_EDGE_SECONDS = 2;
 const INVADER_DAY_WAVES = 8;
 const INVADER_NIGHT_WAVES = 10;
 const INVADER_SPAWN_SLOTS = 24;
-const INVADER_ATTACKERS_PER_PLAYER = 6;
 const INVADER_CORRIDOR_LANE_OFFSET = 20;
 const AI_FOLLOWER_GAP = 180;
 const AI_PATH_REPLAN_SECONDS = 0.75;
@@ -1245,13 +1244,9 @@ export class GameCore {
       || left.enemy.id.localeCompare(right.enemy.id)
       || left.player.userId.localeCompare(right.player.userId));
     const result = new Map<string, CorePlayer>();
-    const counts = new Map<string, number>();
     for (const candidate of candidates) {
       if (result.has(candidate.enemy.id)) continue;
-      const count = counts.get(candidate.player.userId) ?? 0;
-      if (count >= INVADER_ATTACKERS_PER_PLAYER) continue;
       result.set(candidate.enemy.id, candidate.player);
-      counts.set(candidate.player.userId, count + 1);
     }
     return result;
   }

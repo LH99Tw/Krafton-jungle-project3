@@ -3,6 +3,7 @@ import test from "node:test";
 import { ACTOR_COLLISION_RADIUS, OFFICIAL_WORLD } from "@five-days/game-core";
 import { PROTOCOL_VERSION, transformFlags, type InputFrame, type TransformSample, type WorldFrame } from "@five-days/protocol";
 import {
+  areAuthoredBossGatesCleared,
   RealtimeTransformBuffer,
   predictPlayerTransform,
   shouldRenderPartyMember,
@@ -120,17 +121,47 @@ test("official authored-world prediction uses the authoritative floor and collis
   });
   assert.ok(center.x > base.rect.x + base.rect.width / 2, "valid floor input must advance immediately");
 
-  const topEdge = predictPlayerTransform({
-    x: base.rect.x + base.rect.width / 2,
-    y: base.rect.y + ACTOR_COLLISION_RADIUS,
+  const edgeCandidates = [
+    { x: base.rect.x + ACTOR_COLLISION_RADIUS, y: base.rect.y + base.rect.height / 2, dx: -1, dy: 0 },
+    { x: base.rect.x + base.rect.width - ACTOR_COLLISION_RADIUS, y: base.rect.y + base.rect.height / 2, dx: 1, dy: 0 },
+    { x: base.rect.x + base.rect.width / 2, y: base.rect.y + ACTOR_COLLISION_RADIUS, dx: 0, dy: -1 },
+    { x: base.rect.x + base.rect.width / 2, y: base.rect.y + base.rect.height - ACTOR_COLLISION_RADIUS, dx: 0, dy: 1 },
+  ];
+  const sealedEdge = edgeCandidates.find((candidate) => {
+    const probeX = candidate.x + candidate.dx * (ACTOR_COLLISION_RADIUS + 1);
+    const probeY = candidate.y + candidate.dy * (ACTOR_COLLISION_RADIUS + 1);
+    return !OFFICIAL_WORLD.walkable.some((rect) => (
+      probeX >= rect.x && probeX < rect.x + rect.width
+      && probeY >= rect.y && probeY < rect.y + rect.height
+    ));
+  });
+  assert.ok(sealedEdge, "the authored base must retain at least one exterior wall");
+
+  const wallEdge = predictPlayerTransform({
+    x: sealedEdge.x,
+    y: sealedEdge.y,
     roomId: base.id,
     heroClass: "swordsman",
-    frame: { ...frame, x: 0, y: -1 },
+    frame: { ...frame, x: sealedEdge.dx, y: sealedEdge.dy },
     deltaSeconds: 1 / 60,
     rooms: [],
     movementWorld: { walkable: OFFICIAL_WORLD.walkable, rooms },
   });
-  assert.equal(topEdge.y, base.rect.y + ACTOR_COLLISION_RADIUS, "prediction must match the server wall inset");
+  assert.deepEqual(
+    { x: wallEdge.x, y: wallEdge.y },
+    { x: sealedEdge.x, y: sealedEdge.y },
+    "prediction must match the server wall inset",
+  );
+});
+
+test("boss prediction opens only after every authored gate is cleared on day three", () => {
+  const rooms = [
+    { id: "gate-a", cleared: true },
+    { id: "gate-b", cleared: false },
+  ];
+  assert.equal(areAuthoredBossGatesCleared(3, ["gate-a", "gate-b"], rooms), false);
+  assert.equal(areAuthoredBossGatesCleared(2, ["gate-a", "gate-b"], rooms.map((room) => ({ ...room, cleared: true }))), false);
+  assert.equal(areAuthoredBossGatesCleared(3, ["gate-a", "gate-b"], rooms.map((room) => ({ ...room, cleared: true }))), true);
 });
 
 test("remote party visibility is independent of fog radius and follows connection state", () => {

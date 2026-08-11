@@ -1,4 +1,4 @@
-import { cloneEditorMap, type EditorMapDefinition } from "./mapEditor";
+import { cloneEditorMap, isEditorMapDefinition, type EditorMapDefinition } from "./mapEditor";
 
 export const EDITOR_MAP_LIBRARY_STORAGE_KEY = "five-days:local-map-library:v1";
 
@@ -69,14 +69,5 @@ function isStoredEditorMap(value: unknown): value is StoredEditorMap {
     && record.id.length > 0
     && Number.isFinite(record.createdAt)
     && Number.isFinite(record.updatedAt)
-    && isEditorMap(record.map);
-}
-
-function isEditorMap(value: unknown): value is EditorMapDefinition {
-  if (!value || typeof value !== "object") return false;
-  const map = value as Partial<EditorMapDefinition>;
-  return map.version === 1
-    && typeof map.title === "string"
-    && Array.isArray(map.rooms)
-    && Array.isArray(map.connections);
+    && isEditorMapDefinition(record.map);
 }

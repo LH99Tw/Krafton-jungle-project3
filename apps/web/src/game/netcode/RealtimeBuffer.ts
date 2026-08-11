@@ -21,6 +21,16 @@ export function shouldRenderPartyMember(
   return member.connected;
 }
 
+export function areAuthoredBossGatesCleared(
+  day: number,
+  gateRoomIds: readonly string[],
+  rooms: readonly Readonly<{ id: string; cleared: boolean }>[],
+): boolean {
+  return day >= 3 && gateRoomIds.length > 0 && gateRoomIds.every((gateRoomId) => (
+    rooms.some((room) => room.id === gateRoomId && room.cleared)
+  ));
+}
+
 export class RealtimeTransformBuffer {
   private readonly samples = new Map<string, TimedTransform[]>();
   private readonly lastSeenAt = new Map<string, number>();

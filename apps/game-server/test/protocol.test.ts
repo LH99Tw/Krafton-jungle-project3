@@ -14,7 +14,8 @@ import {
   normalizePublicText,
   worldFrameSchema,
 } from "@five-days/protocol";
-import { consumeGameTicket, partyPlayerIdsForView } from "../src/party-room";
+import { OFFICIAL_MAP_MANIFEST } from "@five-days/game-core";
+import { assertOfficialMapRevision, consumeGameTicket, partyPlayerIdsForView } from "../src/party-room";
 import { GLOBAL_CHAT_HISTORY_LIMIT, retainRecentMessages } from "../src/global-chat-room";
 import { take } from "../src/security";
 import {
@@ -40,10 +41,11 @@ test("rejects out-of-range player input", () => {
   assert.equal(result.success, false);
 });
 
-test("resolves protocol v5 room party mode and rejects older versions", () => {
+test("resolves protocol v6 room party mode and rejects older versions", () => {
   const defaults = roomOptionsSchema.parse({
     heroClass: "swordsman",
     protocolVersion: PROTOCOL_VERSION,
+    mapRevision: OFFICIAL_MAP_MANIFEST.mapRevision,
   });
   assert.equal(defaults.partyMode, "coop");
   assert.equal(defaults.sessionMode, "prototype");
@@ -55,12 +57,16 @@ test("resolves protocol v5 room party mode and rejects older versions", () => {
     difficulty: "hard",
     partyMode: "solo",
     protocolVersion: PROTOCOL_VERSION,
+    mapRevision: OFFICIAL_MAP_MANIFEST.mapRevision,
   });
   assert.equal(solo.partyMode, "solo");
   assert.equal(roomOptionsSchema.safeParse({ ...solo, protocolVersion: 1 }).success, false);
+  assert.equal(roomOptionsSchema.safeParse({ ...solo, mapRevision: undefined }).success, false);
+  assert.doesNotThrow(() => assertOfficialMapRevision(OFFICIAL_MAP_MANIFEST.mapRevision));
+  assert.throws(() => assertOfficialMapRevision("outdated-map"), /MAP_REVISION_MISMATCH/);
 });
 
-test("accepts the v5 interaction, travel, recall, and equipment commands", () => {
+test("accepts the v6 interaction, travel, recall, and equipment commands", () => {
   const base = { v: PROTOCOL_VERSION, seq: 7, clientTime: 12.5 } as const;
   const commands = [
     { ...base, type: "player.interact", payload: { targetId: "gate-zone-1" } },
@@ -87,7 +93,7 @@ test("strictly validates every command envelope and payload", () => {
   assert.equal(clientCommandSchema.safeParse({ ...valid, payload: { ...valid.payload, unexpected: true } }).success, false);
 });
 
-test("exposes the v5 room state graph through Colyseus schema collections", () => {
+test("exposes the v6 room state graph through Colyseus schema collections", () => {
   const state = new PartyRoomState();
   state.seed = "seed-001";
   state.currentZone = 2;
@@ -99,6 +105,8 @@ test("exposes the v5 room state graph through Colyseus schema collections", () =
   player.userId = "user-1";
   player.roomId = "zone-2-room-7";
   player.alive = true;
+  player.attackSequence = 7;
+  player.attackTargetId = "enemy-1";
   player.equipment.weaponId = "mythic-sword";
   player.upgradeDraft.active = true;
   player.upgradeDraft.draftId = "draft-1";
@@ -129,6 +137,8 @@ test("exposes the v5 room state graph through Colyseus schema collections", () =
 
   assert.equal(state.protocolVersion, PROTOCOL_VERSION);
   assert.equal(state.players.get("user-1")?.equipment.weaponId, "mythic-sword");
+  assert.equal(state.players.get("user-1")?.attackSequence, 7);
+  assert.equal(state.players.get("user-1")?.attackTargetId, "enemy-1");
   assert.equal(state.players.get("user-1")?.upgradeDraft.choices.at(0)?.upgradeId, "power");
   assert.equal(state.rooms.size, 1);
   assert.equal(state.doors.size, 1);
@@ -138,7 +148,7 @@ test("exposes the v5 room state graph through Colyseus schema collections", () =
   assert.equal(state.drops.size, 1);
 });
 
-test("validates v5 input and AOI world frames", () => {
+test("validates v6 input and AOI world frames", () => {
   assert.equal(inputFrameSchema.safeParse({
     v: PROTOCOL_VERSION,
     seq: 4,
