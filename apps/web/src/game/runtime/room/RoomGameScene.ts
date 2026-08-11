@@ -40,7 +40,7 @@ import type { InputFrame, WorldFrame } from "@five-days/protocol";
 import { resolveSharedPartyProgress } from "../../domain/sharedPartyProgress";
 import { editorThemeZone } from "../../domain/mapEditor";
 import { ProgressionModel } from "../../systems/ProgressionModel";
-import { HERO_SPRITE_FRAME_SIZE, HERO_SPRITE_PATHS } from "../../client/render/heroSprites";
+import { HERO_SPRITE_FRAME_SIZE, HERO_SPRITE_PATHS, HERO_TOTAL_FRAME_COUNT } from "../../client/render/heroSprites";
 import { colyseusTransport } from "../../transport/ColyseusTransport";
 import { predictPlayerTransform, RealtimeTransformBuffer, shouldRenderPartyMember } from "../../netcode/RealtimeBuffer";
 import { aimAngleBetween } from "../../netcode/aim";
@@ -70,6 +70,7 @@ type LocalEnemy = {
   id: string;
   kind: LocalEnemyKind;
   sprite: Phaser.Physics.Arcade.Sprite;
+  hpBar?: Phaser.GameObjects.Graphics;
   hp: number;
   maxHp: number;
   damage: number;
@@ -151,6 +152,8 @@ export class RoomGameScene extends Phaser.Scene {
   private networkDisconnect?: () => void;
   private worldFrameDisconnect?: () => void;
   private localInputDisconnect?: () => void;
+  private localAim = 0;
+  private localMoving = false;
   private enemies: LocalEnemy[] = [];
   private lastWalkablePlayerPosition: { x: number; y: number } | null = null;
   private readonly lastWalkableEnemyPositions = new Map<string, { x: number; y: number }>();
@@ -159,6 +162,7 @@ export class RoomGameScene extends Phaser.Scene {
   private readonly remotePlayers = new Map<string, Phaser.Physics.Arcade.Sprite>();
   private readonly networkEnemies = new Map<string, Phaser.Physics.Arcade.Sprite>();
   private readonly networkEnemyHp = new Map<string, number>();
+  private readonly networkEnemyHpBars = new Map<string, Phaser.GameObjects.Graphics>();
   private readonly networkEnemyAttackSequence = new Map<string, number>();
   private readonly networkDrops = new Map<string, Phaser.GameObjects.Container>();
   private readonly networkDropRequests = new Map<string, number>();
@@ -248,7 +252,7 @@ export class RoomGameScene extends Phaser.Scene {
       this.load.spritesheet(`hero-${classId}`, path, {
         frameWidth: HERO_SPRITE_FRAME_SIZE,
         frameHeight: HERO_SPRITE_FRAME_SIZE,
-        endFrame: 7,
+        endFrame: HERO_TOTAL_FRAME_COUNT - 1,
       });
     }
     for (const zone of [1, 2, 3] as const) {
@@ -466,6 +470,8 @@ export class RoomGameScene extends Phaser.Scene {
     const localState = snapshot?.players.find((member) => member.isLocal)
       ?? snapshot?.players.find((member) => member.userId === this.options.userId);
     if (!snapshot || !localState) return;
+    this.localAim = frame.aim;
+    this.localMoving = Math.hypot(frame.x, frame.y) > 0.01;
     const current = this.localPrediction ?? { x: localState.x, y: localState.y, roomId: localState.roomId };
     this.localPrediction = predictPlayerTransform({
       ...current,
@@ -490,6 +496,7 @@ export class RoomGameScene extends Phaser.Scene {
         this.localPrediction.y + (this.localCorrection?.y ?? 0) * correctionScale,
       );
       this.player.setVisible(true).setActive(true);
+      this.roomRenderer.updateHeroPose(this.player, this.localAim, this.localMoving, now);
       if (correctionScale === 0) this.localCorrection = null;
     }
     for (const member of snapshot.players) {
@@ -504,6 +511,7 @@ export class RoomGameScene extends Phaser.Scene {
           this.player,
         );
       sprite.setPosition(point.x, point.y).setVisible(visible);
+      this.roomRenderer.updateHeroPose(sprite, transform.aim, Math.hypot(transform.vx, transform.vy) > 1, now);
     }
     for (const enemy of snapshot.enemies) {
       const sprite = this.networkEnemies.get(enemy.id);
@@ -607,6 +615,7 @@ export class RoomGameScene extends Phaser.Scene {
       id: `${this.currentRoomId}:${kind}:${this.attackCounter++}`,
       kind,
       sprite: this.roomRenderer.createEnemy(kind, x, y),
+      hpBar: this.add.graphics().setDepth(28),
       hp: maxHp,
       maxHp,
       damage: Math.round(base.damage * zoneScale * this.difficulty.enemyDamage),
@@ -621,10 +630,63 @@ export class RoomGameScene extends Phaser.Scene {
       patternIndex: 0,
       patternActive: false,
     };
+    this.updateLocalEnemyHpBar(enemy);
     this.enemies.push(enemy);
     this.lastWalkableEnemyPositions.set(enemy.id, { x, y });
     if (kind === "boss") this.boss = enemy;
     return enemy;
+  }
+
+  private drawMonsterHpBar(
+    graphics: Phaser.GameObjects.Graphics,
+    x: number,
+    y: number,
+    hp: number,
+    maxHp: number,
+    kind: LocalEnemyKind,
+  ): void {
+    graphics.clear();
+    if (hp <= 0 || maxHp <= 0) return;
+
+    const isBoss = kind === "boss";
+    const isElite = kind === "gate" || kind === "hidden";
+    const width = isBoss ? 56 : isElite ? 38 : 28;
+    const height = isBoss ? 6 : 4;
+    const offsetY = isBoss ? 36 : isElite ? 26 : 20;
+    const barX = x - width / 2;
+    const barY = y - offsetY;
+
+    const hpRatio = Math.max(0, Math.min(1, hp / maxHp));
+
+    graphics.fillStyle(0x0a0d0e, 0.85);
+    graphics.fillRect(barX - 1, barY - 1, width + 2, height + 2);
+
+    graphics.fillStyle(0x380b0b, 0.95);
+    graphics.fillRect(barX, barY, width, height);
+
+    let fillColor = 0x2cd467;
+    if (isBoss) {
+      fillColor = hpRatio > 0.5 ? 0xffb700 : hpRatio > 0.25 ? 0xff6600 : 0xe62e2e;
+    } else if (hpRatio <= 0.25) {
+      fillColor = 0xeb3b3b;
+    } else if (hpRatio <= 0.5) {
+      fillColor = 0xf5b942;
+    }
+
+    graphics.fillStyle(fillColor, 1);
+    graphics.fillRect(barX, barY, Math.max(1, width * hpRatio), height);
+
+    graphics.fillStyle(0xffffff, 0.35);
+    graphics.fillRect(barX, barY, Math.max(1, width * hpRatio), 1);
+  }
+
+  private updateLocalEnemyHpBar(enemy: LocalEnemy): void {
+    if (!enemy.hpBar) return;
+    if (!enemy.sprite.active || enemy.hp <= 0) {
+      enemy.hpBar.clear();
+      return;
+    }
+    this.drawMonsterHpBar(enemy.hpBar, enemy.sprite.x, enemy.sprite.y, enemy.hp, enemy.maxHp, enemy.kind);
   }
 
   private updateLocalPlayer(time: number): void {
@@ -838,6 +900,7 @@ export class RoomGameScene extends Phaser.Scene {
       const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchor.x, anchor.y, ENEMY_COLLISION_RADIUS);
       enemy.sprite.setPosition(clamped.x, clamped.y);
       this.lastWalkableEnemyPositions.set(enemy.id, clamped);
+      this.updateLocalEnemyHpBar(enemy);
     }
   }
 
@@ -878,10 +941,16 @@ export class RoomGameScene extends Phaser.Scene {
     if (enemy.kind === "boss") this.stats.bossDamage += damage;
     enemy.sprite.setTintFill(0xffffff);
     this.time.delayedCall(55, () => enemy.sprite.active && enemy.sprite.clearTint());
+    this.updateLocalEnemyHpBar(enemy);
     if (enemy.hp <= 0) this.killEnemy(enemy);
   }
 
   private killEnemy(enemy: LocalEnemy): void {
+    if (enemy.hpBar) {
+      enemy.hpBar.clear();
+      enemy.hpBar.destroy();
+      enemy.hpBar = undefined;
+    }
     const x = enemy.sprite.x;
     const y = enemy.sprite.y;
     enemy.sprite.disableBody(true, true);
@@ -1308,7 +1377,6 @@ export class RoomGameScene extends Phaser.Scene {
       );
       sprite.setVisible(visible).setActive(member.connected);
       sprite.setAlpha(isLocal ? 1 : 0.82);
-      this.roomRenderer.updateHeroPose(sprite, member.aim, false, performance.now());
     }
   }
 
@@ -1319,6 +1387,12 @@ export class RoomGameScene extends Phaser.Scene {
       if (!activeIds.has(id)) {
         this.roomRenderer.updateEnemyPattern(id, "hidden", "fan", "idle", 0, 0, 0, false);
         sprite.destroy();
+        const hpBar = this.networkEnemyHpBars.get(id);
+        if (hpBar) {
+          hpBar.clear();
+          hpBar.destroy();
+          this.networkEnemyHpBars.delete(id);
+        }
         this.networkEnemies.delete(id);
         this.networkEnemyHp.delete(id);
         this.networkEnemyAttackSequence.delete(id);
@@ -1334,6 +1408,13 @@ export class RoomGameScene extends Phaser.Scene {
       const visible = enemy.alive
         && this.sharesNetworkVisionZone(local.roomId, enemy.roomId)
         && isWithinPlayerVision(local, enemy);
+
+      let hpBar = this.networkEnemyHpBars.get(enemy.id);
+      if (!hpBar) {
+        hpBar = this.add.graphics().setDepth(28);
+        this.networkEnemyHpBars.set(enemy.id, hpBar);
+      }
+
       const previousHp = this.networkEnemyHp.get(enemy.id);
       if (previousHp !== undefined && enemy.hp < previousHp && visible) {
         const attacker = snapshot.players
@@ -1349,6 +1430,13 @@ export class RoomGameScene extends Phaser.Scene {
         this.roomRenderer.showImpact(enemy.x, enemy.y, 30, 0xffffff);
       }
       this.networkEnemyHp.set(enemy.id, enemy.hp);
+      if (visible) {
+        this.drawMonsterHpBar(hpBar, enemy.x, enemy.y, enemy.hp, enemy.maxHp, kind);
+        hpBar.setVisible(true);
+      } else {
+        hpBar.clear().setVisible(false);
+      }
+
       const previousAttackSequence = this.networkEnemyAttackSequence.get(enemy.id);
       if (previousAttackSequence !== undefined && enemy.attackSequence > previousAttackSequence && visible) {
         const target = snapshot.players.find((member) => member.userId === enemy.targetId);
@@ -1639,6 +1727,10 @@ export class RoomGameScene extends Phaser.Scene {
   private clearTransientEntities(): void {
     for (const enemy of this.enemies) {
       this.roomRenderer.updateEnemyPattern(enemy.id, patternTier(enemy.kind), "fan", "idle", enemy.patternIndex, enemy.sprite.x, enemy.sprite.y, false);
+      if (enemy.hpBar) {
+        enemy.hpBar.clear();
+        enemy.hpBar.destroy();
+      }
       enemy.sprite.destroy();
     }
     for (const drop of this.drops) drop.object.destroy();
@@ -1742,10 +1834,12 @@ export class RoomGameScene extends Phaser.Scene {
     this.input.removeAllListeners();
     for (const sprite of this.remotePlayers.values()) sprite.destroy();
     for (const sprite of this.networkEnemies.values()) sprite.destroy();
+    for (const hpBar of this.networkEnemyHpBars.values()) hpBar.destroy();
     for (const drop of this.networkDrops.values()) drop.destroy();
     this.remotePlayers.clear();
     this.networkEnemies.clear();
     this.networkEnemyHp.clear();
+    this.networkEnemyHpBars.clear();
     this.networkEnemyAttackSequence.clear();
     this.networkDrops.clear();
     this.networkDropRequests.clear();

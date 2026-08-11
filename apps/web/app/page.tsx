@@ -34,6 +34,8 @@ export default async function Home({ searchParams }: {
     ? { userId: user.id, displayName: user.displayName, accountType: user.accountType, csrfToken }
     : null;
 
+  const initialScreen = (query.lab === "1" || query.screen === "lab") ? "lab" : null;
+
   return <GameShell
     viewer={viewer}
     gameServerUrl={process.env.GAME_SERVER_PUBLIC_URL || (process.env.NODE_ENV !== "production" ? "ws://localhost:2567" : "")}
@@ -41,14 +43,17 @@ export default async function Home({ searchParams }: {
     localMapEditorEnabled={process.env.NODE_ENV !== "production"}
     autoStartOptions={parseAutoStartOptions(query)}
     sessionUnavailable={sessionUnavailable}
+    initialScreen={initialScreen}
   />;
 }
 
 function parseAutoStartOptions(query: Record<string, string | string[] | undefined>): GameStartOptions | null {
-  if (query.autostart !== "1") return null;
-  const heroClass = ["swordsman", "archer", "mage"].includes(String(query.heroClass))
-    ? query.heroClass as GameStartOptions["heroClass"]
-    : "swordsman";
+  const isAuto = query.autostart === "1" || query.start === "1" || query.play !== undefined || query.mage === "1" || query.heroClass !== undefined || query.class !== undefined;
+  if (!isAuto) return null;
+  const rawClass = String(query.heroClass || query.class || query.play || (query.mage === "1" ? "mage" : "")).toLowerCase();
+  const heroClass: GameStartOptions["heroClass"] = ["swordsman", "archer", "mage"].includes(rawClass)
+    ? (rawClass as GameStartOptions["heroClass"])
+    : "mage";
   const sessionMode = query.mode === "full" ? "full" : "prototype";
   const difficulty = ["easy", "normal", "hard"].includes(String(query.difficulty))
     ? query.difficulty as GameStartOptions["difficulty"]

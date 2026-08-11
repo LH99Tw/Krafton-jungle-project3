@@ -3,7 +3,7 @@ import { enemyFanPatternAngles, enemyFloorPatternCircles, enemyPatternConfig, ty
 import { CLASS_DEFINITIONS } from "../../content/classes";
 import type { HeroClassId } from "../../domain/types";
 import { createGameTextures } from "../../client/render/createTextures";
-import { HERO_SPRITE_SCALE, heroFrameForAimAngle } from "../../client/render/heroSprites";
+import { HERO_SPRITE_SCALE, heroFrameForPose } from "../../client/render/heroSprites";
 import {
   BUILD_BOUNDS,
   ROOM_VIEW,
@@ -314,10 +314,9 @@ export class RoomRenderer {
   }
 
   updateHeroPose(hero: Phaser.Physics.Arcade.Sprite, aimAngle: number, moving: boolean, time: number): void {
-    hero.setFrame(heroFrameForAimAngle(aimAngle)).setRotation(0);
+    hero.setFrame(heroFrameForPose(aimAngle, moving, time)).setRotation(0);
     if (time < Number(hero.getData("attackPoseUntil") ?? 0)) return;
-    const stride = moving ? Math.sin(time / 85) * 0.05 : 0;
-    hero.setScale(HERO_SPRITE_SCALE + stride, HERO_SPRITE_SCALE - stride);
+    hero.setScale(HERO_SPRITE_SCALE);
   }
 
   createEnemy(kind: EnemyKind, x: number, y: number): Phaser.Physics.Arcade.Sprite {

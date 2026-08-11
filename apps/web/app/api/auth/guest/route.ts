@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   const enabled = process.env.PUBLIC_PLAYTEST_ENABLED === "true" || process.env.NODE_ENV !== "production";
   if (!enabled) return Response.json({ error: { code: "GUEST_DISABLED", message: "게스트 접속이 비활성화되어 있습니다." } }, { status: 403 });
   if (!hasAllowedOrigin(request)) {
-    return Response.json({ error: { code: "ORIGIN_INVALID", message: "요청을 확인할 수 없습니다." } }, { status: 403 });
+    return Response.json({ error: { code: "ORIGIN_INVALID", message: "요청 오리진을 확인할 수 없습니다." } }, { status: 403 });
   }
   const ip = clientIp(request);
   for (const decision of [
@@ -56,8 +56,21 @@ export async function POST(request: Request) {
     response.cookies.set(csrfCookieName(), csrfToken, { httpOnly: false, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/", maxAge });
     return response;
   } catch {
+    if (process.env.NODE_ENV !== "production") {
+      const devUserId = "dev-guest-" + Date.now();
+      const sessionToken = randomToken();
+      const csrfToken = randomToken();
+      const maxAge = 24 * 60 * 60;
+      const response = NextResponse.json({
+        viewer: { userId: devUserId, displayName, accountType: "guest" as const },
+        csrfToken,
+      });
+      response.cookies.set(sessionCookieName(), sessionToken, { httpOnly: true, secure: false, sameSite: "lax", path: "/", maxAge });
+      response.cookies.set(csrfCookieName(), csrfToken, { httpOnly: false, secure: false, sameSite: "lax", path: "/", maxAge });
+      return response;
+    }
     return Response.json(
-      { error: { code: "SESSION_UNAVAILABLE", message: "게스트 세션 저장소를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요." } },
+      { error: { code: "SESSION_UNAVAILABLE", message: "게스트 세션 저장소를 사용할 수 없습니다. 다시 시도해 주세요." } },
       { status: 503, headers: { "cache-control": "no-store", "retry-after": "3" } },
     );
   }

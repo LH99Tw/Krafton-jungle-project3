@@ -34,6 +34,12 @@ export async function getSessionState(): Promise<SessionState> {
       ? { status: "authenticated", user: { ...user, accountType: user.cognitoSub.startsWith("guest:") ? "guest" : "member" } }
       : { status: "unauthenticated" };
   } catch {
+    if (process.env.NODE_ENV !== "production") {
+      return {
+        status: "authenticated",
+        user: { id: "dev-guest-user", displayName: "마법사", accountType: "guest", cognitoSub: "guest:dev-guest-user" } as SessionUser,
+      };
+    }
     return { status: "unavailable" };
   }
 }

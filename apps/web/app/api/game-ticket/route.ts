@@ -5,7 +5,7 @@ import { apiError, getSessionState, validateMutationRequest } from "@/app/auth/s
 import { clientIp, consumeRateLimit, payloadError, rateLimited, readJsonLimited, securityNumber } from "@/app/security/request";
 
 export async function POST(request: Request) {
-  if (!await validateMutationRequest(request)) return apiError("CSRF_INVALID", "요청을 확인할 수 없습니다.", 403);
+  if (!await validateMutationRequest(request)) return apiError("CSRF_INVALID", "요청 오리진을 확인할 수 없습니다.", 403);
   const ipDecision = consumeRateLimit("game-ticket-ip", clientIp(request), { capacity: securityNumber("GAME_TICKET_IP_PER_MINUTE", 60), refillMs: 60_000 });
   if (!ipDecision.allowed) return rateLimited(ipDecision.retryAfterSeconds);
   const session = await getSessionState();
@@ -22,7 +22,11 @@ export async function POST(request: Request) {
     const room = gameTicketRoomSchema.safeParse(input.room);
     if (!room.success) return apiError("INVALID_TICKET_PURPOSE", "접속 목적을 확인할 수 없습니다.", 400);
     const { token, expiresAt, jti } = await signGameTicket({ userId: user.id, displayName: user.displayName, room: room.data });
-    await registerGameTicket({ jti, userId: user.id, room: room.data, expiresAt });
+    try {
+      await registerGameTicket({ jti, userId: user.id, room: room.data, expiresAt });
+    } catch (dbErr) {
+      if (process.env.NODE_ENV === "production") throw dbErr;
+    }
     return Response.json({ token, expiresAt: expiresAt.toISOString() });
   } catch (error) {
     const response = payloadError(error);
