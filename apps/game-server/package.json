@@ -15,17 +15,19 @@
     "@colyseus/schema": "3.0.72",
     "@colyseus/core": "0.16.24",
     "@colyseus/ws-transport": "0.16.5",
+    "@fails-components/webtransport": "1.6.7",
+    "@fails-components/webtransport-transport-http3-quiche": "1.6.7",
     "@five-days/auth": "workspace:*",
     "@five-days/db": "workspace:*",
     "@five-days/game-core": "workspace:*",
     "@five-days/protocol": "workspace:*",
     "express": "5.1.0",
+    "tsx": "4.21.0",
     "zod": "4.4.3"
   },
   "devDependencies": {
     "@types/express": "5.0.3",
     "@types/node": "22.19.19",
-    "tsx": "4.21.0",
     "typescript": "5.9.3"
   }
 }

@@ -1,6 +1,8 @@
 import { ArraySchema, MapSchema, Schema, type, view } from "@colyseus/schema";
 import { PROTOCOL_VERSION } from "@five-days/protocol";
 
+export const PLAYER_TRANSFORM_VIEW = 1;
+
 export class EquipmentSummaryState extends Schema {
   @type("string") weaponId = "";
   @type("string") weaponRarity = "";
@@ -37,8 +39,11 @@ export class PlayerState extends Schema {
   @type("string") displayName = "";
   @type("string") heroClass = "swordsman";
   @type("string") roomId = "";
+  @view(PLAYER_TRANSFORM_VIEW)
   @type("number") x = 0;
+  @view(PLAYER_TRANSFORM_VIEW)
   @type("number") y = 0;
+  @view(PLAYER_TRANSFORM_VIEW)
   @type("number") aim = 0;
   @type("number") hp = 0;
   @type("number") maxHp = 0;
@@ -151,6 +156,7 @@ export class PartyRoomState extends Schema {
   @type({ map: PlayerState }) players = new MapSchema<PlayerState>();
   @type({ map: RoomState }) rooms = new MapSchema<RoomState>();
   @type({ map: DoorState }) doors = new MapSchema<DoorState>();
+  @view()
   @type({ map: EnemyState }) enemies = new MapSchema<EnemyState>();
   @type({ map: WaypointState }) waypoints = new MapSchema<WaypointState>();
   @type({ map: StructureState }) structures = new MapSchema<StructureState>();

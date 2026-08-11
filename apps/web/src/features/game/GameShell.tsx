@@ -13,35 +13,36 @@ import {
 } from "@/src/game/domain/types";
 import { gameBridge } from "@/src/game/runtime/GameBridge";
 import { colyseusTransport, type NetworkStatus } from "@/src/game/transport/ColyseusTransport";
+import { globalChatTransport } from "@/src/game/transport/GlobalChatTransport";
 import { lobbyTransport, type LobbySnapshot } from "@/src/game/transport/LobbyTransport";
 import { AccessScreen } from "../lobby/AccessScreen";
 import { CharacterSelectScreen } from "../lobby/CharacterSelectScreen";
 import { LobbyScreen } from "../lobby/LobbyScreen";
 import { GameHud } from "./GameHud";
 import { ResultOverlay } from "./ResultOverlay";
-import { UpgradeDraft } from "./UpgradeDraft";
 
 export type Viewer = {
   userId: string;
   displayName: string;
-  email: string;
   accountType: "member" | "guest";
   csrfToken: string;
 } | null;
 
 type Screen = "access" | "lobby" | "selecting" | "playing";
 
-export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytestEnabled, autoStartOptions }: {
+export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytestEnabled, autoStartOptions, sessionUnavailable = false }: {
   viewer: Viewer;
   gameServerUrl: string;
   publicPlaytestEnabled: boolean;
   autoStartOptions: GameStartOptions | null;
+  sessionUnavailable?: boolean;
 }) {
   const router = useRouter();
   const autoStartAttempted = useRef(false);
   const snapshotRef = useRef<GameSnapshot>(EMPTY_SNAPSHOT);
   const runGenerationRef = useRef(0);
   const [viewer, setViewer] = useState<Viewer>(initialViewer);
+  const [authUnavailable, setAuthUnavailable] = useState(sessionUnavailable);
   const [screen, setScreen] = useState<Screen>("access");
   const [activeOptions, setActiveOptions] = useState<GameStartOptions | null>(null);
   const [runKey, setRunKey] = useState(0);
@@ -53,8 +54,29 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   const [lobby, setLobby] = useState<LobbySnapshot | null>(null);
   const [messages, setMessages] = useState<LobbyChatMessage[]>([]);
   const [busy, setBusy] = useState(false);
-  const [surfaceError, setSurfaceError] = useState("");
+  const [surfaceError, setSurfaceError] = useState(sessionUnavailable ? "세션 저장소에 일시적으로 연결할 수 없습니다. 잠시 후 다시 시도해 주세요." : "");
   const [launching, setLaunching] = useState(false);
+
+  useEffect(() => {
+    if (!authUnavailable) return;
+    let active = true;
+    const retry = async () => {
+      try {
+        const response = await fetch("/api/session", { cache: "no-store" });
+        if (!response.ok) return;
+        const value = await response.json() as { viewer?: Omit<NonNullable<Viewer>, "csrfToken"> | null; csrfToken?: string | null };
+        if (!active) return;
+        if (value.viewer && value.csrfToken) setViewer({ ...value.viewer, csrfToken: value.csrfToken });
+        setAuthUnavailable(false);
+        setSurfaceError("");
+      } catch {
+        // Keep the last known authentication state and retry without logging out.
+      }
+    };
+    void retry();
+    const timer = window.setInterval(retry, 3_000);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [authUnavailable]);
 
   useEffect(() => {
     const offSnapshot = gameBridge.on("snapshot", (nextSnapshot) => {
@@ -104,12 +126,15 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
 
   const beginRun = useCallback(async (options: GameStartOptions, roomId?: string) => {
     const runGeneration = ++runGenerationRef.current;
-    const currentViewer = viewer ?? { userId: "local-guest", displayName: "로컬 용사", email: "guest@local", accountType: "guest" as const, csrfToken: "dev-csrf" };
+    if (gameServerUrl && !viewer) {
+      setSurfaceError("게임 서버에 접속하려면 먼저 로그인해 주세요.");
+      return;
+    }
     setNetworkStatus("connecting");
     setSurfaceError("");
     try {
       if (gameServerUrl) {
-        await colyseusTransport.connect({ serverUrl: gameServerUrl, csrfToken: currentViewer.csrfToken, options, roomId, userId: currentViewer.userId });
+        await colyseusTransport.connect({ serverUrl: gameServerUrl, csrfToken: viewer!.csrfToken, options, roomId, userId: viewer!.userId });
       }
       if (runGeneration !== runGenerationRef.current) return;
       setNetworkStatus("connected");
@@ -119,15 +144,11 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       setActiveOptions(options);
       setRunKey((value) => value + 1);
       setScreen("playing");
-    } catch {
+    } catch (error) {
       if (runGeneration !== runGenerationRef.current) return;
-      setNetworkStatus("connected");
-      setSnapshot(EMPTY_SNAPSHOT);
-      setUpgradeChoices([]);
-      setResult(null);
-      setActiveOptions(options);
-      setRunKey((value) => value + 1);
-      setScreen("playing");
+      setNetworkStatus("error");
+      setLaunching(false);
+      setSurfaceError(formatClientError(error, "게임 서버에 연결하지 못했습니다."));
     }
   }, [gameServerUrl, viewer]);
 
@@ -137,8 +158,6 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       if (value.phase === "selecting") setScreen((current) => current === "playing" ? current : "selecting");
       if (value.phase === "waiting") setScreen((current) => current === "selecting" ? "lobby" : current);
     });
-    const offChat = lobbyTransport.on("chat", (message) => setMessages((current) => [...current, message].slice(-50)));
-    const offHistory = lobbyTransport.on("history", setMessages);
     const offError = lobbyTransport.on("error", (error) => setSurfaceError(formatClientError(error, "로비 요청을 처리하지 못했습니다.")));
     const offDisconnected = lobbyTransport.on("disconnected", ({ reason }) => {
       setLobby(null);
@@ -152,8 +171,25 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       setLaunching(true);
       window.setTimeout(() => void beginRun({ heroClass, sessionMode: event.sessionMode, difficulty: event.difficulty, partyMode: "coop" }, event.gameRoomId), 1100);
     });
-    return () => { offSnapshot(); offChat(); offHistory(); offError(); offDisconnected(); offStart(); void lobbyTransport.leave(); };
+    return () => { offSnapshot(); offError(); offDisconnected(); offStart(); void lobbyTransport.leave(); };
   }, [beginRun, viewer]);
+
+  useEffect(() => {
+    if (screen !== "lobby" || !viewer || !gameServerUrl) return;
+    const offChat = globalChatTransport.on("chat", (message) => setMessages((current) => [...current, message].slice(-100)));
+    const offHistory = globalChatTransport.on("history", (history) => setMessages(history.slice(-100)));
+    const offError = globalChatTransport.on("error", (error) => setSurfaceError(formatClientError(error, "전체 채팅 요청을 처리하지 못했습니다.")));
+    const offDisconnected = globalChatTransport.on("disconnected", ({ reason }) => {
+      setSurfaceError(formatClientError(reason, "전체 채팅 연결이 종료되었습니다."));
+    });
+    void globalChatTransport.connect({ serverUrl: gameServerUrl, csrfToken: viewer.csrfToken }).catch((error) => {
+      setSurfaceError(formatClientError(error, "전체 채팅에 연결하지 못했습니다."));
+    });
+    return () => {
+      offChat(); offHistory(); offError(); offDisconnected();
+      void globalChatTransport.leave();
+    };
+  }, [gameServerUrl, screen, viewer]);
 
   useEffect(() => {
     if (screen !== "lobby") return;
@@ -179,7 +215,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
 
   const createLobby = useCallback(async (options: { roomName: string; sessionMode: "prototype" | "full"; difficulty: "easy" | "normal" | "hard" }) => {
     if (!viewer) return;
-    setBusy(true); setSurfaceError(""); setMessages([]);
+    setBusy(true); setSurfaceError("");
     try { await lobbyTransport.create({ serverUrl: gameServerUrl, csrfToken: viewer.csrfToken, options }); }
     catch (error) { setSurfaceError(formatClientError(error, "방을 만들지 못했습니다.")); }
     finally { setBusy(false); }
@@ -187,16 +223,33 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
 
   const joinLobby = useCallback(async (roomId: string) => {
     if (!viewer) return;
-    setBusy(true); setSurfaceError(""); setMessages([]);
+    setBusy(true); setSurfaceError("");
     try { await lobbyTransport.join({ serverUrl: gameServerUrl, csrfToken: viewer.csrfToken, roomId }); }
     catch (error) { setSurfaceError(formatClientError(error, "방에 참가하지 못했습니다.")); }
     finally { setBusy(false); }
   }, [gameServerUrl, viewer]);
 
+  const startSoloExpedition = useCallback(async () => {
+    if (!viewer) return;
+    setBusy(true); setSurfaceError("");
+    try {
+      await lobbyTransport.createSoloExpedition({
+        serverUrl: gameServerUrl,
+        csrfToken: viewer.csrfToken,
+        userId: viewer.userId,
+        options: { roomName: viewer.displayName, sessionMode: "prototype", difficulty: "normal" },
+      });
+    } catch (error) {
+      setSurfaceError(formatClientError(error, "혼자 원정을 준비하지 못했습니다."));
+    } finally {
+      setBusy(false);
+    }
+  }, [gameServerUrl, viewer]);
+
   const leaveLobby = useCallback(async () => {
     setBusy(true);
     await lobbyTransport.leave();
-    setLobby(null); setMessages([]); setBusy(false);
+    setLobby(null); setBusy(false);
   }, []);
 
   const guestLogin = useCallback(async (displayName: string) => {
@@ -209,13 +262,10 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       const response = await fetch("/api/auth/guest", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ displayName }) });
       const text = await response.text();
       const value = text ? (JSON.parse(text) as { viewer?: NonNullable<Viewer>; csrfToken?: string; error?: { message: string } }) : {};
-      if (!response.ok || !value.viewer || !value.csrfToken) {
-        setViewer({ userId: "local-guest", displayName: displayName.trim() || "로컬 용사", email: "guest@local", accountType: "guest", csrfToken: "dev-csrf" });
-        return;
-      }
+      if (!response.ok || !value.viewer || !value.csrfToken) throw new Error(value.error?.message ?? "게스트 세션을 만들지 못했습니다.");
       setViewer({ ...value.viewer, csrfToken: value.csrfToken });
-    } catch {
-      setViewer({ userId: "local-guest", displayName: displayName.trim() || "로컬 용사", email: "guest@local", accountType: "guest", csrfToken: "dev-csrf" });
+    } catch (error) {
+      setSurfaceError(formatClientError(error, "게스트 세션을 만들지 못했습니다."));
     }
     finally { setBusy(false); }
   }, [publicPlaytestEnabled]);
@@ -228,11 +278,11 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
         method: "POST",
         headers: { "x-csrf-token": viewer.csrfToken },
       });
-      await response.text();
+      if (!response.ok) throw new Error("로그아웃 요청을 처리하지 못했습니다.");
       setViewer(null);
       router.refresh();
-    } catch {
-      setViewer(null);
+    } catch (error) {
+      setSurfaceError(formatClientError(error, "로그아웃 요청을 처리하지 못했습니다."));
     } finally {
       setBusy(false);
     }
@@ -260,7 +310,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
 
   if (screen === "selecting" && lobby && viewer) return <CharacterSelectScreen snapshot={lobby} viewerId={viewer.userId} launching={launching} onSelect={(heroClass) => lobbyTransport.selectClass(heroClass)} />;
 
-  if (screen === "lobby" && viewer) return <LobbyScreen viewer={viewer} rooms={rooms} snapshot={lobby} messages={messages} busy={busy} error={surfaceError} onCreate={createLobby} onJoin={joinLobby} onLeave={leaveLobby} onReady={(ready) => lobbyTransport.ready(ready)} onStart={() => lobbyTransport.startSelection()} onOfflineStart={() => void beginRun({ heroClass: "swordsman", sessionMode: "prototype", difficulty: "normal", partyMode: "solo" })} onChat={(message) => lobbyTransport.chat(message)} onAddAi={() => lobbyTransport.addAi()} onRemoveAi={(userId) => lobbyTransport.removeAi(userId)} onBack={() => setScreen("access")} />;
+  if (screen === "lobby" && viewer) return <LobbyScreen viewer={viewer} rooms={rooms} snapshot={lobby} messages={messages} busy={busy} error={surfaceError} onCreate={createLobby} onJoin={joinLobby} onLeave={leaveLobby} onReady={(ready) => lobbyTransport.ready(ready)} onStart={() => lobbyTransport.startSelection()} onSoloStart={startSoloExpedition} onChat={(message) => globalChatTransport.chat(message)} onAddAi={() => lobbyTransport.addAi()} onRemoveAi={(userId) => lobbyTransport.removeAi(userId)} onBack={() => setScreen("access")} />;
 
   return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onLogout={logout} onStart={() => { setSurfaceError(""); if (gameServerUrl) setScreen("lobby"); else void beginRun({ heroClass: "swordsman", sessionMode: "prototype", difficulty: "normal", partyMode: "solo" }); }} />;
 }

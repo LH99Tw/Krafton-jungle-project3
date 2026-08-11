@@ -1,6 +1,5 @@
 import {
   decodeOAuthState,
-  encryptSecret,
   hashToken,
   randomToken,
   safeEqual,
@@ -8,16 +7,17 @@ import {
 } from "@five-days/auth";
 import { createSession, upsertCognitoUser } from "@five-days/db/repositories";
 import { NextResponse } from "next/server";
-import { CSRF_COOKIE, sessionCookieName } from "@/app/auth/session";
-
-const OAUTH_COOKIE = "fdm_oauth_state";
+import { csrfCookieName, oauthCookieName, sessionCookieName } from "@/app/auth/session";
+import { clientIp, consumeRateLimit, rateLimited } from "@/app/security/request";
 
 export async function GET(request: Request) {
+  const decision = consumeRateLimit("auth-callback-ip", clientIp(request), { capacity: 20, refillMs: 10 * 60_000 });
+  if (!decision.allowed) return rateLimited(decision.retryAfterSeconds);
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
   const receivedState = url.searchParams.get("state");
   const cookieHeader = request.headers.get("cookie") ?? "";
-  const encodedState = readCookie(cookieHeader, OAUTH_COOKIE);
+  const encodedState = readCookie(cookieHeader, oauthCookieName());
   if (!code || !receivedState || !encodedState) return failure(url, "missing_oauth_response");
 
   try {
@@ -42,12 +42,12 @@ export async function GET(request: Request) {
     await createSession({
       userId: user.id,
       tokenHash: hashToken(sessionToken),
-      encryptedRefreshToken: encryptSecret(tokenResponse.refresh_token ?? ""),
+      encryptedRefreshToken: null,
       expiresAt: new Date(Date.now() + sessionDays * 86_400_000),
     });
 
     const response = NextResponse.redirect(new URL(oauth.returnTo, required("APP_ORIGIN")), 303);
-    response.cookies.delete(OAUTH_COOKIE);
+    response.cookies.delete(oauthCookieName());
     response.cookies.set(sessionCookieName(), sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -55,7 +55,7 @@ export async function GET(request: Request) {
       path: "/",
       maxAge: sessionDays * 86_400,
     });
-    response.cookies.set(CSRF_COOKIE, csrfToken, {
+    response.cookies.set(csrfCookieName(), csrfToken, {
       httpOnly: false,
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
@@ -88,9 +88,9 @@ async function exchangeCode(code: string, codeVerifier: string) {
     cache: "no-store",
   });
   if (!response.ok) throw new Error(`Cognito token exchange failed: ${response.status}`);
-  const value = await response.json() as { id_token?: string; refresh_token?: string };
+  const value = await response.json() as { id_token?: string };
   if (!value.id_token) throw new Error("Cognito token response is missing id_token");
-  return { id_token: value.id_token, refresh_token: value.refresh_token };
+  return { id_token: value.id_token };
 }
 
 function readCookie(header: string, name: string): string | undefined {
@@ -98,8 +98,8 @@ function readCookie(header: string, name: string): string | undefined {
 }
 
 function failure(requestUrl: URL, code: string) {
-  const response = NextResponse.redirect(new URL(`/?authError=${encodeURIComponent(code)}`, requestUrl.origin), 303);
-  response.cookies.delete(OAUTH_COOKIE);
+  const response = NextResponse.redirect(new URL(`/?authError=${encodeURIComponent(code)}`, required("APP_ORIGIN")), 303);
+  response.cookies.delete(oauthCookieName());
   return response;
 }
 

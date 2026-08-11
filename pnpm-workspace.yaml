@@ -2,7 +2,14 @@ packages:
   - apps/*
   - packages/*
 
+overrides:
+  '@colyseus/core>nanoid': 3.3.18
+
+patchedDependencies:
+  '@colyseus/core@0.16.24': patches/@colyseus__core@0.16.24.patch
+
 allowBuilds:
+  '@fails-components/webtransport-transport-http3-quiche': true
   esbuild: true
   msgpackr-extract: true
   sharp: true

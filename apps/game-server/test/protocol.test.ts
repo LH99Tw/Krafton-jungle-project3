@@ -3,12 +3,17 @@ import test from "node:test";
 import {
   PROTOCOL_VERSION,
   clientCommandSchema,
+  inputFrameSchema,
   lobbyChatSchema,
   lobbyClassSelectSchema,
   lobbyCreateOptionsSchema,
   roomOptionsSchema,
+  normalizePublicText,
+  worldFrameSchema,
 } from "@five-days/protocol";
 import { consumeGameTicket } from "../src/party-room";
+import { GLOBAL_CHAT_HISTORY_LIMIT, retainRecentMessages } from "../src/global-chat-room";
+import { take } from "../src/security";
 import {
   DoorState,
   DropState,
@@ -32,7 +37,7 @@ test("rejects out-of-range player input", () => {
   assert.equal(result.success, false);
 });
 
-test("resolves protocol v2 room party mode and rejects older versions", () => {
+test("resolves protocol v3 room party mode and rejects older versions", () => {
   const defaults = roomOptionsSchema.parse({
     heroClass: "swordsman",
     protocolVersion: PROTOCOL_VERSION,
@@ -52,7 +57,7 @@ test("resolves protocol v2 room party mode and rejects older versions", () => {
   assert.equal(roomOptionsSchema.safeParse({ ...solo, protocolVersion: 1 }).success, false);
 });
 
-test("accepts the v2 interaction, travel, recall, and equipment commands", () => {
+test("accepts the v3 interaction, travel, recall, and equipment commands", () => {
   const base = { v: PROTOCOL_VERSION, seq: 7, clientTime: 12.5 } as const;
   const commands = [
     { ...base, type: "player.interact", payload: { targetId: "gate-zone-1" } },
@@ -79,7 +84,7 @@ test("strictly validates every command envelope and payload", () => {
   assert.equal(clientCommandSchema.safeParse({ ...valid, payload: { ...valid.payload, unexpected: true } }).success, false);
 });
 
-test("exposes the v2 room state graph through Colyseus schema collections", () => {
+test("exposes the v3 room state graph through Colyseus schema collections", () => {
   const state = new PartyRoomState();
   state.seed = "seed-001";
   state.currentZone = 2;
@@ -130,11 +135,36 @@ test("exposes the v2 room state graph through Colyseus schema collections", () =
   assert.equal(state.drops.size, 1);
 });
 
-test("consumes each game ticket jti only once", () => {
-  const now = Date.now();
-  const claims = { jti: `ticket-${now}`, exp: Math.floor(now / 1000) + 90 };
-  assert.equal(consumeGameTicket(claims, now), true);
-  assert.equal(consumeGameTicket(claims, now + 1), false);
+test("validates v3 input and AOI world frames", () => {
+  assert.equal(inputFrameSchema.safeParse({
+    v: PROTOCOL_VERSION,
+    seq: 4,
+    clientTime: 12,
+    x: 1,
+    y: 0,
+    aim: Math.PI,
+    buttons: 0,
+  }).success, true);
+  assert.equal(worldFrameSchema.safeParse({
+    v: PROTOCOL_VERSION,
+    serverTick: 30,
+    serverTime: Date.now(),
+    ackInputSeq: 4,
+    players: [{ id: "p1", roomId: "zone-1:0,0", x: 10, y: 20, vx: 1, vy: 0, aim: 0, flags: 0 }],
+    enemies: [],
+  }).success, true);
+});
+
+test("consumes each game ticket jti only once", async () => {
+  const claims = { jti: crypto.randomUUID(), sub: crypto.randomUUID(), room: "party" as const };
+  const consumed = new Set<string>();
+  const atomicConsume = async ({ jti }: { jti: string; userId: string; room: "global_chat" | "lobby" | "party" }) => {
+    if (consumed.has(jti)) return false;
+    consumed.add(jti);
+    return true;
+  };
+  assert.equal(await consumeGameTicket(claims, atomicConsume), true);
+  assert.equal(await consumeGameTicket(claims, atomicConsume), false);
 });
 
 test("validates lobby creation, class selection, and chat payloads", () => {
@@ -143,4 +173,24 @@ test("validates lobby creation, class selection, and chat payloads", () => {
   assert.equal(lobbyClassSelectSchema.safeParse({ heroClass: null }).success, true);
   assert.equal(lobbyChatSchema.safeParse({ message: "원정 준비 완료" }).success, true);
   assert.equal(lobbyChatSchema.safeParse({ message: "x".repeat(181) }).success, false);
+  assert.equal(lobbyChatSchema.safeParse({ message: "hello\u0000" }).success, false);
+  assert.equal(normalizePublicText("  Ａ   B  "), "A B");
+});
+
+test("bounds in-memory connection rate buckets", () => {
+  const key = `test-${crypto.randomUUID()}`;
+  assert.equal(take(key, 2, 60_000, 1_000), true);
+  assert.equal(take(key, 2, 60_000, 1_000), true);
+  assert.equal(take(key, 2, 60_000, 1_000), false);
+  assert.equal(take(key, 2, 60_000, 31_000), true);
+});
+
+test("global chat retains only the most recent messages", () => {
+  const messages: number[] = [];
+  for (let index = 0; index < GLOBAL_CHAT_HISTORY_LIMIT + 5; index += 1) {
+    retainRecentMessages(messages, index);
+  }
+  assert.equal(messages.length, GLOBAL_CHAT_HISTORY_LIMIT);
+  assert.equal(messages[0], 5);
+  assert.equal(messages.at(-1), GLOBAL_CHAT_HISTORY_LIMIT + 4);
 });

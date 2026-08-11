@@ -28,8 +28,10 @@ import type {
   TeamStats,
   UpgradeId,
 } from "../../domain/types";
+import type { InputFrame, WorldFrame } from "@five-days/protocol";
 import { ProgressionModel } from "../../systems/ProgressionModel";
 import { colyseusTransport } from "../../transport/ColyseusTransport";
+import { predictPlayerTransform, RealtimeTransformBuffer } from "../../netcode/RealtimeBuffer";
 import { gameBridge, type GameCommand } from "../GameBridge";
 import {
   BASE_CORE,
@@ -111,6 +113,8 @@ export class RoomGameScene extends Phaser.Scene {
   private keys!: Record<"W" | "A" | "S" | "D" | "Q" | "E" | "SPACE" | "B", Phaser.Input.Keyboard.Key>;
   private commandDisconnect?: () => void;
   private networkDisconnect?: () => void;
+  private worldFrameDisconnect?: () => void;
+  private localInputDisconnect?: () => void;
   private enemies: LocalEnemy[] = [];
   private drops: LocalDrop[] = [];
   private structures: LocalStructure[] = [];
@@ -151,6 +155,9 @@ export class RoomGameScene extends Phaser.Scene {
   private ended = false;
   private message = "연결된 문을 따라 첫 구역을 탐색하세요.";
   private latestNetwork: NetworkWorldSnapshot | null = null;
+  private readonly transformBuffer = new RealtimeTransformBuffer();
+  private localPrediction: { x: number; y: number; roomId: string } | null = null;
+  private localCorrection: { x: number; y: number; startedAt: number } | null = null;
   private renderedNetworkRoomKey = "";
   private renderedNetworkDraftId: string | null | undefined;
   private boss: LocalEnemy | null = null;
@@ -192,6 +199,8 @@ export class RoomGameScene extends Phaser.Scene {
 
     if (this.options.networked) {
       this.networkDisconnect = gameBridge.on("network", (snapshot) => this.syncNetworkState(snapshot));
+      this.worldFrameDisconnect = gameBridge.on("worldFrame", (frame) => this.handleWorldFrame(frame));
+      this.localInputDisconnect = gameBridge.on("localInput", (frame) => this.applyPredictedInput(frame));
       const initialSnapshot = colyseusTransport.snapshot;
       if (initialSnapshot) this.syncNetworkState(initialSnapshot);
       else this.renderNetworkPlaceholder();
@@ -239,6 +248,7 @@ export class RoomGameScene extends Phaser.Scene {
     const safeDeltaMs = Math.min(100, Math.max(0, delta));
 
     if (this.options.networked) {
+      this.updateNetworkTransforms();
       this.snapshotAccumulator += safeDeltaMs;
       if (this.snapshotAccumulator >= 120) {
         this.snapshotAccumulator = 0;
@@ -271,6 +281,7 @@ export class RoomGameScene extends Phaser.Scene {
     const local = snapshot.players.find((member) => member.isLocal)
       ?? snapshot.players.find((member) => member.userId === this.options.userId);
     if (!local) return;
+    this.localPrediction ??= { x: local.x, y: local.y, roomId: local.roomId };
     const draftId = snapshot.localUpgradeDraft?.draftId ?? null;
     if (this.renderedNetworkDraftId !== draftId) {
       this.renderedNetworkDraftId = draftId;
@@ -289,6 +300,91 @@ export class RoomGameScene extends Phaser.Scene {
     this.syncNetworkEnemies(snapshot, local.roomId);
     this.syncNetworkDrops(snapshot, local.roomId);
     this.emitSnapshot();
+  }
+
+  private handleWorldFrame(frame: WorldFrame): void {
+    if (!this.options.networked || this.ended) return;
+    this.transformBuffer.push(frame);
+    const snapshot = this.latestNetwork;
+    const localState = snapshot?.players.find((member) => member.isLocal)
+      ?? snapshot?.players.find((member) => member.userId === this.options.userId);
+    const authoritative = frame.players.find((player) => player.id === this.options.userId || player.id === localState?.userId);
+    if (!snapshot || !localState || !authoritative) return;
+    let reconciled = { x: authoritative.x, y: authoritative.y, roomId: authoritative.roomId };
+    for (const input of colyseusTransport.unacknowledgedInputs) {
+      reconciled = predictPlayerTransform({
+        ...reconciled,
+        heroClass: localState.heroClass,
+        frame: input,
+        deltaSeconds: 1 / 60,
+        rooms: snapshot.rooms,
+      });
+    }
+    const visualX = this.player.x;
+    const visualY = this.player.y;
+    const error = Math.hypot(visualX - reconciled.x, visualY - reconciled.y);
+    const hardSnap = authoritative.roomId !== this.localPrediction?.roomId
+      || (authoritative.flags & 1) !== 0
+      || error > 96;
+    this.localPrediction = reconciled;
+    if (hardSnap) {
+      this.localCorrection = null;
+      this.player.setPosition(reconciled.x, reconciled.y);
+    } else if (error > 2) {
+      this.localCorrection = {
+        x: visualX - reconciled.x,
+        y: visualY - reconciled.y,
+        startedAt: performance.now(),
+      };
+    } else {
+      this.localCorrection = null;
+    }
+  }
+
+  private applyPredictedInput(frame: InputFrame): void {
+    const snapshot = this.latestNetwork;
+    const localState = snapshot?.players.find((member) => member.isLocal)
+      ?? snapshot?.players.find((member) => member.userId === this.options.userId);
+    if (!snapshot || !localState) return;
+    const current = this.localPrediction ?? { x: localState.x, y: localState.y, roomId: localState.roomId };
+    this.localPrediction = predictPlayerTransform({
+      ...current,
+      heroClass: localState.heroClass,
+      frame,
+      deltaSeconds: 1 / 60,
+      rooms: snapshot.rooms,
+    });
+  }
+
+  private updateNetworkTransforms(): void {
+    const snapshot = this.latestNetwork;
+    if (!snapshot) return;
+    const now = performance.now();
+    if (this.localPrediction) {
+      const correctionAge = this.localCorrection ? now - this.localCorrection.startedAt : 100;
+      const correctionScale = this.localCorrection ? Math.max(0, 1 - correctionAge / 100) : 0;
+      this.player.setPosition(
+        this.localPrediction.x + (this.localCorrection?.x ?? 0) * correctionScale,
+        this.localPrediction.y + (this.localCorrection?.y ?? 0) * correctionScale,
+      );
+      this.player.setVisible(true).setActive(true);
+      if (correctionScale === 0) this.localCorrection = null;
+    }
+    for (const member of snapshot.players) {
+      if (member.isLocal || member.userId === this.options.userId) continue;
+      const sprite = this.remotePlayers.get(member.userId);
+      const transform = this.transformBuffer.sample(member.userId);
+      if (!sprite || !transform) continue;
+      const point = clampToWorld(this.zoneWorld.bounds, transform.x, transform.y);
+      sprite.setPosition(point.x, point.y).setVisible(this.transformBuffer.isFresh(member.userId) && member.connected);
+    }
+    for (const enemy of snapshot.enemies) {
+      const sprite = this.networkEnemies.get(enemy.id);
+      const transform = this.transformBuffer.sample(enemy.id);
+      if (!sprite || !transform) continue;
+      const point = clampToWorld(this.zoneWorld.bounds, transform.x, transform.y);
+      sprite.setPosition(point.x, point.y).setVisible(this.transformBuffer.isFresh(enemy.id) && enemy.alive);
+    }
   }
 
   private configureInput(): void {
@@ -974,8 +1070,11 @@ export class RoomGameScene extends Phaser.Scene {
         ? this.player
         : this.remotePlayers.get(member.userId) ?? this.roomRenderer.createHero(member.heroClass, member.x, member.y, 0.82);
       if (!isLocal && !this.remotePlayers.has(member.userId)) this.remotePlayers.set(member.userId, sprite);
-      const point = clampToWorld(this.zoneWorld.bounds, member.x, member.y);
-      sprite.setPosition(point.x, point.y).setVisible(member.roomId === localRoomId && member.connected).setActive(member.connected);
+      if (isLocal && !this.localPrediction) {
+        this.localPrediction = { x: member.x, y: member.y, roomId: member.roomId };
+        sprite.setPosition(member.x, member.y);
+      }
+      sprite.setVisible(isLocal || (member.roomId === localRoomId && member.connected)).setActive(member.connected);
       sprite.setAlpha(isLocal ? 1 : 0.82);
     }
   }
@@ -996,8 +1095,7 @@ export class RoomGameScene extends Phaser.Scene {
             : enemy.kind === "invader" || enemy.behavior === "invader" ? "invader" : "static";
       const sprite = this.networkEnemies.get(enemy.id) ?? this.roomRenderer.createEnemy(kind, enemy.x, enemy.y);
       if (!this.networkEnemies.has(enemy.id)) this.networkEnemies.set(enemy.id, sprite);
-      const point = clampToWorld(this.zoneWorld.bounds, enemy.x, enemy.y);
-      sprite.setPosition(point.x, point.y).setVisible(enemy.roomId === localRoomId && enemy.alive).setActive(enemy.alive);
+      sprite.setVisible(enemy.roomId === localRoomId && enemy.alive).setActive(enemy.alive);
     }
   }
 
@@ -1089,6 +1187,7 @@ export class RoomGameScene extends Phaser.Scene {
         roomId: this.currentRoomId,
         x: this.player.x,
         y: this.player.y,
+        aim: 0,
         isLocal: true,
       }],
       currentZone: this.currentZone,
@@ -1296,8 +1395,13 @@ export class RoomGameScene extends Phaser.Scene {
   private cleanup(): void {
     this.commandDisconnect?.();
     this.networkDisconnect?.();
+    this.worldFrameDisconnect?.();
+    this.localInputDisconnect?.();
     this.commandDisconnect = undefined;
     this.networkDisconnect = undefined;
+    this.worldFrameDisconnect = undefined;
+    this.localInputDisconnect = undefined;
+    this.transformBuffer.clear();
     this.input.removeAllListeners();
     for (const sprite of this.remotePlayers.values()) sprite.destroy();
     for (const sprite of this.networkEnemies.values()) sprite.destroy();

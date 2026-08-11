@@ -7,6 +7,7 @@ import type {
   UpgradeChoice,
   UpgradeId,
 } from "../domain/types";
+import type { InputFrame, WorldFrame } from "@five-days/protocol";
 
 type BridgeEvents = {
   snapshot: GameSnapshot;
@@ -15,6 +16,8 @@ type BridgeEvents = {
   ready: undefined;
   message: string;
   network: NetworkWorldSnapshot;
+  worldFrame: WorldFrame;
+  localInput: InputFrame;
 };
 
 type BridgeEventName = keyof BridgeEvents;
@@ -57,4 +60,3 @@ export type GameCommand =
   | { type: "restart" };
 
 export const gameBridge = new GameBridge();
-

@@ -15,7 +15,13 @@ import {
   SignJWT,
   type JWTPayload,
 } from "jose";
-import { PROTOCOL_VERSION as GAME_PROTOCOL_VERSION } from "@five-days/protocol";
+import {
+  PROTOCOL_VERSION as GAME_PROTOCOL_VERSION,
+  gameTicketRoomSchema,
+  isSafePublicText,
+  normalizePublicText,
+  type GameTicketRoom,
+} from "@five-days/protocol";
 
 export const PROTOCOL_VERSION = GAME_PROTOCOL_VERSION;
 export const GAME_TICKET_ISSUER = "five-days-web";
@@ -33,6 +39,7 @@ export type GameTicketClaims = JWTPayload & {
   sub: string;
   jti: string;
   scope: "room:join";
+  room: GameTicketRoom;
   protocolVersion: number;
   displayName: string;
 };
@@ -108,29 +115,36 @@ export function safeReturnPath(value: string | null | undefined): string {
 export async function signGameTicket(input: {
   userId: string;
   displayName: string;
+  room: GameTicketRoom;
   privateKeyPem?: string;
   keyId?: string;
   expiresInSeconds?: number;
-}): Promise<{ token: string; expiresAt: Date }> {
+}): Promise<{ token: string; expiresAt: Date; jti: string }> {
   const privateKeyPem = input.privateKeyPem ?? readPem("GAME_TICKET_PRIVATE_KEY", "GAME_TICKET_PRIVATE_KEY_BASE64");
   if (!privateKeyPem) throw new Error("GAME_TICKET_PRIVATE_KEY is required");
   const key = await importPKCS8(privateKeyPem, "RS256");
   const now = Math.floor(Date.now() / 1000);
   const expiresAtSeconds = now + (input.expiresInSeconds ?? 90);
+  const jti = randomUUID();
+  const displayName = normalizePublicText(input.displayName);
+  if (displayName.length < 1 || displayName.length > 60 || !isSafePublicText(displayName)) {
+    throw new Error("Invalid game ticket display name");
+  }
   const token = await new SignJWT({
     scope: "room:join",
+    room: input.room,
     protocolVersion: PROTOCOL_VERSION,
-    displayName: input.displayName,
+    displayName,
   })
     .setProtectedHeader({ alg: "RS256", kid: input.keyId ?? process.env.GAME_TICKET_ACTIVE_KID ?? "v1" })
     .setIssuer(GAME_TICKET_ISSUER)
     .setAudience(GAME_TICKET_AUDIENCE)
     .setSubject(input.userId)
-    .setJti(randomUUID())
+    .setJti(jti)
     .setIssuedAt(now)
     .setExpirationTime(expiresAtSeconds)
     .sign(key);
-  return { token, expiresAt: new Date(expiresAtSeconds * 1000) };
+  return { token, expiresAt: new Date(expiresAtSeconds * 1000), jti };
 }
 
 export async function verifyGameTicket(token: string, publicKeyPem?: string): Promise<GameTicketClaims> {
@@ -146,8 +160,12 @@ export async function verifyGameTicket(token: string, publicKeyPem?: string): Pr
     typeof payload.sub !== "string" ||
     typeof payload.jti !== "string" ||
     payload.scope !== "room:join" ||
+    !gameTicketRoomSchema.safeParse(payload.room).success ||
     payload.protocolVersion !== PROTOCOL_VERSION ||
-    typeof payload.displayName !== "string"
+    typeof payload.displayName !== "string" ||
+    payload.displayName.length < 1 ||
+    payload.displayName.length > 60 ||
+    !isSafePublicText(payload.displayName)
   ) throw new Error("Invalid game ticket claims");
   return payload as GameTicketClaims;
 }
@@ -174,10 +192,14 @@ export async function verifyCognitoIdToken(input: {
   if (typeof payload.sub !== "string" || typeof payload.email !== "string") {
     throw new Error("Cognito token is missing required claims");
   }
+  const candidateName = normalizePublicText(typeof payload.name === "string" ? payload.name : payload.email.split("@")[0] ?? "용사");
+  const displayName = candidateName.length >= 1 && candidateName.length <= 60 && isSafePublicText(candidateName)
+    ? candidateName
+    : "용사";
   return {
     sub: payload.sub,
     email: payload.email,
-    displayName: typeof payload.name === "string" ? payload.name : payload.email,
+    displayName,
   };
 }
 

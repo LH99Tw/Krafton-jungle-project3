@@ -43,7 +43,7 @@ apps/web/
 
 apps/game-server/             Colyseus 권위 경계
 packages/game-core/           Phaser 비의존 규칙
-packages/protocol/            Zod protocol v2
+packages/protocol/            Zod protocol v3
 packages/db/                  PostgreSQL Drizzle
 packages/auth/                암호·OAuth 보조·game-ticket
 ```
@@ -64,7 +64,7 @@ packages/auth/                암호·OAuth 보조·game-ticket
 
 1. React lobby가 `partyMode`, 클래스, 세션, 난이도를 선택합니다.
 2. 인증 사용자가 `/api/game-ticket`에서 90초 RS256 JWT를 받습니다.
-3. `ColyseusTransport`가 protocol v2 옵션으로 `party_room`에 `joinOrCreate`합니다.
+3. `ColyseusTransport`가 protocol v3 옵션으로 `party_room`에 `joinOrCreate`합니다.
 4. solo는 1명, coop은 실제 사용자 3명이 준비돼야 시작합니다.
 5. transport가 50ms 간격으로 이동축·aim·button bitmask를 보냅니다.
 6. Colyseus state를 `NetworkWorldSnapshot`으로 변환해 React와 Phaser에 전달합니다.
@@ -101,9 +101,9 @@ ColyseusTransport ── command ───────> PartyRoom → GameCore
 
 따라서 HUD의 네트워크 연결 표시는 transport 연결을 의미하며 게임 전체 권위화 완료를 의미하지 않습니다.
 
-## 5. protocol v2 사용
+## 5. protocol v3 사용
 
-protocol v2가 정의하는 명령:
+protocol v3가 정의하는 명령과 실시간 프레임:
 
 - `room.ready`
 - `player.input`

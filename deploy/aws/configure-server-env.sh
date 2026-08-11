@@ -22,9 +22,13 @@ if [ ! -f "$SECRET_DIR/game-ticket-private.pem" ]; then
 fi
 if [ ! -f "$SECRET_DIR/runtime-secrets.env" ]; then
   umask 077
-  printf 'POSTGRES_PASSWORD=%s\nAUTH_SESSION_ENCRYPTION_KEY=%s\n' \
+  printf 'POSTGRES_PASSWORD=%s\nAUTH_SESSION_ENCRYPTION_KEY=%s\nFASTLANE_SECRET=%s\n' \
     "$(openssl rand -base64 36 | tr -d '\n')" \
-    "$(openssl rand -base64 32 | tr -d '\n')" > "$SECRET_DIR/runtime-secrets.env"
+    "$(openssl rand -base64 32 | tr -d '\n')" \
+    "$(openssl rand -base64 48 | tr -d '\n')" > "$SECRET_DIR/runtime-secrets.env"
+elif ! grep -q '^FASTLANE_SECRET=' "$SECRET_DIR/runtime-secrets.env"; then
+  umask 077
+  printf 'FASTLANE_SECRET=%s\n' "$(openssl rand -base64 48 | tr -d '\n')" >> "$SECRET_DIR/runtime-secrets.env"
 fi
 
 set -a
@@ -52,11 +56,19 @@ printf '%s\n' \
   'DATABASE_SSL=false' \
   'DB_POOL_MAX=10' \
   'DEV_AUTH_BYPASS=false' \
+  'PUBLIC_PLAYTEST_ENABLED=true' \
+  'GUEST_10M_LIMIT=10' \
+  'GUEST_DAILY_LIMIT=50' \
+  'GUEST_GLOBAL_DAILY_LIMIT=500' \
+  'GAME_TICKET_USER_PER_MINUTE=30' \
+  'GAME_TICKET_IP_PER_MINUTE=60' \
+  'GUESTBOOK_PER_MINUTE=5' \
+  'SESSION_PER_MINUTE=120' \
+  'READ_API_PER_MINUTE=60' \
   "AUTH_SESSION_ENCRYPTION_KEY=$AUTH_SESSION_ENCRYPTION_KEY" \
   "GAME_TICKET_PRIVATE_KEY_BASE64=$private_key_base64" \
   'GAME_TICKET_ACTIVE_KID=production-v1' \
-  "COGNITO_REGION=$AWS_REGION_NAME" \
-  "COGNITO_USER_POOL_ID=$COGNITO_USER_POOL_ID" \
+  'PROTOCOL_VERSION=3' \
   "COGNITO_CLIENT_ID=$COGNITO_CLIENT_ID" \
   "COGNITO_ISSUER=$cognito_issuer" \
   "COGNITO_DOMAIN=${COGNITO_DOMAIN%/}" \
@@ -69,11 +81,23 @@ printf '%s\n' \
   'DB_POOL_MAX=10' \
   "GAME_TICKET_PUBLIC_KEY_BASE64=$public_key_base64" \
   'GAME_TICKET_ACTIVE_KID=production-v1' \
-  'PROTOCOL_VERSION=1' \
-  'MINIMUM_PLAYERS=3' \
+  'PROTOCOL_VERSION=3' \
+  'FASTLANE_ENABLED=true' \
+  'FASTLANE_HOST=0.0.0.0' \
+  'FASTLANE_PORT=4433' \
+  "FASTLANE_PUBLIC_URL=https://$GAME_HOST/fastlane" \
+  "FASTLANE_SECRET=$FASTLANE_SECRET" \
+  'FASTLANE_CERT_PATH=/run/secrets/fastlane/tls.crt' \
+  'FASTLANE_KEY_PATH=/run/secrets/fastlane/tls.key' \
+  'FASTLANE_MAINTENANCE_MS=10000' \
+  'MAX_ACTIVE_LOBBIES=100' \
+  'MAX_ACTIVE_GAMES=100' \
+  'MAX_WEBSOCKET_CONNECTIONS=300' \
+  'MAX_HTTP_CONNECTIONS=350' \
+  'WS_AUTH_PER_MINUTE=20' \
+  'LOBBY_LIST_PER_MINUTE=30' \
   "SERVER_VERSION=${SERVER_VERSION:-manual-bootstrap}" \
-  "ALLOWED_ORIGINS=https://$WEB_HOST" \
-  'LOG_LEVEL=info' > "$SERVER_ENV_DIR/.env.game"
+  "ALLOWED_ORIGINS=https://$WEB_HOST" > "$SERVER_ENV_DIR/.env.game"
 
 ssh_options=(-i "$SSH_KEY_FILE" -o StrictHostKeyChecking=accept-new)
 for ((attempt = 1; attempt <= 60; attempt += 1)); do
@@ -88,4 +112,4 @@ scp "${ssh_options[@]}" "$SERVER_ENV_DIR"/.env* "$DEPLOY_USER@$LIGHTSAIL_HOST:/o
 ssh "${ssh_options[@]}" "$DEPLOY_USER@$LIGHTSAIL_HOST" \
   'chmod 0600 /opt/five-days/.env /opt/five-days/.env.web /opt/five-days/.env.game /opt/five-days/.env.migration /opt/five-days/.env.postgres'
 
-printf 'Server environment configured for https://%s and wss://%s\n' "$WEB_HOST" "$GAME_HOST"
+printf 'Server environment configured for https://%s, wss://%s, and WebTransport UDP 443\n' "$WEB_HOST" "$GAME_HOST"

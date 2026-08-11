@@ -1,7 +1,8 @@
-FROM node:22.22.0-alpine
+FROM node:22.22.0-trixie-slim AS manifests
 WORKDIR /workspace
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY patches patches
 COPY apps/game-server/package.json apps/game-server/package.json
 COPY packages/auth/package.json packages/auth/package.json
 COPY packages/db/package.json packages/db/package.json
@@ -10,6 +11,33 @@ COPY packages/protocol/package.json packages/protocol/package.json
 RUN pnpm install --frozen-lockfile
 COPY apps/game-server apps/game-server
 COPY packages packages
+
+FROM manifests AS verify
+RUN pnpm --filter @five-days/game-server typecheck
+
+FROM node:22.22.0-trixie-slim AS production-deps
+WORKDIR /workspace
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY patches patches
+COPY apps/game-server/package.json apps/game-server/package.json
+COPY packages/auth/package.json packages/auth/package.json
+COPY packages/db/package.json packages/db/package.json
+COPY packages/game-core/package.json packages/game-core/package.json
+COPY packages/protocol/package.json packages/protocol/package.json
+RUN pnpm install --prod --frozen-lockfile
+
+FROM node:22.22.0-trixie-slim AS runner
+WORKDIR /workspace
+ENV NODE_ENV=production
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates wget && rm -rf /var/lib/apt/lists/*
+COPY --from=production-deps --chown=node:node /workspace/node_modules ./node_modules
+COPY --from=production-deps --chown=node:node /workspace/apps/game-server/node_modules ./apps/game-server/node_modules
+COPY --from=production-deps --chown=node:node /workspace/packages ./packages
+COPY --chown=node:node apps/game-server apps/game-server
+COPY --chown=node:node packages packages
+COPY --chown=node:node patches patches
+COPY --chown=node:node package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 USER node
-EXPOSE 2567
-CMD ["pnpm", "--filter", "@five-days/game-server", "start"]
+EXPOSE 2567 4433/udp
+CMD ["./apps/game-server/node_modules/.bin/tsx", "--tsconfig", "apps/game-server/tsconfig.json", "apps/game-server/src/index.ts"]

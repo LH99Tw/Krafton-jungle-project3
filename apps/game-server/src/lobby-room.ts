@@ -1,18 +1,23 @@
 import { matchMaker, Room, ServerError, type AuthContext, type Client } from "@colyseus/core";
-import { verifyGameTicket, type GameTicketClaims } from "@five-days/auth";
+import { type GameTicketClaims } from "@five-days/auth";
 import {
   LOBBY_ROOM,
   PARTY_ROOM,
   PROTOCOL_VERSION,
-  lobbyChatSchema,
   lobbyAiRemoveSchema,
   lobbyClassSelectSchema,
   lobbyCreateOptionsSchema,
   lobbyReadySchema,
-  type LobbyChatMessage,
   type LobbyGameStart,
 } from "@five-days/protocol";
-import { consumeGameTicket } from "./party-room";
+import {
+  authorizeGameConnection,
+  hasRegisteredConnection,
+  numericEnv,
+  recordProtocolViolation,
+  registerConnection,
+  unregisterConnection,
+} from "./security";
 import { LobbyPlayerState, LobbyRoomState } from "./state";
 
 type LobbyMetadata = {
@@ -26,31 +31,30 @@ type LobbyMetadata = {
 export class GameLobbyRoom extends Room<LobbyRoomState, LobbyMetadata> {
   maxClients = 3;
   patchRate = 100;
-  private readonly messages: LobbyChatMessage[] = [];
-  private readonly chatWindows = new Map<string, { startedAt: number; count: number }>();
   private gameStarting = false;
+  private readonly messageWindows = new Map<string, { startedAt: number; count: number }>();
 
   static async onAuth(token: string, _options: unknown, context: AuthContext): Promise<GameTicketClaims> {
-    validateOrigin(context.headers.origin);
-    if (!token) throw new ServerError(401, "대기실 접속 티켓이 필요합니다.");
-    const claims = await verifyGameTicket(token);
-    if (!consumeGameTicket(claims)) throw new ServerError(401, "이미 사용된 접속 티켓입니다.");
-    return claims;
+    return authorizeGameConnection(token, context, "lobby");
   }
 
   async onCreate(rawOptions: unknown): Promise<void> {
+    const activeLobbies = await matchMaker.query({ name: LOBBY_ROOM });
+    const otherLobbies = activeLobbies.filter((room) => room.roomId !== this.roomId);
+    if (otherLobbies.length >= numericEnv("MAX_ACTIVE_LOBBIES", 100, 1, 1_000)) {
+      throw new ServerError(503, "활성 원정대 한도에 도달했습니다.");
+    }
     const options = lobbyCreateOptionsSchema.parse(rawOptions);
     this.setState(new LobbyRoomState());
     this.state.roomName = options.roomName;
     this.state.sessionMode = options.sessionMode;
     this.state.difficulty = options.difficulty;
-    this.onMessage("lobby.ready", (client, message) => this.setReady(client, message));
-    this.onMessage("lobby.start-selection", (client) => this.startSelection(client));
-    this.onMessage("lobby.class-select", (client, message) => this.selectClass(client, message));
-    this.onMessage("lobby.chat", (client, message) => this.chat(client, message));
-    this.onMessage("lobby.return", (client) => this.returnFromGame(client));
-    this.onMessage("lobby.ai-add", (client) => this.addAi(client));
-    this.onMessage("lobby.ai-remove", (client, message) => this.removeAi(client, message));
+    this.onMessage("lobby.ready", (client, message) => this.guard(client, () => this.setReady(client, message)));
+    this.onMessage("lobby.start-selection", (client) => this.guard(client, () => this.startSelection(client)));
+    this.onMessage("lobby.class-select", (client, message) => this.guard(client, () => this.selectClass(client, message)));
+    this.onMessage("lobby.return", (client) => this.guard(client, () => this.returnFromGame(client)));
+    this.onMessage("lobby.ai-add", (client) => this.guard(client, () => this.addAi(client)));
+    this.onMessage("lobby.ai-remove", (client, message) => this.guard(client, () => this.removeAi(client, message)));
     await this.syncMetadata();
   }
 
@@ -61,13 +65,13 @@ export class GameLobbyRoom extends Room<LobbyRoomState, LobbyMetadata> {
       throw new ServerError(4210, "파티 슬롯이 모두 찼습니다.");
     }
     client.userData = { userId: auth.sub };
+    registerConnection("lobby", auth.sub, client);
     const player = new LobbyPlayerState();
     player.userId = auth.sub;
     player.displayName = auth.displayName;
     player.joinedAt = Date.now();
     this.state.players.set(auth.sub, player);
     if (!this.state.hostId) this.state.hostId = auth.sub;
-    client.send("lobby.chat-history", this.messages);
     void this.syncMetadata();
   }
 
@@ -78,14 +82,27 @@ export class GameLobbyRoom extends Room<LobbyRoomState, LobbyMetadata> {
     if (!consented) {
       player.connected = false;
       try {
-        await this.allowReconnection(client, 20);
+        const reconnected = await this.allowReconnection(client, 60);
+        reconnected.userData = { userId };
+        if (hasRegisteredConnection("lobby", userId, client)) {
+          reconnected.leave(4009, "DUPLICATE_LOGIN");
+          player.connected = true;
+          unregisterConnection("lobby", userId, client);
+          this.messageWindows.delete(client.sessionId);
+          return;
+        }
         player.connected = true;
+        registerConnection("lobby", userId, reconnected);
+        unregisterConnection("lobby", userId, client);
+        this.messageWindows.delete(client.sessionId);
         return;
       } catch {
         // The player is removed below when the reconnection window expires.
       }
     }
     this.state.players.delete(userId);
+    this.messageWindows.delete(client.sessionId);
+    unregisterConnection("lobby", userId, client);
     if (this.state.hostId === userId) this.assignNextHost();
     if (this.state.phase === "selecting") this.resetToWaiting();
     if (this.state.phase === "in_game" && [...this.state.players.values()].every((item) => !item.inGame)) this.resetToWaiting();
@@ -123,25 +140,6 @@ export class GameLobbyRoom extends Room<LobbyRoomState, LobbyMetadata> {
     this.assignAiClasses();
     const players = [...this.state.players.values()];
     if (players.length === 3 && players.every((item) => item.heroClass)) void this.startGame();
-  }
-
-  private chat(client: Client, raw: unknown): void {
-    const parsed = lobbyChatSchema.safeParse(raw);
-    const player = this.playerFor(client);
-    if (!parsed.success || !player || /[<>\u0000-\u001f\u007f]/.test(parsed.success ? parsed.data.message : "")) {
-      return this.error(client, "INVALID_CHAT", "메시지는 1~180자의 일반 텍스트만 사용할 수 있습니다.");
-    }
-    if (!this.allowChat(player.userId)) return this.error(client, "CHAT_RATE_LIMITED", "메시지를 너무 빠르게 보내고 있습니다.");
-    const message: LobbyChatMessage = {
-      id: crypto.randomUUID(),
-      userId: player.userId,
-      displayName: player.displayName,
-      message: parsed.data.message,
-      sentAt: Date.now(),
-    };
-    this.messages.push(message);
-    if (this.messages.length > 50) this.messages.shift();
-    this.broadcast("lobby.chat", message);
   }
 
   private async startGame(): Promise<void> {
@@ -240,19 +238,22 @@ export class GameLobbyRoom extends Room<LobbyRoomState, LobbyMetadata> {
     return this.state.players.get(client.userData?.userId as string);
   }
 
-  private allowChat(userId: string): boolean {
-    const now = Date.now();
-    const window = this.chatWindows.get(userId);
-    if (!window || now - window.startedAt >= 10_000) {
-      this.chatWindows.set(userId, { startedAt: now, count: 1 });
-      return true;
-    }
-    window.count += 1;
-    return window.count <= 5;
+  private error(client: Client, code: string, message: string): void {
+    if (code.startsWith("INVALID_") || code === "MESSAGE_RATE_LIMITED") recordProtocolViolation(client, code);
+    client.send("lobby.error", { code, message });
   }
 
-  private error(client: Client, code: string, message: string): void {
-    client.send("lobby.error", { code, message });
+  private guard(client: Client, operation: () => void): void {
+    const now = Date.now();
+    const current = this.messageWindows.get(client.sessionId);
+    if (!current || now - current.startedAt >= 1_000) {
+      this.messageWindows.set(client.sessionId, { startedAt: now, count: 1 });
+      operation();
+      return;
+    }
+    current.count += 1;
+    if (current.count <= 15) operation();
+    else this.error(client, "MESSAGE_RATE_LIMITED", "요청이 너무 많습니다.");
   }
 
   private async syncMetadata(): Promise<void> {
@@ -264,14 +265,6 @@ export class GameLobbyRoom extends Room<LobbyRoomState, LobbyMetadata> {
       partySize: this.state.players.size,
     });
   }
-}
-
-function validateOrigin(origin: string | undefined): void {
-  const allowed = new Set(
-    (process.env.ALLOWED_ORIGINS ?? "").split(",").map((value) => value.trim()).filter(Boolean),
-  );
-  if (!origin && process.env.NODE_ENV !== "production") return;
-  if (!origin || !allowed.has(origin)) throw new ServerError(403, "허용되지 않은 Origin입니다.");
 }
 
 export { LOBBY_ROOM };

@@ -1,5 +1,14 @@
 import { Client, type Room } from "colyseus.js";
-import { PARTY_ROOM, PROTOCOL_VERSION, type RoomOptions } from "@five-days/protocol";
+import {
+  PARTY_ROOM,
+  PROTOCOL_VERSION,
+  fastLaneOfferSchema,
+  worldFrameSchema,
+  type FastLaneOffer,
+  type InputFrame,
+  type RoomOptions,
+  type TransportMode,
+} from "@five-days/protocol";
 import type {
   HeroClassId,
   EquipmentSummary,
@@ -43,6 +52,7 @@ type PlayerStateLike = {
   connected?: boolean;
   alive?: boolean;
   roomId?: string;
+  aim?: number;
   x?: number;
   y?: number;
   upgradeDraft?: {
@@ -157,7 +167,9 @@ export class ColyseusTransport {
   private generation = 0;
   private reconnecting = false;
   private terminal = false;
-  private seq = 0;
+  private reliableSeq = 0;
+  private inputSeq = 0;
+  private readonly pendingInputs = new Map<number, InputFrame>();
   private inputTimer: ReturnType<typeof setInterval> | null = null;
   private readonly pressed = new Set<string>();
   private aim = 0;
@@ -167,6 +179,11 @@ export class ColyseusTransport {
   private readonly eventListeners = new Set<EventListener>();
   private latestState: NetworkWorldSnapshot | null = null;
   private localUserId = "";
+  private fastLane: WebTransport | null = null;
+  private fastLaneWriter: WritableStreamDefaultWriter<Uint8Array> | null = null;
+  private transportModeValue: TransportMode = "websocket-fallback";
+  private readonly encoder = new TextEncoder();
+  private readonly decoder = new TextDecoder();
 
   async connect(input: {
     serverUrl: string;
@@ -181,7 +198,8 @@ export class ColyseusTransport {
     this.localUserId = input.userId;
     const ticketResponse = await fetch("/api/game-ticket", {
       method: "POST",
-      headers: { "x-csrf-token": input.csrfToken },
+      headers: { "content-type": "application/json", "x-csrf-token": input.csrfToken },
+      body: JSON.stringify({ room: "party" }),
     });
     if (!ticketResponse.ok) throw new Error("게임 접속 티켓을 발급하지 못했습니다.");
     const ticket = await ticketResponse.json() as TicketResponse;
@@ -222,6 +240,14 @@ export class ColyseusTransport {
     return this.latestState;
   }
 
+  get transportMode(): TransportMode {
+    return this.transportModeValue;
+  }
+
+  get unacknowledgedInputs(): InputFrame[] {
+    return [...this.pendingInputs.values()];
+  }
+
   interact(targetId: string): void {
     this.send("player.interact", { targetId });
   }
@@ -250,6 +276,8 @@ export class ColyseusTransport {
     this.cleanupInput?.();
     this.cleanupInput = null;
     this.pressed.clear();
+    this.closeFastLane();
+    this.pendingInputs.clear();
     const room = this.room;
     this.room = null;
     this.client = null;
@@ -277,6 +305,15 @@ export class ColyseusTransport {
       this.terminal = true;
       this.emitEvent({ type: "result", state: message.state, message: message.reason });
     });
+    room.onMessage("world.frame", (message: unknown) => {
+      if (!isCurrentRoom()) return;
+      this.handleWorldFrame(message);
+    });
+    room.onMessage("fastlane.offer", (message: unknown) => {
+      if (!isCurrentRoom()) return;
+      const offer = fastLaneOfferSchema.safeParse(message);
+      if (offer.success) void this.connectFastLane(offer.data, generation);
+    });
     room.onError((code, message) => {
       if (!isCurrentRoom()) return;
       this.emitEvent({ type: "protocol-error", code: String(code), message });
@@ -284,20 +321,28 @@ export class ColyseusTransport {
     room.onLeave((code) => {
       if (generation !== this.generation) return;
       if (this.room === room) this.room = null;
+      this.closeFastLane();
+      this.pendingInputs.clear();
       if (code === 4009 || this.terminal || this.latestState?.phase === "ended") {
         this.emitEvent({ type: "disconnected", code: String(code) });
         return;
       }
       void this.tryReconnect(room.reconnectionToken, generation);
     });
+    room.send("fastlane.request", { v: PROTOCOL_VERSION });
+    setTimeout(() => {
+      if (isCurrentRoom() && this.transportModeValue === "websocket-fallback") {
+        room.send("fastlane.request", { v: PROTOCOL_VERSION });
+      }
+    }, 1_000);
   }
 
   private async tryReconnect(reconnectionToken: string, generation: number): Promise<void> {
     if (this.reconnecting || !this.client) return;
     this.reconnecting = true;
     this.emitEvent({ type: "reconnecting" });
-    const reconnectDeadline = performance.now() + 18_000;
-    const retryDelays = [0, 250, 500, 1_000, 2_000, 3_500, 4_500];
+    const reconnectDeadline = performance.now() + 55_000;
+    const retryDelays = [0, 250, 500, 1_000, 2_000, 3_500, 5_000, 7_500, 10_000, 12_000, 13_000];
     for (const delay of retryDelays) {
       if (generation !== this.generation || !this.client) return;
       const remainingBeforeDelay = reconnectDeadline - performance.now();
@@ -323,7 +368,7 @@ export class ColyseusTransport {
         return;
       } catch (error) {
         if (error instanceof Error && error.message === "RECONNECT_TIMEOUT") break;
-        // Retry within the server's 20-second reconnection reservation.
+        // Retry within the server's 60-second reconnection reservation.
       }
     }
     if (generation !== this.generation) return;
@@ -336,7 +381,7 @@ export class ColyseusTransport {
     this.room.send(type, {
       v: PROTOCOL_VERSION,
       type,
-      seq: this.seq++,
+      seq: this.reliableSeq++,
       clientTime: performance.now(),
       payload,
     });
@@ -365,8 +410,8 @@ export class ColyseusTransport {
         Number(this.pressed.has("KeyQ")) |
         (Number(this.pressed.has("KeyE")) << 1) |
         (Number(this.pressed.has("Space")) << 2);
-      this.send("player.input", { x, y, aim: this.aim, buttons });
-    }, 50);
+      this.sendInputFrame({ x, y, aim: this.aim, buttons });
+    }, 1000 / 60);
 
     this.cleanupInput = () => {
       window.removeEventListener("keydown", onKeyDown);
@@ -374,6 +419,95 @@ export class ColyseusTransport {
       window.removeEventListener("blur", clearPressed);
       window.removeEventListener("pointermove", onPointerMove);
     };
+  }
+
+  private sendInputFrame(payload: Pick<InputFrame, "x" | "y" | "aim" | "buttons">): void {
+    if (!this.room) return;
+    const frame: InputFrame = {
+      v: PROTOCOL_VERSION,
+      seq: this.inputSeq++,
+      clientTime: performance.now(),
+      ...payload,
+    };
+    this.pendingInputs.set(frame.seq, frame);
+    if (this.pendingInputs.size > 240) {
+      const oldest = this.pendingInputs.keys().next().value as number | undefined;
+      if (oldest !== undefined) this.pendingInputs.delete(oldest);
+    }
+    gameBridge.emit("localInput", frame);
+    const bytes = this.encoder.encode(JSON.stringify({ type: "input.frame", payload: frame }));
+    if (this.transportModeValue === "webtransport" && this.fastLaneWriter && (this.fastLaneWriter.desiredSize ?? 1) > 0) {
+      void this.fastLaneWriter.write(bytes).catch(() => this.closeFastLane());
+    } else {
+      this.room.send("input.frame", frame);
+    }
+  }
+
+  private handleWorldFrame(raw: unknown): void {
+    const parsed = worldFrameSchema.safeParse(raw);
+    if (!parsed.success) return;
+    const frame = parsed.data;
+    for (const sequence of this.pendingInputs.keys()) {
+      if (sequence <= frame.ackInputSeq) this.pendingInputs.delete(sequence);
+    }
+    gameBridge.emit("worldFrame", frame);
+  }
+
+  private async connectFastLane(offer: FastLaneOffer, generation: number): Promise<void> {
+    if (typeof WebTransport === "undefined" || offer.expiresAt <= Date.now()) return;
+    this.closeFastLane();
+    const endpoint = new URL(offer.url);
+    endpoint.searchParams.set("token", offer.token);
+    const transport = new WebTransport(endpoint.toString(), { congestionControl: "low-latency" });
+    this.fastLane = transport;
+    try {
+      await withDeadline(transport.ready, 2_000, async () => transport.close({ closeCode: 0, reason: "late fast lane" }));
+      if (generation !== this.generation || this.fastLane !== transport) {
+        transport.close({ closeCode: 0, reason: "stale game connection" });
+        return;
+      }
+      this.fastLaneWriter = transport.datagrams.writable.getWriter();
+      this.transportModeValue = "webtransport";
+      const reader = transport.datagrams.readable.getReader();
+      void this.readFastLane(reader, transport, generation);
+      void transport.closed.finally(() => {
+        if (this.fastLane === transport) this.closeFastLane();
+      }).catch(() => undefined);
+    } catch {
+      if (this.fastLane === transport) this.closeFastLane();
+    }
+  }
+
+  private async readFastLane(
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    transport: WebTransport,
+    generation: number,
+  ): Promise<void> {
+    try {
+      while (generation === this.generation && this.fastLane === transport) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value.byteLength > 32_768) continue;
+        const message = JSON.parse(this.decoder.decode(value)) as { type?: unknown; payload?: unknown };
+        if (message.type === "world.frame") this.handleWorldFrame(message.payload);
+      }
+    } catch {
+      // The reliable Colyseus connection remains active and becomes the fallback.
+    } finally {
+      if (this.fastLane === transport) this.closeFastLane();
+    }
+  }
+
+  private closeFastLane(): void {
+    const transport = this.fastLane;
+    this.fastLane = null;
+    this.fastLaneWriter = null;
+    this.transportModeValue = "websocket-fallback";
+    try {
+      transport?.close({ closeCode: 0, reason: "fallback to websocket" });
+    } catch {
+      // Already closed.
+    }
   }
 
   private updateAimFromLatestPointer(): void {
@@ -408,6 +542,7 @@ export class ColyseusTransport {
       roomId: player.roomId ?? "zone-1:0,4",
       x: player.x ?? 0,
       y: player.y ?? 0,
+      aim: player.aim ?? 0,
       isLocal: player.userId === this.localUserId,
     }));
     const localRoomId = players.find((player) => player.isLocal)?.roomId ?? "";

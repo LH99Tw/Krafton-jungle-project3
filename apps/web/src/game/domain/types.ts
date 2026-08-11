@@ -1,4 +1,11 @@
 import type { AugmentId } from "@five-days/game-core";
+export type {
+  FastLaneOffer,
+  InputFrame,
+  TransformSample,
+  TransportMode,
+  WorldFrame,
+} from "@five-days/protocol";
 
 export type HeroClassId = "swordsman" | "archer" | "mage";
 export type SessionMode = "prototype" | "full";
@@ -76,6 +83,7 @@ export type PartyMemberSnapshot = {
   roomId: string;
   x: number;
   y: number;
+  aim: number;
   isLocal: boolean;
 };
 
@@ -287,4 +295,3 @@ export const EMPTY_SNAPSHOT: GameSnapshot = {
     presentPlayers: 1,
   },
 };
-

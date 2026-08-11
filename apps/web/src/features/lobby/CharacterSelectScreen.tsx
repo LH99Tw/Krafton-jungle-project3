@@ -9,9 +9,12 @@ const DISPLAY_ORDER: HeroClassId[] = ["archer", "swordsman", "mage"];
 export function CharacterSelectScreen({ snapshot, viewerId, launching, onSelect }: { snapshot: LobbySnapshot; viewerId: string; launching: boolean; onSelect: (heroClass: HeroClassId | null) => void }) {
   const me = snapshot.players.find((player) => player.userId === viewerId);
   return <main className={`character-select-screen ${launching ? "is-launching" : ""}`}>
-    <header className="select-header"><div><span aria-hidden="true">†</span><strong>출전 직업 선택</strong></div><p>같은 직업을 함께 선택할 수 있습니다. 다시 누르면 선택이 취소됩니다.</p><b>{snapshot.roomName}</b></header>
     <section className="team-picks" aria-label="팀원 선택 현황">
-      {snapshot.players.map((player) => <div key={player.userId} className={player.heroClass ? "has-pick" : ""}><span><small>{player.isAi ? "AI 동료" : snapshot.hostId === player.userId ? "원정대장" : "원정대원"}</small><strong>{player.displayName}</strong></span><em>{player.heroClass ? CLASS_DEFINITIONS[player.heroClass].name : "선택 중"}</em></div>)}
+      {snapshot.players.map((player) => <div key={player.userId} className={player.heroClass ? "has-pick" : ""} data-hero-class={player.heroClass ?? "unselected"}>
+        <span className="team-pick-image" aria-hidden="true"><i>{player.heroClass ? CLASS_DEFINITIONS[player.heroClass].name.slice(0, 1) : "◇"}</i></span>
+        <span className="team-pick-copy"><small>{player.isAi ? "AI 동료" : snapshot.hostId === player.userId ? "원정대장" : "원정대원"}</small><strong>{player.displayName}</strong></span>
+        <em>{player.heroClass ? CLASS_DEFINITIONS[player.heroClass].name : "선택 중"}</em>
+      </div>)}
     </section>
     <section className="class-slashes" aria-label="캐릭터 클래스 선택">
       {DISPLAY_ORDER.map((classId, index) => {

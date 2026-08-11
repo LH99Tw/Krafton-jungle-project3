@@ -4,7 +4,6 @@ services:
     ports:
       - "80:80"
       - "443:443"
-      - "443:443/udp"
     environment:
       WEB_HOST: ${WEB_HOST}
       GAME_HOST: ${GAME_HOST}
@@ -20,6 +19,45 @@ services:
     restart: unless-stopped
     mem_limit: 128m
 
+  fastlane-cert-sync:
+    image: caddy:2.10.2-alpine
+    environment:
+      GAME_HOST: ${GAME_HOST}
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        while :; do
+          cert="$$(find /source/caddy/certificates -type f -path "*/$$GAME_HOST/$$GAME_HOST.crt" -print -quit 2>/dev/null || true)"
+          key="$${cert%.crt}.key"
+          if [ -n "$$cert" ] && [ -f "$$key" ]; then
+            if ! cmp -s "$$cert" /target/tls.crt || ! cmp -s "$$key" /target/tls.key; then
+              cp "$$cert" /target/tls.crt.next
+              cp "$$key" /target/tls.key.next
+              chown 1000:1000 /target/tls.crt.next /target/tls.key.next
+              chmod 0440 /target/tls.crt.next /target/tls.key.next
+              mv -f /target/tls.crt.next /target/tls.crt
+              mv -f /target/tls.key.next /target/tls.key
+              echo "fast lane certificate synchronized for $$GAME_HOST"
+            fi
+          fi
+          sleep 30
+        done
+    init: true
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: ["ALL"]
+    cap_add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
+    volumes:
+      - caddy-data:/source:ro
+      - fastlane-certs:/target
+    depends_on:
+      caddy:
+        condition: service_started
+    restart: unless-stopped
+    mem_limit: 32m
+
   web:
     image: ${WEB_IMAGE:-five-days-web:local}
     build:
@@ -29,6 +67,15 @@ services:
     environment:
       HOSTNAME: 0.0.0.0
     expose: ["3000"]
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+      - /app/apps/web/.next/cache:size=128m,uid=1001,gid=1001,mode=0750
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: ["ALL"]
+    pids_limit: 200
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3000/api/health/live"]
       interval: 10s
@@ -46,7 +93,19 @@ services:
       context: .
       dockerfile: Dockerfile.game
     env_file: .env.game
-    expose: ["2567"]
+    ports:
+      - "443:4433/udp"
+    expose: ["2567", "4433/udp"]
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    volumes:
+      - fastlane-certs:/run/secrets/fastlane:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: ["ALL"]
+    pids_limit: 200
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:2567/health/live"]
       interval: 10s
@@ -65,7 +124,15 @@ services:
       dockerfile: Dockerfile.game
     profiles: ["migration"]
     env_file: .env.migration
-    command: ["pnpm", "--filter", "@five-days/db", "db:migrate"]
+    command: ["./packages/db/node_modules/.bin/tsx", "--tsconfig", "packages/db/tsconfig.json", "packages/db/src/migrate.ts"]
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: ["ALL"]
+    pids_limit: 100
     depends_on:
       postgres:
         condition: service_healthy
@@ -89,3 +156,4 @@ volumes:
   postgres-data:
   caddy-data:
   caddy-config:
+  fastlane-certs:

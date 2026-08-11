@@ -13,7 +13,7 @@ const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 20
 const privatePem = privateKey.export({ format: "pem", type: "pkcs8" }).toString();
 const publicPem = publicKey.export({ format: "pem", type: "spki" }).toString();
 
-test("encrypts OAuth and refresh-token material with authenticated encryption", () => {
+test("encrypts sensitive OAuth state with authenticated encryption", () => {
   const key = Buffer.alloc(32, 7).toString("base64");
   const encrypted = encryptSecret("secret", key);
   assert.notEqual(encrypted, "secret");
@@ -33,16 +33,19 @@ test("signs a short-lived game ticket and rejects expiration", async () => {
   const valid = await signGameTicket({
     userId: "user-1",
     displayName: "용사",
+    room: "party",
     privateKeyPem: privatePem,
     expiresInSeconds: 90,
   });
   const claims = await verifyGameTicket(valid.token, publicPem);
   assert.equal(claims.sub, "user-1");
   assert.equal(claims.scope, "room:join");
+  assert.equal(claims.room, "party");
 
   const expired = await signGameTicket({
     userId: "user-1",
     displayName: "용사",
+    room: "party",
     privateKeyPem: privatePem,
     expiresInSeconds: -1,
   });

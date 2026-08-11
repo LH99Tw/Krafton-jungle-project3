@@ -1,0 +1,1 @@
+ALTER TABLE "guestbook_entries" ADD COLUMN "edit_password_hash" text;

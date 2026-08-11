@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Client } from "@colyseus/core";
 import {
+  INPUT_LEASE_MS,
   OperationTimeoutError,
   PartyRoom,
   runWithTimeoutAndRetry,
 } from "../src/party-room";
+import { PROTOCOL_VERSION } from "@five-days/protocol";
 
 test("bounded persistence retries use the configured backoff and stop after success", async () => {
   const attempts: number[] = [];
@@ -95,7 +97,11 @@ test("a fresh active session wins a race against an older reserved reconnect", a
     },
   };
   harness.messageWindows = new Map();
-  harness.commandSequences = new Map();
+  harness.inputMessageWindows = new Map();
+  harness.reliableCommandSequences = new Map();
+  harness.visibleEnemies = new Map();
+  harness.visibleDrops = new Map();
+  harness.visiblePlayerTransforms = new Map();
   harness.syncState = () => {
     syncCount += 1;
   };
@@ -134,4 +140,105 @@ test("ended-room shutdown disconnects even when result persistence fails", async
   await finalizeAndDisconnect.call(harness as unknown as PartyRoom);
 
   assert.equal(disconnectCalls, 1);
+});
+
+test("input lease stops movement after a lost key-up frame", () => {
+  const player = { userId: "user-1", inputX: 1, inputY: -1 };
+  const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
+  harness.core = { players: new Map([[player.userId, player]]) };
+  harness.lastInputAt = new Map([[player.userId, 1_000]]);
+  const expire = (PartyRoom.prototype as unknown as {
+    expireStaleInputs(this: PartyRoom, now: number): void;
+  }).expireStaleInputs;
+  expire.call(harness as unknown as PartyRoom, 1_000 + INPUT_LEASE_MS + 1);
+  assert.equal(player.inputX, 0);
+  assert.equal(player.inputY, 0);
+});
+
+test("unreliable input sequence does not reject a reliable command", () => {
+  const appliedInputs: number[] = [];
+  let ready = false;
+  const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
+  harness.core = {
+    applyInput: (_userId: string, command: { seq: number }) => {
+      appliedInputs.push(command.seq);
+      return true;
+    },
+    setReady: () => {
+      ready = true;
+      return true;
+    },
+  };
+  harness.inputSequences = new Map();
+  harness.lastInputAt = new Map();
+  harness.messageWindows = new Map();
+  harness.reliableCommandSequences = new Map();
+  const client = {
+    sessionId: "session-1",
+    userData: { userId: "user-1" },
+    send: () => undefined,
+  } as unknown as Client;
+  const methods = PartyRoom.prototype as unknown as {
+    applyInputFrame(this: PartyRoom, client: Client, frame: object): void;
+    handleCommand(this: PartyRoom, client: Client, type: "room.ready", raw: object): void;
+  };
+  methods.applyInputFrame.call(harness as unknown as PartyRoom, client, {
+    v: PROTOCOL_VERSION,
+    seq: 100,
+    clientTime: 0,
+    x: 1,
+    y: 0,
+    aim: 0,
+    buttons: 0,
+  });
+  methods.handleCommand.call(harness as unknown as PartyRoom, client, "room.ready", {
+    v: PROTOCOL_VERSION,
+    type: "room.ready",
+    seq: 1,
+    clientTime: 0,
+    payload: { ready: true },
+  });
+  assert.deepEqual(appliedInputs, [100]);
+  assert.equal(ready, true);
+});
+
+test("player AOI includes the current room and its corridor but not the adjacent room interior", () => {
+  const roomA = {
+    id: "forest:0",
+    gridX: 0,
+    gridY: 0,
+    connections: ["forest:1"],
+  };
+  const roomB = {
+    id: "forest:1",
+    gridX: 1,
+    gridY: 0,
+    connections: ["forest:0"],
+  };
+  const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
+  harness.core = { rooms: new Map([[roomA.id, roomA], [roomB.id, roomB]]) };
+  const isPlayerInAoi = (PartyRoom.prototype as unknown as {
+    isPlayerInAoi(
+      this: PartyRoom,
+      viewer: { roomId: string; x: number; y: number },
+      candidate: { roomId: string; x: number; y: number },
+    ): boolean;
+  }).isPlayerInAoi;
+  const viewer = { roomId: roomA.id, x: 640, y: 360 };
+
+  assert.equal(isPlayerInAoi.call(harness as unknown as PartyRoom, viewer, {
+    roomId: roomA.id,
+    x: 200,
+    y: 200,
+  }), true);
+  assert.equal(isPlayerInAoi.call(harness as unknown as PartyRoom, viewer, {
+    roomId: roomB.id,
+    x: 1_400,
+    y: 360,
+  }), true);
+  assert.equal(isPlayerInAoi.call(harness as unknown as PartyRoom, viewer, {
+    roomId: roomB.id,
+    x: 1_800,
+    y: 360,
+  }), false);
 });

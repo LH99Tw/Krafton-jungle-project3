@@ -44,7 +44,7 @@ export const authSessions = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
     tokenHash: text("token_hash").notNull(),
-    encryptedRefreshToken: text("encrypted_refresh_token").notNull(),
+    encryptedRefreshToken: text("encrypted_refresh_token"),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
     lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
@@ -57,6 +57,22 @@ export const authSessions = pgTable(
   ],
 );
 
+export const gameTicketNonces = pgTable(
+  "game_ticket_nonces",
+  {
+    jti: text("jti").primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    room: text("room").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("game_ticket_nonces_expires_at_idx").on(table.expiresAt),
+    check("game_ticket_nonces_room", sql`${table.room} IN ('global_chat', 'lobby', 'party')`),
+  ],
+);
+
 export const guestbookEntries = pgTable(
   "guestbook_entries",
   {
@@ -64,11 +80,17 @@ export const guestbookEntries = pgTable(
     authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
     authorName: text("author_name").notNull(),
     content: text("content").notNull(),
+    editPasswordHash: text("edit_password_hash"),
+    positionX: integer("position_x").notNull().default(500),
+    positionY: integer("position_y").notNull().default(500),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     index("guestbook_created_at_idx").on(table.createdAt),
     check("guestbook_content_length", sql`char_length(${table.content}) BETWEEN 2 AND 180`),
+    check("guestbook_position_x_range", sql`${table.positionX} BETWEEN 0 AND 1000`),
+    check("guestbook_position_y_range", sql`${table.positionY} BETWEEN 0 AND 1000`),
   ],
 );
 

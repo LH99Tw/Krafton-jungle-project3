@@ -48,6 +48,7 @@ export function GameHud({
       roomId: snapshot.currentRoomId,
       x: 0,
       y: 0,
+      aim: 0,
       isLocal: true,
     }];
 
@@ -156,4 +157,3 @@ export function GameHud({
     </div>
   );
 }
-

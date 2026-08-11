@@ -1,5 +1,4 @@
 import {
-  encryptSecret,
   encodeOAuthState,
   hashToken,
   pkceChallenge,
@@ -8,11 +7,12 @@ import {
 } from "@five-days/auth";
 import { createSession, upsertCognitoUser } from "@five-days/db/repositories";
 import { NextResponse } from "next/server";
-import { CSRF_COOKIE, sessionCookieName } from "@/app/auth/session";
-
-const OAUTH_COOKIE = "fdm_oauth_state";
+import { csrfCookieName, oauthCookieName, sessionCookieName } from "@/app/auth/session";
+import { clientIp, consumeRateLimit, rateLimited } from "@/app/security/request";
 
 export async function GET(request: Request) {
+  const decision = consumeRateLimit("auth-login-ip", clientIp(request), { capacity: 20, refillMs: 10 * 60_000 });
+  if (!decision.allowed) return rateLimited(decision.retryAfterSeconds);
   const url = new URL(request.url);
   if (process.env.NODE_ENV !== "production" && process.env.DEV_AUTH_BYPASS === "true") {
     return createDevelopmentSession(url);
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
   authorize.searchParams.set("identity_provider", "Google");
 
   const response = NextResponse.redirect(authorize);
-  response.cookies.set(OAUTH_COOKIE, encodeOAuthState({
+  response.cookies.set(oauthCookieName(), encodeOAuthState({
     state,
     nonce,
     codeVerifier,
@@ -64,12 +64,12 @@ async function createDevelopmentSession(url: URL) {
   await createSession({
     userId: user.id,
     tokenHash: hashToken(sessionToken),
-    encryptedRefreshToken: encryptSecret("local-development-refresh-token"),
+    encryptedRefreshToken: null,
     expiresAt: new Date(Date.now() + 7 * 86_400_000),
   });
-  const response = NextResponse.redirect(new URL(safeReturnPath(url.searchParams.get("returnTo")), url.origin), 303);
+  const response = NextResponse.redirect(new URL(safeReturnPath(url.searchParams.get("returnTo")), required("APP_ORIGIN")), 303);
   response.cookies.set(sessionCookieName(), sessionToken, { httpOnly: true, sameSite: "lax", path: "/", maxAge: 604_800 });
-  response.cookies.set(CSRF_COOKIE, csrfToken, { httpOnly: false, sameSite: "lax", path: "/", maxAge: 604_800 });
+  response.cookies.set(csrfCookieName(), csrfToken, { httpOnly: false, sameSite: "lax", path: "/", maxAge: 604_800 });
   return response;
 }
 

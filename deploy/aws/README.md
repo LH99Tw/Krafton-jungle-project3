@@ -20,7 +20,7 @@ aws --profile five-days --region ap-northeast-2 sts get-caller-identity
 `bootstrap-lightsail.sh`는 다음 항목만 생성하거나 갱신합니다.
 
 - 서울 `ap-northeast-2a` Ubuntu 24.04 Lightsail 2GB 인스턴스
-- 고정 IPv4와 80/443 공개 포트
+- 고정 IPv4와 TCP 80/443, WebTransport용 UDP 443 공개 포트
 - 현재 운영자 IP에만 허용된 SSH 22 포트
 - 로컬 배포용 ED25519 키
 - GitHub Actions가 실행 중인 runner IP만 임시로 열 수 있는 최소 권한 OIDC 역할
@@ -79,8 +79,27 @@ push나 pull request로는 배포되지 않습니다. workflow는 SHA 태그 이
 
 - 웹, Colyseus, PostgreSQL을 서울의 동일 Lightsail 인스턴스와 Docker network에 배치
 - ALB, NAT Gateway, CloudFront, 외부 Redis를 경로에서 제외
-- 브라우저와 Colyseus 사이에 하나의 지속 WSS 연결 사용
+- 로그인·매칭·판정은 지속 WSS를 사용하고 이동 입력·좌표는 WebTransport datagram을 우선 사용
 - 고정 IP와 `sslip.io` DNS를 사용하고 Caddy에서 TLS 종료
-- 20Hz 서버 tick과 4KB 메시지 제한 유지
+- 60Hz 고정 서버 tick, 30Hz AOI 좌표 프레임, 클라이언트 60fps 보간 사용
 
 한국 사용자 기준 RTT와 `tick p95`를 따로 측정합니다. 서울에서 멀리 떨어진 사용자의 물리적 RTT는 제거할 수 없으며, 이용자 지역이 바뀌면 해당 지역 게임 서버를 추가해야 합니다.
+
+## WebTransport 배포
+
+Lightsail 배포는 `FASTLANE_ENABLED=true`가 기본입니다. Caddy가 `GAME_HOST`의 공인 인증서를 발급하면 `fastlane-cert-sync`가 전용 볼륨에 읽기 전용 사본을 만들고, game-server가 UDP 4433 리스너를 자동 시작합니다. 인증서가 아직 없으면 WSS로 서비스하면서 10초마다 재시도하고, 갱신된 인증서를 발견하면 WSS를 유지한 채 fast lane 리스너만 재시작합니다.
+
+```dotenv
+FASTLANE_ENABLED=true
+FASTLANE_PUBLIC_URL=https://game.example.com/fastlane
+FASTLANE_SECRET=<32자 이상의 무작위 secret>
+FASTLANE_CERT_PATH=/run/secrets/fastlane/tls.crt
+FASTLANE_KEY_PATH=/run/secrets/fastlane/tls.key
+FASTLANE_MAINTENANCE_MS=10000
+```
+
+Caddy는 HTTP/1.1·HTTP/2만 사용해 TCP 443을 담당하고, host UDP 443은 game-server의 UDP 4433으로 전달됩니다. 배포 workflow는 `/health/live`의 `fastLane.state`가 `ready`가 될 때까지 최대 5분 기다리며, 준비되지 않으면 이전 SHA로 롤백합니다. 실행 중 UDP 장애가 발생하면 클라이언트는 자동으로 WSS에 남습니다.
+
+## 애플리케이션 방어 범위
+
+프로세스 내 rate limiter와 연결·로비 상한은 단일 Lightsail 인스턴스의 API 및 WebSocket 남용과 비용 고갈을 완화합니다. 분산 공격에서 프로세스별 제한 상태는 공유되지 않으며, 대규모 L3/L4 DDoS를 흡수하는 기능은 아닙니다. 트래픽 규모가 이 경계를 넘으면 유료 엣지/WAF 또는 별도 네트워크 방어를 운영 판단으로 추가해야 합니다.
