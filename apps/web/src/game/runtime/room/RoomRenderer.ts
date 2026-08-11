@@ -35,6 +35,13 @@ const ENEMY_LOOK = {
   gate: { texture: "gate", depth: 12, radius: 26 },
   boss: { texture: "boss", depth: 18, radius: 48 },
 } as const;
+const NETWORK_ENEMY_POOL_LIMIT: Record<EnemyKind, number> = {
+  invader: 256,
+  static: 64,
+  hidden: 32,
+  gate: 8,
+  boss: 2,
+};
 
 const ROOM_NAMES: Record<RenderableRoom["type"], string> = {
   start: "원정대 야영지",
@@ -49,8 +56,10 @@ const ROOM_NAMES: Record<RenderableRoom["type"], string> = {
 
 export class RoomRenderer {
   private roomObjects: Phaser.GameObjects.GameObject[] = [];
+  private waypointObjects: Phaser.GameObjects.GameObject[] = [];
   private roomMasks: Phaser.Display.Masks.GeometryMask[] = [];
   private readonly enemyPatternObjects = new Map<string, { key: string; graphics: Phaser.GameObjects.Graphics }>();
+  private readonly networkEnemyPool = new Map<EnemyKind, Phaser.GameObjects.Sprite[]>();
   private crosshair!: Phaser.GameObjects.Image;
 
   constructor(private readonly scene: Phaser.Scene) {}
@@ -60,28 +69,8 @@ export class RoomRenderer {
     this.createVegetationFrames();
     this.createEnvironmentFrames();
     this.createCrosshairTexture();
-    this.createSkeletonAnimations();
     this.crosshair = this.scene.add.image(640, 360, "medieval-crosshair").setDepth(200).setScrollFactor(0);
     this.scene.game.canvas.style.cursor = "none";
-  }
-
-  private createSkeletonAnimations(): void {
-    if (!this.scene.textures.exists("skeleton-8dir-walk")) return;
-    const SKELETON_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315] as const;
-    SKELETON_ANGLES.forEach((angle, rowIndex) => {
-      const animKey = `skeleton-walk-${angle}`;
-      if (!this.scene.anims.exists(animKey)) {
-        this.scene.anims.create({
-          key: animKey,
-          frames: this.scene.anims.generateFrameNumbers("skeleton-8dir-walk", {
-            start: rowIndex * 8,
-            end: rowIndex * 8 + 7,
-          }),
-          frameRate: 10,
-          repeat: -1,
-        });
-      }
-    });
   }
 
   /**
@@ -135,6 +124,29 @@ export class RoomRenderer {
 
     // Procedural terrain decor (bushes/rocks) for map-template variety.
     this.drawWorldDecor(world, options.decorSeed);
+    this.updateWaypoints(world, options.waypointRooms);
+  }
+
+  updateWaypoints(world: RenderZoneWorld, waypointRooms: ReadonlySet<string>): void {
+    for (const object of this.waypointObjects) object.destroy();
+    this.waypointObjects = [];
+    for (const entry of world.rooms) {
+      if (!waypointRooms.has(entry.room.id)) continue;
+      const { room, center } = entry;
+      const label = room.type === "gate"
+        ? room.zone === 3 ? "마왕전 진입 웨이포인트" : "다음 구역 웨이포인트"
+        : room.type === "central-waypoint" ? "중앙 귀환 웨이포인트" : "귀환 웨이포인트";
+      this.waypointObjects.push(
+        this.scene.add.circle(center.x, center.y, 42, 0x8de5c1, 0.15).setStrokeStyle(3, 0xb8f5dc, 0.92).setDepth(2),
+        this.scene.add.text(center.x, center.y + 58, label, {
+          fontFamily: "sans-serif",
+          fontSize: "11px",
+          color: "#bdf5de",
+          backgroundColor: "#13211dcc",
+          padding: { x: 7, y: 4 },
+        }).setOrigin(0.5).setDepth(3),
+      );
+    }
   }
 
   /**
@@ -252,7 +264,7 @@ export class RoomRenderer {
     for (let y = rect.y; y <= rect.y + rect.height; y += 40) graphics.lineBetween(rect.x, y, rect.x + rect.width, y);
     graphics.lineStyle(3, palette.accent, 0.6).strokeRect(rect.x, rect.y, rect.width, rect.height);
 
-    this.drawWorldLandmark(graphics, entry, palette.accent, options.waypointRooms.has(room.id));
+    this.drawWorldLandmark(graphics, entry, palette.accent);
 
     const title = this.track(this.scene.add.text(center.x, rect.y + 22, ROOM_NAMES[room.type] ?? room.type, {
       fontFamily: "Georgia, serif",
@@ -279,7 +291,6 @@ export class RoomRenderer {
     graphics: Phaser.GameObjects.Graphics,
     entry: RenderWorldRoom,
     accent: number,
-    waypointActive: boolean,
   ): void {
     const { room, center } = entry;
     if (room.type === "resource") {
@@ -292,19 +303,6 @@ export class RoomRenderer {
     } else if (room.type === "central-waypoint") {
       graphics.fillStyle(accent, 0.15).fillCircle(center.x, center.y, 38);
       graphics.lineStyle(3, accent, 0.72).strokeCircle(center.x, center.y, 38);
-    }
-    if (waypointActive) {
-      const label = room.type === "gate"
-        ? room.zone === 3 ? "마왕전 진입 웨이포인트" : "다음 구역 웨이포인트"
-        : room.type === "central-waypoint" ? "중앙 귀환 웨이포인트" : "귀환 웨이포인트";
-      this.track(this.scene.add.circle(center.x, center.y, 42, 0x8de5c1, 0.15).setStrokeStyle(3, 0xb8f5dc, 0.92).setDepth(2));
-      this.track(this.scene.add.text(center.x, center.y + 58, label, {
-        fontFamily: "sans-serif",
-        fontSize: "11px",
-        color: "#bdf5de",
-        backgroundColor: "#13211dcc",
-        padding: { x: 7, y: 4 },
-      }).setOrigin(0.5).setDepth(3));
     }
   }
 
@@ -362,6 +360,34 @@ export class RoomRenderer {
     (enemy.body as Phaser.Physics.Arcade.Body).setCircle(look.radius);
     if (kind === "gate" || kind === "boss") enemy.setImmovable(true);
     return enemy;
+  }
+
+  /** Network enemies are server-authoritative and do not need an Arcade body. */
+  acquireNetworkEnemy(kind: EnemyKind, x: number, y: number): Phaser.GameObjects.Sprite {
+    const pool = this.networkEnemyPool.get(kind);
+    const enemy = pool?.pop() ?? this.scene.add.sprite(x, y, ENEMY_LOOK[kind].texture);
+    const textureKey = kind === "static" || kind === "invader" || kind === "hidden"
+      ? "enemy-skeleton-0"
+      : ENEMY_LOOK[kind].texture;
+    return enemy
+      .setTexture(textureKey)
+      .setPosition(x, y)
+      .setDepth(ENEMY_LOOK[kind].depth)
+      .setAlpha(1)
+      .setVisible(true)
+      .setActive(true);
+  }
+
+  releaseNetworkEnemy(kind: EnemyKind, enemy: Phaser.GameObjects.Sprite): void {
+    this.scene.tweens.killTweensOf(enemy);
+    enemy.setScale(1).setVisible(false).setActive(false).setPosition(-10_000, -10_000);
+    const pool = this.networkEnemyPool.get(kind) ?? [];
+    if (pool.length < NETWORK_ENEMY_POOL_LIMIT[kind]) {
+      pool.push(enemy);
+      this.networkEnemyPool.set(kind, pool);
+    } else {
+      enemy.destroy();
+    }
   }
 
   updateEnemyPose(sprite: Phaser.Physics.Arcade.Sprite, kind: string, targetX?: number, targetY?: number): void {
@@ -492,7 +518,7 @@ export class RoomRenderer {
     this.enemyPatternObjects.set(enemyId, { key, graphics });
   }
 
-  showEnemyMeleeAttack(enemy: Phaser.Physics.Arcade.Sprite, targetX: number, targetY: number): void {
+  showEnemyMeleeAttack(enemy: Phaser.GameObjects.Sprite, targetX: number, targetY: number): void {
     const angle = Phaser.Math.Angle.Between(enemy.x, enemy.y, targetX, targetY);
     const slash = this.scene.add.arc(enemy.x, enemy.y, 34, Phaser.Math.RadToDeg(angle) - 65, Phaser.Math.RadToDeg(angle) + 65, false)
       .setStrokeStyle(7, 0xff7a86, 0.9).setDepth(30);
@@ -503,6 +529,10 @@ export class RoomRenderer {
 
   destroy(): void {
     this.clearRoom();
+    for (const pool of this.networkEnemyPool.values()) {
+      for (const enemy of pool) enemy.destroy();
+    }
+    this.networkEnemyPool.clear();
     this.crosshair?.destroy();
     this.scene.game.canvas.style.cursor = "";
   }
@@ -536,6 +566,8 @@ export class RoomRenderer {
     this.enemyPatternObjects.clear();
     for (const mask of this.roomMasks) mask.destroy();
     this.roomMasks = [];
+    for (const object of this.waypointObjects) object.destroy();
+    this.waypointObjects = [];
     for (const object of this.roomObjects) object.destroy();
     this.roomObjects = [];
   }

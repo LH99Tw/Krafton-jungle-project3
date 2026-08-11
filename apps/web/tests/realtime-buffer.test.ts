@@ -154,6 +154,52 @@ test("official authored-world prediction uses the authoritative floor and collis
   );
 });
 
+test("authored prediction rejects entry into a higher zone while its current gate is alive", () => {
+  const current = { id: "zone-1", rect: { x: 0, y: 0, width: 100, height: 100 }, zone: 1 };
+  const next = { id: "zone-2", rect: { x: 100, y: 0, width: 100, height: 100 }, zone: 2 };
+  const input: InputFrame = {
+    v: PROTOCOL_VERSION,
+    seq: 1,
+    clientTime: 0,
+    x: 1,
+    y: 0,
+    aim: 0,
+    buttons: 0,
+  };
+  const locked = predictPlayerTransform({
+    x: 99,
+    y: 50,
+    roomId: current.id,
+    heroClass: "swordsman",
+    frame: input,
+    deltaSeconds: 1 / 60,
+    rooms: [],
+    movementWorld: {
+      walkable: [current.rect, next.rect],
+      rooms: [current, next],
+      maxAccessibleZone: 1,
+    },
+  });
+  assert.deepEqual(locked, { x: 99, y: 50, roomId: current.id });
+
+  const open = predictPlayerTransform({
+    x: 99,
+    y: 50,
+    roomId: current.id,
+    heroClass: "swordsman",
+    frame: input,
+    deltaSeconds: 1 / 60,
+    rooms: [],
+    movementWorld: {
+      walkable: [current.rect, next.rect],
+      rooms: [current, next],
+      maxAccessibleZone: 2,
+    },
+  });
+  assert.equal(open.roomId, next.id);
+  assert.ok(open.x > 100);
+});
+
 test("boss prediction opens only after every authored gate is cleared on day three", () => {
   const rooms = [
     { id: "gate-a", cleared: true },

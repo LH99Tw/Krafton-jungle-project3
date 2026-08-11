@@ -27,6 +27,7 @@ import type {
   UpgradeId,
 } from "../domain/types";
 import { gameBridge } from "../runtime/GameBridge";
+import { ClientPartyExploration, type ExplorationActor } from "../netcode/ClientPartyExploration";
 
 export type NetworkStatus = "idle" | "connecting" | "waiting" | "connected" | "reconnecting" | "disconnected" | "error";
 
@@ -190,12 +191,16 @@ export class ColyseusTransport {
   private readonly eventListeners = new Set<EventListener>();
   private latestState: NetworkWorldSnapshot | null = null;
   private readonly minimaps = new Map<string, MiniMapSnapshot>();
+  private readonly clientExploration = new ClientPartyExploration();
+  private lastExplorationPublishAt = 0;
   private localUserId = "";
   private fastLane: WebTransport | null = null;
   private fastLaneWriter: WritableStreamDefaultWriter<Uint8Array> | null = null;
   private transportModeValue: TransportMode = "websocket-fallback";
   private readonly encoder = new TextEncoder();
   private readonly decoder = new TextDecoder();
+  private rendererReady = false;
+  private readySent = false;
 
   async connect(input: {
     serverUrl: string;
@@ -232,7 +237,7 @@ export class ColyseusTransport {
       throw new Error("새 연결 요청으로 대체되었습니다.");
     }
     this.attachRoom(room, generation);
-    this.send("room.ready", { ready: true });
+    this.flushRoomReady();
     this.startInputCapture();
     if (room.state) this.handleState(room.state as PartyStateLike);
     return this.latestState;
@@ -263,6 +268,12 @@ export class ColyseusTransport {
 
   get unacknowledgedInputs(): InputFrame[] {
     return [...this.pendingInputs.values()];
+  }
+
+  /** The room may be joined before Phaser has decoded and warmed its assets. */
+  markRendererReady(): void {
+    this.rendererReady = true;
+    this.flushRoomReady();
   }
 
   interact(targetId: string): void {
@@ -302,10 +313,15 @@ export class ColyseusTransport {
     room?.removeAllListeners();
     this.latestState = null;
     this.minimaps.clear();
+    this.clientExploration.clear();
+    this.lastExplorationPublishAt = 0;
+    this.rendererReady = false;
+    this.readySent = false;
   }
 
   private attachRoom(room: Room, generation: number): void {
     this.room = room;
+    this.readySent = false;
     const isCurrentRoom = () => generation === this.generation && this.room === room;
     room.onStateChange((state) => {
       if (isCurrentRoom()) this.handleState(state as PartyStateLike);
@@ -336,7 +352,18 @@ export class ColyseusTransport {
         const mask = decodeMask(explorationMask, Math.ceil(geometry.columns * geometry.rows / 8));
         const current = this.minimaps.get(geometry.areaId);
         if (current?.geometry.mapRevision === geometry.mapRevision && current.revision > revision) return;
+        if (current?.geometry.mapRevision === geometry.mapRevision) {
+          for (let index = 0; index < mask.length; index += 1) mask[index] |= current.explorationMask[index] ?? 0;
+        }
         this.minimaps.set(geometry.areaId, { geometry, explorationMask: mask, revision });
+        if (this.latestState) this.revealClientParty(this.latestState.players.map((player) => ({
+          id: player.userId,
+          roomId: player.roomId,
+          x: player.x,
+          y: player.y,
+          connected: player.connected,
+          alive: player.alive,
+        })));
         this.publishMinimap();
       } catch {
         // Invalid masks never reach the renderer.
@@ -381,6 +408,7 @@ export class ColyseusTransport {
     });
     room.send("fastlane.request", { v: PROTOCOL_VERSION });
     room.send("minimap.ready", { v: PROTOCOL_VERSION });
+    this.flushRoomReady();
     setTimeout(() => {
       if (isCurrentRoom() && this.transportModeValue === "websocket-fallback") {
         room.send("fastlane.request", { v: PROTOCOL_VERSION });
@@ -436,6 +464,12 @@ export class ColyseusTransport {
       clientTime: performance.now(),
       payload,
     });
+  }
+
+  private flushRoomReady(): void {
+    if (!this.room || !this.rendererReady || this.readySent) return;
+    this.readySent = true;
+    this.send("room.ready", { ready: true });
   }
 
   private startInputCapture(): void {
@@ -496,6 +530,16 @@ export class ColyseusTransport {
     const parsed = worldFrameSchema.safeParse(raw);
     if (!parsed.success) return;
     const frame = parsed.data;
+    const revealed = this.revealClientParty(frame.players.map((player) => ({
+      id: player.id,
+      roomId: player.roomId,
+      x: player.x,
+      y: player.y,
+    })));
+    if (revealed > 0 && performance.now() - this.lastExplorationPublishAt >= 120) {
+      this.lastExplorationPublishAt = performance.now();
+      this.publishMinimap();
+    }
     for (const sequence of this.pendingInputs.keys()) {
       if (sequence <= frame.ackInputSeq) this.pendingInputs.delete(sequence);
     }
@@ -581,6 +625,14 @@ export class ColyseusTransport {
       equipment: equipmentSummaries(player.equipment),
     }));
     const localRoomId = players.find((player) => player.isLocal)?.roomId ?? "";
+    this.revealClientParty(players.map((player) => ({
+      id: player.userId,
+      roomId: player.roomId,
+      x: player.x,
+      y: player.y,
+      connected: player.connected,
+      alive: player.alive,
+    })));
     const localPlayerState = collectionValues(state.players).find((player) => player.userId === this.localUserId);
     const draft = localPlayerState?.upgradeDraft;
     const localUpgradeDraft = draft?.active && draft.draftId
@@ -710,6 +762,21 @@ export class ColyseusTransport {
   private minimapForRoom(roomId: string): MiniMapSnapshot | null {
     const areaId = minimapAreaIdForRoom(roomId);
     return areaId ? this.minimaps.get(areaId) ?? null : null;
+  }
+
+  private revealClientParty(actors: readonly ExplorationActor[]): number {
+    let revealed = 0;
+    for (const [areaId, minimap] of this.minimaps) {
+      const areaActors = actors.filter((actor) => minimapAreaIdForRoom(actor.roomId) === areaId);
+      if (areaActors.length === 0) continue;
+      const areaRevealed = this.clientExploration.reveal(minimap, areaActors);
+      if (areaRevealed === 0) continue;
+      revealed += areaRevealed;
+      // Replace the wrapper so React/canvas consumers observe the mutated mask.
+      // revision remains the server protocol revision for backwards-compatible deltas.
+      this.minimaps.set(areaId, { ...minimap });
+    }
+    return revealed;
   }
 
   private publishMinimap(): void {

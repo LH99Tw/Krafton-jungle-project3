@@ -2,7 +2,16 @@ import { Client, matchMaker, Room, ServerError, type AuthContext } from "@colyse
 import { StateView } from "@colyseus/schema";
 import { type GameTicketClaims } from "@five-days/auth";
 import { createMatch, finalizeMatch } from "@five-days/db/repositories";
-import { BOSS_ROOM_ID, GameCore, OFFICIAL_MAP_MANIFEST, OFFICIAL_WORLD, createCoreViewSnapshot, type CoreRoomId } from "@five-days/game-core";
+import {
+  ABSOLUTE_MAX_LIVE_INVADERS,
+  BOSS_ROOM_ID,
+  DEFAULT_MAX_LIVE_INVADERS,
+  GameCore,
+  OFFICIAL_MAP_MANIFEST,
+  OFFICIAL_WORLD,
+  createCoreViewSnapshot,
+  type CoreRoomId,
+} from "@five-days/game-core";
 import {
   PARTY_ROOM,
   PROTOCOL_VERSION,
@@ -52,7 +61,9 @@ import {
   recordInputLeaseExpiration,
   recordRealtimeInput,
   recordRealtimeWorldFrame,
+  recordRoomInvaderMetrics,
   recordSimulationCatchUp,
+  removeRoomInvaderMetrics,
 } from "./realtime-metrics";
 import { PartyExploration } from "./minimap";
 
@@ -60,6 +71,8 @@ const FINALIZE_ATTEMPT_TIMEOUT_MS = 3_000;
 const FINALIZE_RETRY_DELAYS_MS = [250, 750] as const;
 const SIMULATION_STEP_MS = 1000 / 60;
 const WORLD_FRAME_INTERVAL_TICKS = 2;
+const SCHEMA_SYNC_INTERVAL_MS = 100;
+const MINIMAP_GEOMETRY_REFRESH_MS = 500;
 export const INPUT_LEASE_MS = 100;
 const MAX_CATCH_UP_TICKS = 4;
 const KEYFRAME_INTERVAL_MS = 500;
@@ -142,7 +155,7 @@ function wait(delayMs: number): Promise<void> {
 
 export class PartyRoom extends Room<PartyRoomState> {
   maxClients = 3;
-  patchRate = 50;
+  patchRate = 100;
   private core!: GameCore;
   private matchId = "";
   private finalized = false;
@@ -162,14 +175,16 @@ export class PartyRoom extends Room<PartyRoomState> {
   private readonly visibleEnemies = new Map<string, Set<string>>();
   private readonly visibleDrops = new Map<string, Set<string>>();
   private readonly visiblePlayerTransforms = new Map<string, Set<string>>();
+  private readonly activeHumanSessions = new Set<string>();
   private readonly schemaRoomIds = new Map<string, string>();
   private readonly previousTransforms = new Map<string, { roomId: string; x: number; y: number; at: number }>();
+  private aoiRoomCache = new Map<string, ReadonlySet<string>>();
   private simulationAccumulatorMs = 0;
   private serverTick = 0;
   private lastKeyframeAt = 0;
   private exploration!: PartyExploration;
   private explorationAccumulatorMs = 0;
-  private explorationBroadcastAccumulatorMs = 0;
+  private schemaSyncAccumulatorMs = 0;
 
   static async onAuth(token: string, _options: unknown, context: AuthContext): Promise<GameTicketClaims> {
     return authorizeGameConnection(token, context, "party");
@@ -201,6 +216,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       difficulty: options.difficulty,
       seed: crypto.randomUUID(),
       minimumPlayers: options.partyMode === "solo" ? 1 : 3,
+      maxLiveInvaders: numericEnv("MAX_LIVE_INVADERS", DEFAULT_MAX_LIVE_INVADERS, 32, ABSOLUTE_MAX_LIVE_INVADERS),
       world: OFFICIAL_WORLD,
     });
     this.exploration = new PartyExploration(this.core);
@@ -292,6 +308,7 @@ export class PartyRoom extends Room<PartyRoomState> {
     this.inputSequences.set(player.userId, -1);
     this.lastInputAt.set(player.userId, Date.now());
     client.userData = { userId: auth.sub };
+    this.activeHumanSessions.add(client.sessionId);
     registerConnection("party", auth.sub, client);
     const state = this.state.players.get(player.userId) ?? new PlayerState();
     state.userId = player.userId;
@@ -306,6 +323,7 @@ export class PartyRoom extends Room<PartyRoomState> {
   }
 
   async onLeave(client: Client, consented: boolean): Promise<void> {
+    this.activeHumanSessions.delete(client.sessionId);
     const userId = client.userData?.userId as string | undefined;
     if (!userId) return;
     const replaced = this.hasActiveClient(userId, client);
@@ -320,7 +338,9 @@ export class PartyRoom extends Room<PartyRoomState> {
       unregisterConnection("party", userId, client);
       this.clearClientTracking(client.sessionId);
       this.clearUserInput(userId);
-      if (!this.core.takeOverPlayerWithAi(userId)) this.core.setConnected(userId, false);
+      this.core.setConnected(userId, false);
+      if (this.shutdownIfNoConnectedHumans(client)) return;
+      this.core.takeOverPlayerWithAi(userId);
       this.syncState(true);
       return;
     }
@@ -340,6 +360,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       }
       registerConnection("party", userId, reconnected);
       unregisterConnection("party", userId, client);
+      this.activeHumanSessions.add(reconnected.sessionId);
       this.core.setConnected(userId, true);
       this.initializeClientView(reconnected, userId);
       for (const init of this.exploration.allInit()) reconnected.send("minimap.init", init);
@@ -348,14 +369,18 @@ export class PartyRoom extends Room<PartyRoomState> {
       unregisterConnection("party", userId, client);
       const active = this.hasActiveClient(userId, client);
       if (active) this.core.setConnected(userId, true);
-      else if (!this.core.takeOverPlayerWithAi(userId)) this.core.setConnected(userId, false);
+      else this.core.setConnected(userId, false);
       this.clearClientTracking(client.sessionId);
+      if (!active && this.shutdownIfNoConnectedHumans(client)) return;
+      if (!active) this.core.takeOverPlayerWithAi(userId);
     }
     this.syncState(true);
   }
 
   async onDispose(): Promise<void> {
+    this.activeHumanSessions.clear();
     unregisterFastLaneRoom(this.roomId);
+    removeRoomInvaderMetrics(this.roomId);
     if (!this.core || this.finalized) return;
     if (!this.core.result) this.core.finish("abandoned", "모든 용사가 원정을 떠났습니다.");
     try {
@@ -477,17 +502,18 @@ export class PartyRoom extends Room<PartyRoomState> {
     if (droppedCatchUp) {
       this.simulationAccumulatorMs %= SIMULATION_STEP_MS;
     }
+    for (const notice of this.core.takeNotices()) {
+      for (const client of this.clients) {
+        if (client.userData?.userId === notice.userId) client.send("message", { code: notice.code, message: notice.message });
+      }
+    }
     recordSimulationCatchUp(simulatedTicks - 1, droppedCatchUp);
+    this.schemaSyncAccumulatorMs += Math.max(0, deltaMs);
     this.explorationAccumulatorMs += Math.max(0, deltaMs);
-    this.explorationBroadcastAccumulatorMs += Math.max(0, deltaMs);
-    if (this.explorationAccumulatorMs >= 100) {
-      this.explorationAccumulatorMs %= 100;
+    if (this.explorationAccumulatorMs >= MINIMAP_GEOMETRY_REFRESH_MS) {
+      this.explorationAccumulatorMs %= MINIMAP_GEOMETRY_REFRESH_MS;
       this.exploration.update();
       for (const init of this.exploration.takeGeometryUpdates()) this.broadcast("minimap.init", init);
-    }
-    if (this.explorationBroadcastAccumulatorMs >= 200) {
-      this.explorationBroadcastAccumulatorMs %= 200;
-      for (const delta of this.exploration.flush()) this.broadcast("minimap.delta", delta);
     }
     if (Date.now() - this.createdAt >= 35 * 60 * 1000 && this.core.phase !== "ended") {
       this.core.finish("abandoned", "원정 최대 진행 시간 35분을 초과했습니다.");
@@ -496,8 +522,18 @@ export class PartyRoom extends Room<PartyRoomState> {
       this.gameplayLocked = true;
       this.lock();
     }
-    this.syncState();
-    this.updateClientViews();
+    const schemaSyncDue = this.schemaSyncAccumulatorMs >= SCHEMA_SYNC_INTERVAL_MS || this.core.phase === "ended";
+    if (schemaSyncDue) {
+      this.schemaSyncAccumulatorMs %= SCHEMA_SYNC_INTERVAL_MS;
+      this.syncState();
+      this.updateClientViews();
+      recordRoomInvaderMetrics(this.roomId, {
+        active: this.core.liveInvaderCount,
+        pending: this.core.pendingInvaderCount,
+        capHits: this.core.invaderCapHitCount,
+        retired: this.core.retiredInvaderCount,
+      });
+    }
     if (simulatedTicks > 0 && this.serverTick % WORLD_FRAME_INTERVAL_TICKS === 0) this.emitWorldFrames();
     if (this.core.phase === "ended") {
       if (!this.resultBroadcast) {
@@ -632,6 +668,17 @@ export class PartyRoom extends Room<PartyRoomState> {
       }
       Object.assign(state, door);
     }
+
+    const liveEnemyIds = new Set(view.enemies.map((enemy) => enemy.id));
+    this.state.enemies.forEach((state, id) => {
+      if (liveEnemyIds.has(id)) return;
+      for (const client of this.clients) {
+        if (this.visibleEnemies.get(client.sessionId)?.delete(id)) client.view?.remove(state);
+      }
+      this.state.enemies.delete(id);
+      this.schemaRoomIds.delete(`enemy:${id}`);
+      this.previousTransforms.delete(`enemy:${id}`);
+    });
 
     for (const enemy of view.enemies) {
       let state = this.state.enemies.get(enemy.id);
@@ -812,28 +859,40 @@ export class PartyRoom extends Room<PartyRoomState> {
     viewer: { roomId: string; x: number; y: number },
     candidate: { roomId: string; x: number; y: number },
   ): boolean {
-    const viewerRoom = this.core.rooms.get(viewer.roomId as CoreRoomId);
-    const candidateRoom = this.core.rooms.get(candidate.roomId as CoreRoomId);
-    if (!viewerRoom || !candidateRoom) return false;
-    const authoredWorld = this.core.options?.world;
-    if (!authoredWorld && viewerRoom.zone !== candidateRoom.zone) return false;
-    if (!authoredWorld && (viewer.roomId === BOSS_ROOM_ID || candidate.roomId === BOSS_ROOM_ID)) return viewer.roomId === candidate.roomId;
-    if (candidate.roomId === viewer.roomId) return true;
-    const visited = new Set<string>([viewer.roomId]);
-    let frontier = [viewer.roomId];
+    return this.aoiRooms(viewer.roomId).has(candidate.roomId);
+  }
+
+  private aoiRooms(roomId: string): ReadonlySet<string> {
+    this.aoiRoomCache ??= new Map<string, ReadonlySet<string>>();
+    const authoredWorld = Boolean(this.core.options?.world);
+    const cacheKey = `${authoredWorld ? "authored" : "procedural"}:${roomId}`;
+    const cached = this.aoiRoomCache.get(cacheKey);
+    if (cached) return cached;
+    const viewerRoom = this.core.rooms.get(roomId as CoreRoomId);
+    if (!viewerRoom) return new Set();
+    if (!authoredWorld && roomId === BOSS_ROOM_ID) {
+      const bossOnly = new Set([roomId]);
+      this.aoiRoomCache.set(cacheKey, bossOnly);
+      return bossOnly;
+    }
+    const visited = new Set<string>([roomId]);
+    let frontier = [roomId];
     for (let depth = 0; depth < 2; depth += 1) {
       const next: string[] = [];
-      for (const roomId of frontier) {
-        for (const connectedId of this.core.rooms.get(roomId as CoreRoomId)?.connections ?? []) {
+      for (const frontierRoomId of frontier) {
+        for (const connectedId of this.core.rooms.get(frontierRoomId as CoreRoomId)?.connections ?? []) {
           if (visited.has(connectedId)) continue;
-          if (connectedId === candidate.roomId) return true;
+          const connectedRoom = this.core.rooms.get(connectedId as CoreRoomId);
+          if (!connectedRoom) continue;
+          if (!authoredWorld && (connectedRoom.zone !== viewerRoom.zone || connectedId === BOSS_ROOM_ID)) continue;
           visited.add(connectedId);
           next.push(connectedId);
         }
       }
       frontier = next;
     }
-    return false;
+    this.aoiRoomCache.set(cacheKey, visited);
+    return visited;
   }
 
   private updateClientViews(): void {
@@ -904,6 +963,18 @@ export class PartyRoom extends Room<PartyRoomState> {
 
   private hasActiveClient(userId: string, excluded: Client): boolean {
     return Boolean(this.findActiveClient(userId, excluded));
+  }
+
+  private shutdownIfNoConnectedHumans(excluded?: Client): boolean {
+    if (this.shutdownStarted) return true;
+    if (excluded) this.activeHumanSessions.delete(excluded.sessionId);
+    if (this.activeHumanSessions.size > 0) return false;
+
+    this.shutdownStarted = true;
+    if (this.core.phase !== "ended") this.core.finish("abandoned", "모든 용사가 원정을 떠났습니다.");
+    this.syncState(true);
+    void this.finalizeAndDisconnect();
+    return true;
   }
 
   private findActiveClient(userId: string, excluded: Client): Client | undefined {

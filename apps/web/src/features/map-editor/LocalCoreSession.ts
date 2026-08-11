@@ -78,7 +78,7 @@ export class LocalCoreSession {
     this.minimapWallIndex = null;
   }
 
-  tick(deltaMs: number, input: LocalCoreInput): { snapshot: NetworkWorldSnapshot; frame: WorldFrame; inputFrame: InputFrame } {
+  tick(deltaMs: number, input: LocalCoreInput): { snapshot: NetworkWorldSnapshot; frame: WorldFrame; inputFrame: InputFrame; message?: string } {
     const core = this.requireCore();
     const inputFrame: InputFrame = {
       v: PROTOCOL_VERSION,
@@ -106,7 +106,8 @@ export class LocalCoreSession {
       this.minimapAccumulatorMs %= 100;
       this.revealPartyExploration();
     }
-    return { snapshot: this.snapshot(), frame: this.worldFrame(inputFrame.seq), inputFrame };
+    const message = core.takeNotices().find((notice) => notice.userId === this.localUserId)?.message;
+    return { snapshot: this.snapshot(), frame: this.worldFrame(inputFrame.seq), inputFrame, ...(message ? { message } : {}) };
   }
 
   chooseUpgrade(draftId: string, upgradeId: UpgradeChoice["id"]): boolean {

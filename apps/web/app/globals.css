@@ -972,11 +972,58 @@ button {
   letter-spacing: 0.08em;
 }
 
+.game-canvas-shell,
 .game-canvas,
 .game-canvas canvas {
   width: 100%;
   height: 100%;
   display: block;
+}
+
+.game-canvas-shell {
+  position: absolute;
+  inset: 0;
+}
+
+.game-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-content: center;
+  gap: 14px;
+  padding: 24px;
+  color: #e5f3e9;
+  text-align: center;
+  background:
+    radial-gradient(circle at 50% 42%, rgba(61, 101, 78, 0.28), transparent 34%),
+    #080d0d;
+}
+
+.game-loading__title {
+  font: 600 24px Georgia, serif;
+  letter-spacing: 0.08em;
+}
+
+.game-loading__track {
+  width: min(420px, 64vw);
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(189, 238, 211, 0.3);
+  background: rgba(0, 0, 0, 0.46);
+}
+
+.game-loading__track i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #4f9a73, #bdeed3);
+  transition: width 120ms ease-out;
+}
+
+.game-loading__status {
+  color: #9db9a8;
+  font: 11px ui-monospace, monospace;
+  letter-spacing: 0.06em;
 }
 
 .game-canvas canvas {

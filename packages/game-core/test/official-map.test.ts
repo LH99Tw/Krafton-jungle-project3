@@ -54,6 +54,7 @@ test("an undiscovered official gate spawns invaders that pathfind to and damage 
   updateInvaderSpawning(60 / 8);
   const invader = [...core.enemies.values()].find((enemy) => enemy.kind === "invader")!;
   const gate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate" && enemy.roomId === invader.spawnRoomId)!;
+  assert.equal(core.rooms.get(gate.roomId)?.zone, 1);
   assert.equal(core.discoveredRooms.has(gate.roomId), false);
   assert.equal(invader.kind, "invader");
   assert.equal(invader.spawnRoomId, gate.roomId);
@@ -70,4 +71,64 @@ test("an undiscovered official gate spawns invaders that pathfind to and damage 
   assert.equal(invader.alive, false);
   assert.equal(invader.roomId, OFFICIAL_WORLD.baseRoomId);
   assert.ok(core.baseHp < baseHp);
+});
+
+test("advancing to zone two stops zone-one waves and only uses the zone-two gate", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "official-zone-waves", minimumPlayers: 1, world: OFFICIAL_WORLD });
+  const player = core.addPlayer({ userId: "player", displayName: "Player", heroClass: "swordsman" });
+  core.setReady(player.userId, true);
+  const updateInvaderSpawning = (core as unknown as { updateInvaderSpawning(delta: number): void }).updateInvaderSpawning.bind(core);
+  const waveInterval = 60 / 8;
+
+  updateInvaderSpawning(waveInterval);
+  const zoneOneInvaders = [...core.enemies.values()].filter((enemy) => enemy.kind === "invader");
+  assert.ok(zoneOneInvaders.length > 0);
+  assert.ok(zoneOneInvaders.every((enemy) => core.rooms.get(enemy.spawnRoomId)?.zone === 1));
+
+  const zoneTwoRoom = OFFICIAL_WORLD.rooms.find((room) => room.zone === 2)!;
+  core.movePlayerToRoom(player.userId, zoneTwoRoom.id);
+  assert.equal(core.currentZone, 2);
+  const previousIds = new Set(zoneOneInvaders.map((enemy) => enemy.id));
+  updateInvaderSpawning(waveInterval);
+  const zoneTwoInvaders = [...core.enemies.values()].filter((enemy) => enemy.kind === "invader" && !previousIds.has(enemy.id));
+  assert.ok(zoneTwoInvaders.length > 0);
+  assert.ok(zoneTwoInvaders.every((enemy) => core.rooms.get(enemy.spawnRoomId)?.zone === 2));
+
+  core.movePlayerToRoom(player.userId, OFFICIAL_WORLD.baseRoomId);
+  assert.equal(core.currentZone, 2, "progression must not fall back to zone one after returning to base");
+  const beforeReturnWave = new Set([...core.enemies.keys()]);
+  updateInvaderSpawning(waveInterval);
+  const afterReturnWave = [...core.enemies.values()].filter((enemy) => enemy.kind === "invader" && !beforeReturnWave.has(enemy.id));
+  assert.ok(afterReturnWave.length > 0);
+  assert.ok(afterReturnWave.every((enemy) => core.rooms.get(enemy.spawnRoomId)?.zone === 2));
+});
+
+test("zone two remains locked with a warning until every zone-one gate is destroyed", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "official-zone-lock", minimumPlayers: 1, world: OFFICIAL_WORLD });
+  const player = core.addPlayer({ userId: "player", displayName: "Player", heroClass: "swordsman" });
+  core.setReady(player.userId, true);
+  const transitionDoor = [...core.doors.values()].find((door) => {
+    const zones = [core.rooms.get(door.fromRoomId)?.zone, core.rooms.get(door.toRoomId)?.zone];
+    return zones.includes(1) && zones.includes(2);
+  })!;
+  const zoneOneSide = core.rooms.get(transitionDoor.fromRoomId)?.zone === 1
+    ? transitionDoor.fromRoomId
+    : transitionDoor.toRoomId;
+  const zoneTwoSide = zoneOneSide === transitionDoor.fromRoomId ? transitionDoor.toRoomId : transitionDoor.fromRoomId;
+  core.movePlayerToRoom(player.userId, zoneOneSide);
+
+  assert.equal(core.interact(player.userId, transitionDoor.id), false);
+  assert.equal(player.roomId, zoneOneSide);
+  assert.deepEqual(core.takeNotices(), [{
+    userId: player.userId,
+    code: "ZONE_GATE_LOCKED",
+    message: "구역 1의 게이트를 모두 파괴해야 다음 구역에 진입할 수 있습니다.",
+  }]);
+
+  for (const enemy of core.enemies.values()) {
+    if (enemy.kind === "gate" && core.rooms.get(enemy.roomId)?.zone === 1) enemy.alive = false;
+  }
+  assert.equal(core.interact(player.userId, transitionDoor.id), true);
+  assert.equal(player.roomId, zoneTwoSide);
+  assert.equal(core.currentZone, 2);
 });

@@ -168,6 +168,28 @@ test("validates v6 input and AOI world frames", () => {
   }).success, true);
 });
 
+test("a capped 256-enemy AOI frame remains protocol-valid and bounded in size", () => {
+  const frame = {
+    v: PROTOCOL_VERSION,
+    serverTick: 30,
+    serverTime: Date.now(),
+    ackInputSeq: 4,
+    players: [{ id: "p1", roomId: "room", x: 10, y: 20, vx: 1, vy: 0, aim: 0, flags: 0 }],
+    enemies: Array.from({ length: 256 }, (_, index) => ({
+      id: `enemy-${index}`,
+      roomId: "room",
+      x: index,
+      y: index,
+      vx: 0,
+      vy: 0,
+      aim: 0,
+      flags: 0,
+    })),
+  };
+  assert.equal(worldFrameSchema.safeParse(frame).success, true);
+  assert.ok(Buffer.byteLength(JSON.stringify(frame)) < 40_000);
+});
+
 test("keeps every party member in each client state view", () => {
   const visible = partyPlayerIdsForView([
     { userId: "player-1", roomId: "zone-1:start" },

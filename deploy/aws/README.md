@@ -37,7 +37,7 @@ AWS_PROFILE_NAME=five-days ./deploy/aws/bootstrap-lightsail.sh | tee deploy/.sec
 Google Cloud OAuth client와 Cognito User Pool/Domain/Client/Google IdP를 먼저 생성합니다. callback은 다음 형식입니다.
 
 ```text
-https://web.<STATIC_IP>.sslip.io/api/auth/callback
+https://five-days-web.duckdns.org/api/auth/callback
 ```
 
 필요한 Cognito 값을 환경 변수로 전달하면 production secret과 PostgreSQL 비밀번호를 로컬 `deploy/.secrets`에서 생성해 서버에 mode `0600`으로 전송합니다.
@@ -80,7 +80,7 @@ push나 pull request로는 배포되지 않습니다. workflow는 SHA 태그 이
 - 웹, Colyseus, PostgreSQL을 서울의 동일 Lightsail 인스턴스와 Docker network에 배치
 - ALB, NAT Gateway, CloudFront, 외부 Redis를 경로에서 제외
 - 로그인·매칭·판정은 지속 WSS를 사용하고 이동 입력·좌표는 WebTransport datagram을 우선 사용
-- 고정 IP와 `sslip.io` DNS를 사용하고 Caddy에서 TLS 종료
+- 고정 IP를 가리키는 `five-days-web.duckdns.org`, `five-days-game.duckdns.org`와 Caddy에서 TLS 종료
 - 60Hz 고정 서버 tick, 30Hz AOI 좌표 프레임, 클라이언트 60fps 보간 사용
 
 한국 사용자 기준 RTT와 `tick p95`를 따로 측정합니다. 서울에서 멀리 떨어진 사용자의 물리적 RTT는 제거할 수 없으며, 이용자 지역이 바뀌면 해당 지역 게임 서버를 추가해야 합니다.

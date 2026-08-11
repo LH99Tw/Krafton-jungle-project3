@@ -153,6 +153,6 @@ jq -n \
   --arg ip "$static_ip" \
   --arg roleArn "$role_arn" \
   --arg keyFile "$SSH_KEY_FILE" \
-  --arg webHost "web.$static_ip.sslip.io" \
-  --arg gameHost "game.$static_ip.sslip.io" \
+  --arg webHost "five-days-web.duckdns.org" \
+  --arg gameHost "five-days-game.duckdns.org" \
   '{instance:$instance,staticIp:$ip,roleArn:$roleArn,sshPrivateKey:$keyFile,webHost:$webHost,gameHost:$gameHost}'

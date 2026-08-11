@@ -26,14 +26,43 @@ test("runtime preloads four-direction hero sheets and selects a movement-facing 
   assert.doesNotMatch(generatedTextures, /key: "hero-/);
 });
 
-test("network enemy hp bars follow the same interpolated position as their sprites", () => {
+test("network enemy hp bars are batched at the interpolated sprite positions", () => {
   const scene = readFileSync(new URL("../src/game/runtime/room/RoomGameScene.ts", import.meta.url), "utf8");
   const transformUpdate = scene.slice(
     scene.indexOf("  private updateNetworkTransforms(): void"),
     scene.indexOf("  private configureInput(): void"),
   );
   assert.match(transformUpdate, /sprite\.setPosition\(point\.x, point\.y\)/);
-  assert.match(transformUpdate, /networkEnemyHpBars\.get\(enemy\.id\)[\s\S]*?\.setPosition\(point\.x, point\.y\)/);
-  assert.match(scene, /graphics\.clear\(\)\.setPosition\(x, y\)/);
-  assert.match(scene, /const barX = -width \/ 2/);
+  assert.match(transformUpdate, /this\.drawNetworkEnemyHpBars\(snapshot, localState, now\)/);
+  assert.match(scene, /const barX = sprite\.x - width \/ 2/);
+  assert.doesNotMatch(scene, /networkEnemyHpBars/);
+});
+
+test("network enemies use a bounded render queue without client physics bodies", () => {
+  const scene = readFileSync(new URL("../src/game/runtime/room/RoomGameScene.ts", import.meta.url), "utf8");
+  const renderer = readFileSync(new URL("../src/game/runtime/room/RoomRenderer.ts", import.meta.url), "utf8");
+  assert.match(scene, /NETWORK_ENEMY_SPAWN_BUDGET_MS = 3/);
+  assert.match(scene, /NETWORK_ENEMY_SPAWN_LIMIT = 12/);
+  assert.match(scene, /materializePendingNetworkEnemies\(\)/);
+  assert.match(renderer, /acquireNetworkEnemy[\s\S]*?this\.scene\.add\.sprite/);
+  assert.doesNotMatch(renderer, /acquireNetworkEnemy[\s\S]*?physics\.add\.sprite/);
+});
+
+test("room transitions update dynamic waypoints without rebuilding the authored world", () => {
+  const scene = readFileSync(new URL("../src/game/runtime/room/RoomGameScene.ts", import.meta.url), "utf8");
+  const networkRender = scene.slice(
+    scene.indexOf("  private renderNetworkRoom("),
+    scene.indexOf("  private activeWaypointRooms("),
+  );
+  assert.match(networkRender, /updateWaypoints\(this\.zoneWorld, waypointRooms\)/);
+  assert.doesNotMatch(networkRender, /renderZoneWorld|renderWorld/);
+});
+
+test("the server ready signal waits for Phaser renderer readiness", () => {
+  const transport = readFileSync(new URL("../src/game/transport/ColyseusTransport.ts", import.meta.url), "utf8");
+  const connectBody = transport.slice(transport.indexOf("  async connect("), transport.indexOf("  subscribe("));
+  assert.match(connectBody, /this\.flushRoomReady\(\)/);
+  assert.doesNotMatch(connectBody, /this\.send\("room\.ready"/);
+  assert.match(transport, /markRendererReady\(\)[\s\S]*?this\.rendererReady = true/);
+  assert.match(transport, /if \(!this\.room \|\| !this\.rendererReady \|\| this\.readySent\) return/);
 });

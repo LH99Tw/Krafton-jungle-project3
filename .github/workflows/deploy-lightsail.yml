@@ -190,6 +190,7 @@ jobs:
           upsert_env .env.game FASTLANE_CERT_PATH /run/secrets/fastlane/tls.crt
           upsert_env .env.game FASTLANE_KEY_PATH /run/secrets/fastlane/tls.key
           upsert_env .env.game FASTLANE_MAINTENANCE_MS 10000
+          upsert_env .env.game MAX_LIVE_INVADERS 256
           upsert_env .env.game SERVER_VERSION "$IMAGE_SHA"
           chmod 0600 .env.web .env.game
           docker compose pull web game-server migrate

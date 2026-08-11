@@ -6,6 +6,15 @@ const nextConfig: NextConfig = {
   output: "standalone",
   outputFileTracingRoot: path.join(process.cwd(), "../.."),
   transpilePackages: ["@five-days/auth", "@five-days/db", "@five-days/game-core", "@five-days/protocol"],
+  async headers() {
+    return [{
+      source: "/Asset/:path*",
+      headers: [{
+        key: "Cache-Control",
+        value: "public, max-age=86400, stale-while-revalidate=604800",
+      }],
+    }];
+  },
   webpack(config, { dev }) {
     if (!dev) {
       const disabledEditor = path.resolve(process.cwd(), "src/features/game/DisabledMapEditorScreen.tsx");

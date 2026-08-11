@@ -118,7 +118,8 @@ export function predictPlayerTransform(input: {
   rooms: readonly RoomMapCell[];
   movementWorld?: Readonly<{
     walkable: readonly WorldRect[];
-    rooms: readonly Readonly<{ id: string; rect: WorldRect }>[];
+    rooms: readonly Readonly<{ id: string; rect: WorldRect; zone?: number }>[];
+    maxAccessibleZone?: number;
   }>;
 }): { x: number; y: number; roomId: string } {
   const magnitude = Math.hypot(input.frame.x, input.frame.y);
@@ -141,6 +142,13 @@ export function predictPlayerTransform(input: {
       && resolved.y >= rect.y
       && resolved.y < rect.y + rect.height
     ));
+    if (
+      containing?.zone !== undefined
+      && input.movementWorld.maxAccessibleZone !== undefined
+      && containing.zone > input.movementWorld.maxAccessibleZone
+    ) {
+      return { x: input.x, y: input.y, roomId: input.roomId };
+    }
     return { x: resolved.x, y: resolved.y, roomId: containing?.id ?? input.roomId };
   }
   if (input.roomId === BOSS_ROOM_ID) {

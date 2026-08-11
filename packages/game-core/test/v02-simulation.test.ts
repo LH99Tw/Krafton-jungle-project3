@@ -7,6 +7,7 @@ import {
   doorId,
   enemyPatternConfig,
   GameCore,
+  MAX_PENDING_INVADERS,
   ROOM_HEIGHT,
   ROOM_WIDTH,
   roomWorldCenter,
@@ -650,6 +651,97 @@ test("destroying the current-zone gate stops new spawns while existing invaders 
   for (let index = 0; index < 200; index += 1) core.update(0.1);
   assert.equal([...core.enemies.values()].filter((candidate) => candidate.kind === "invader").length, invaderCount);
   assert.ok(Math.hypot(invader.x - before.x, invader.y - before.y) > 100, "an existing invader should continue after gate destruction");
+});
+
+test("invader waves preserve overflow without exceeding the live cap", () => {
+  const core = new GameCore({
+    mode: "prototype",
+    difficulty: "normal",
+    seed: "invader-cap",
+    minimumPlayers: 1,
+    maxLiveInvaders: 5,
+  });
+  const gate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate" && core.rooms.get(enemy.roomId)?.zone === 1)!;
+  const internals = core as unknown as {
+    enqueueInvaderWave(gateEnemyId: string, zone: 1, count: number): void;
+    releaseOldestInvaderWave(): void;
+    retireInactiveInvaders(): void;
+  };
+
+  internals.enqueueInvaderWave(gate.id, 1, 8);
+  internals.releaseOldestInvaderWave();
+  assert.equal(core.liveInvaderCount, 5);
+  assert.equal(core.pendingInvaderCount, 3);
+  assert.equal(core.invaderCapHitCount, 1);
+  assert.throws(() => core.spawnInvader(1), /Live invader limit/);
+
+  const retired = [...core.enemies.values()].filter((enemy) => enemy.behavior === "invader").slice(0, 2);
+  retired.forEach((enemy) => { enemy.alive = false; });
+  internals.retireInactiveInvaders();
+  assert.equal(core.liveInvaderCount, 3);
+  assert.equal(core.retiredInvaderCount, 2);
+  assert.ok(retired.every((enemy) => !core.enemies.has(enemy.id)));
+
+  internals.releaseOldestInvaderWave();
+  assert.equal(core.liveInvaderCount, 5);
+  assert.equal(core.pendingInvaderCount, 1);
+});
+
+test("only one queued wave batch is released per spawn interval", () => {
+  const core = new GameCore({
+    mode: "prototype",
+    difficulty: "normal",
+    seed: "invader-batches",
+    minimumPlayers: 1,
+    maxLiveInvaders: 10,
+  });
+  const gate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate" && core.rooms.get(enemy.roomId)?.zone === 1)!;
+  const internals = core as unknown as {
+    enqueueInvaderWave(gateEnemyId: string, zone: 1, count: number): void;
+    releaseOldestInvaderWave(): void;
+  };
+  internals.enqueueInvaderWave(gate.id, 1, 3);
+  internals.enqueueInvaderWave(gate.id, 1, 4);
+  internals.releaseOldestInvaderWave();
+  assert.equal(core.liveInvaderCount, 3);
+  assert.equal(core.pendingInvaderCount, 4, "the second batch must wait for the next interval");
+});
+
+test("destroyed gates cancel queued waves and pathological queues stay bounded", () => {
+  const core = new GameCore({
+    mode: "prototype",
+    difficulty: "normal",
+    seed: "invader-queue-bound",
+    minimumPlayers: 1,
+    maxLiveInvaders: 5,
+  });
+  const gate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate" && core.rooms.get(enemy.roomId)?.zone === 1)!;
+  const internals = core as unknown as {
+    enqueueInvaderWave(gateEnemyId: string, zone: 1, count: number): void;
+    pruneInvaderWaveQueue(): void;
+  };
+  internals.enqueueInvaderWave(gate.id, 1, MAX_PENDING_INVADERS * 2);
+  assert.equal(core.pendingInvaderCount, MAX_PENDING_INVADERS);
+  gate.alive = false;
+  internals.pruneInvaderWaveQueue();
+  assert.equal(core.pendingInvaderCount, 0);
+});
+
+test("a full 256-invader room remains bounded through a simulation tick", () => {
+  const core = new GameCore({
+    mode: "prototype",
+    difficulty: "normal",
+    seed: "invader-production-cap",
+    minimumPlayers: 1,
+    maxLiveInvaders: 256,
+  });
+  core.addPlayer({ userId: "load-player", displayName: "용사", heroClass: "swordsman" });
+  core.setReady("load-player", true);
+  for (let index = 0; index < 256; index += 1) core.spawnInvader(1);
+  assert.equal(core.liveInvaderCount, 256);
+  core.update(1 / 60);
+  assert.ok(core.liveInvaderCount <= 256);
+  assert.throws(() => core.spawnInvader(1), /Live invader limit/);
 });
 
 test("solo AI companions: defender guards base, follower is driven toward the leader", () => {

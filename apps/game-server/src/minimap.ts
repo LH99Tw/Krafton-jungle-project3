@@ -6,31 +6,22 @@ import {
   buildWorldFromRooms,
   createExplorationMask,
   createMiniMapGrid,
-  createWallSpatialIndex,
-  encodeCellRanges,
   encodeMask,
   rectToMiniMapSurface,
-  revealAround,
   type GameCore,
-  type WallSpatialIndex,
   type WorldRect,
 } from "@five-days/game-core";
 import { PLAYER_VISION_RADIUS, PROTOCOL_VERSION, type MiniMapDelta, type MiniMapGeometry, type MiniMapInit } from "@five-days/protocol";
 
 type AreaState = {
   geometry: MiniMapGeometry;
-  wallIndex: WallSpatialIndex;
   mask: Uint8Array;
-  pending: Set<number>;
   revision: number;
 };
 
 const OFFICIAL_AREA_ID = "official-map";
-const EXPLORATION_MOVE_THRESHOLD = 4;
-
 export class PartyExploration {
   private readonly areas = new Map<string, AreaState>();
-  private readonly lastRevealPosition = new Map<string, { areaId: string; x: number; y: number }>();
   private markerSignature = "";
   private geometryDirty = false;
 
@@ -61,28 +52,6 @@ export class PartyExploration {
 
   update(): void {
     this.refreshMarkers();
-    const activePlayers = new Set<string>();
-    for (const player of this.core.players.values()) {
-      if (!player.connected || !player.alive) continue;
-      activePlayers.add(player.userId);
-      const areaId = this.areaIdForRoom(player.roomId);
-      const state = areaId ? this.areas.get(areaId) : undefined;
-      if (!state || !areaId) continue;
-      const previous = this.lastRevealPosition.get(player.userId);
-      if (previous?.areaId === areaId && Math.hypot(player.x - previous.x, player.y - previous.y) < EXPLORATION_MOVE_THRESHOLD) continue;
-      this.lastRevealPosition.set(player.userId, { areaId, x: player.x, y: player.y });
-      for (const index of revealAround(
-        state.geometry,
-        state.mask,
-        player.x,
-        player.y,
-        state.geometry.visionRadius,
-        state.wallIndex,
-      )) state.pending.add(index);
-    }
-    for (const userId of this.lastRevealPosition.keys()) {
-      if (!activePlayers.has(userId)) this.lastRevealPosition.delete(userId);
-    }
   }
 
   init(areaId: string): MiniMapInit | null {
@@ -96,20 +65,7 @@ export class PartyExploration {
   }
 
   flush(): MiniMapDelta[] {
-    const messages: MiniMapDelta[] = [];
-    for (const state of this.areas.values()) {
-      if (state.pending.size === 0) continue;
-      state.revision += 1;
-      messages.push({
-        v: PROTOCOL_VERSION,
-        mapRevision: state.geometry.mapRevision,
-        areaId: state.geometry.areaId,
-        revision: state.revision,
-        ranges: encodeCellRanges(state.pending),
-      });
-      state.pending.clear();
-    }
-    return messages;
+    return [];
   }
 
   takeGeometryUpdates(): MiniMapInit[] {
@@ -134,9 +90,7 @@ export class PartyExploration {
     };
     this.areas.set(areaId, {
       geometry,
-      wallIndex: createWallSpatialIndex(walls),
       mask: createExplorationMask(geometry),
-      pending: new Set(),
       revision: 0,
     });
   }

@@ -15,6 +15,7 @@ export const localCoreSession = {
     snapshot: NetworkWorldSnapshot;
     frame: WorldFrame;
     inputFrame: InputFrame;
+    message?: string;
   } { void _deltaMs; void _input; return unavailable(); },
   chooseUpgrade(_draftId: string, _upgradeId: UpgradeChoice["id"]): boolean {
     void _draftId; void _upgradeId; return unavailable();

@@ -70,6 +70,7 @@ export * from "./v02";
 
 export type CorePhase = "lobby" | "day" | "night" | "standby" | "boss" | "ended";
 export type CoreResult = "victory" | "defeat" | "abandoned";
+export type CoreNotice = Readonly<{ userId: string; code: "ZONE_GATE_LOCKED"; message: string }>;
 
 export type CorePlayer = {
   userId: string;
@@ -118,6 +119,8 @@ export type GameCoreOptions = {
   difficulty: "easy" | "normal" | "hard";
   seed: string;
   minimumPlayers?: number;
+  /** Per-room circuit breaker for simultaneously active gate invaders. */
+  maxLiveInvaders?: number;
   /** Optional local-authored world. Omitted for the production procedural world. */
   world?: CoreWorldDefinition;
 };
@@ -170,6 +173,9 @@ const INVADER_BLOCKED_EDGE_SECONDS = 2;
 const INVADER_DAY_WAVES = 8;
 const INVADER_NIGHT_WAVES = 10;
 const INVADER_SPAWN_SLOTS = 24;
+export const DEFAULT_MAX_LIVE_INVADERS = 256;
+export const ABSOLUTE_MAX_LIVE_INVADERS = 384;
+export const MAX_PENDING_INVADERS = 1_024;
 const INVADER_CORRIDOR_LANE_OFFSET = 20;
 const AI_FOLLOWER_GAP = 180;
 const AI_PATH_REPLAN_SECONDS = 0.75;
@@ -188,6 +194,12 @@ type InvaderNavigation = {
   stallY: number;
   blockedEdge: string | null;
   blockedUntil: number;
+};
+
+type InvaderWaveBatch = {
+  gateEnemyId: string;
+  zone: ZoneId;
+  remaining: number;
 };
 
 type AiFollowNavigation = {
@@ -223,10 +235,14 @@ export class GameCore {
 
   private readonly minimumPlayers: number;
   private readonly authoredWorld: CoreWorldDefinition | null;
+  private readonly maxLiveInvaders: number;
   private travelIntent: TravelIntent | null = null;
   private invaderSpawnAccumulator = 0;
   private invaderWaveIndex = 0;
   private invaderSerial = 0;
+  private readonly invaderWaveQueue: InvaderWaveBatch[] = [];
+  private retiredInvaders = 0;
+  private invaderCapHits = 0;
   private hiddenDropSerial = 0;
   private readonly resourceAccumulators = new Map<CoreRoomId, number>();
   private readonly vulnerableEnemies = new Map<string, { playerId: string; expiresAt: number }>();
@@ -236,10 +252,16 @@ export class GameCore {
   private readonly aiFollowNavigation = new Map<string, AiFollowNavigation>();
   private readonly zoneWorlds = new Map<ZoneId, ReturnType<typeof buildWorldFromRooms>>();
   private authoredWalkableCache: { bossAccessible: boolean; rects: readonly WorldRect[] } | null = null;
+  private readonly notices: CoreNotice[] = [];
+  private readonly noticeCooldowns = new Map<string, number>();
 
   constructor(readonly options: GameCoreOptions) {
     this.minimumPlayers = options.minimumPlayers ?? 3;
     this.authoredWorld = options.world ?? null;
+    const requestedInvaderLimit = options.maxLiveInvaders ?? DEFAULT_MAX_LIVE_INVADERS;
+    this.maxLiveInvaders = Number.isFinite(requestedInvaderLimit)
+      ? Math.max(1, Math.min(ABSOLUTE_MAX_LIVE_INVADERS, Math.floor(requestedInvaderLimit)))
+      : DEFAULT_MAX_LIVE_INVADERS;
     const world = options.world
       ? createAuthoredRuntimeWorld(options.world, options.seed, options.difficulty)
       : createRuntimeWorld(options.seed, options.difficulty);
@@ -267,8 +289,34 @@ export class GameCore {
     return { level: this.teamLevel, xp: this.teamXp, xpToNext: this.teamXpToNext };
   }
 
+  takeNotices(): CoreNotice[] {
+    return this.notices.splice(0, this.notices.length);
+  }
+
   get activeTravel(): Readonly<TravelIntent> | null {
     return this.travelIntent ? { ...this.travelIntent } : null;
+  }
+
+  get liveInvaderCount(): number {
+    let count = 0;
+    for (const enemy of this.enemies.values()) {
+      if (enemy.alive && enemy.behavior === "invader") count += 1;
+    }
+    return count;
+  }
+
+  get pendingInvaderCount(): number {
+    let count = 0;
+    for (const batch of this.invaderWaveQueue) count += batch.remaining;
+    return count;
+  }
+
+  get retiredInvaderCount(): number {
+    return this.retiredInvaders;
+  }
+
+  get invaderCapHitCount(): number {
+    return this.invaderCapHits;
   }
 
   addPlayer(input: { userId: string; displayName: string; heroClass: HeroClassId }): CorePlayer {
@@ -412,6 +460,7 @@ export class GameCore {
     this.updatePatternEnemies(delta);
     this.updateStaticRespawns(delta);
     this.updateInvaders(delta);
+    this.retireInactiveInvaders();
     this.updateInvaderSpawning(delta);
     this.updateResourceProduction(delta);
     this.updateTravel(delta);
@@ -587,11 +636,14 @@ export class GameCore {
         ? door.fromRoomId
         : null;
     if (!destination) return false;
+    if (!this.canEnterRoom(player, destination)) return false;
     const center = this.roomWorldCenterOf(destination);
     player.roomId = destination;
     player.x = center.x;
     player.y = center.y;
     this.discoverRoom(destination);
+    const destinationZone = this.rooms.get(destination)?.zone;
+    if (destinationZone && destinationZone > this.currentZone) this.currentZone = destinationZone;
     return true;
   }
 
@@ -634,9 +686,15 @@ export class GameCore {
     return true;
   }
 
-  spawnInvader(zone: ZoneId = this.currentZone): CoreEnemy {
+  spawnInvader(zone: ZoneId = this.currentZone, gateEnemyId?: string): CoreEnemy {
+    if (this.liveInvaderCount >= this.maxLiveInvaders) {
+      this.invaderCapHits += 1;
+      throw new RangeError(`Live invader limit of ${this.maxLiveInvaders} reached`);
+    }
     const spawnIndex = this.invaderSerial;
-    const authoredGate = this.authoredWorld ? this.authoredSpawnGate() : null;
+    const requestedGate = gateEnemyId ? this.enemies.get(gateEnemyId) : null;
+    const explicitGate = requestedGate?.kind === "gate" && requestedGate.alive ? requestedGate : null;
+    const authoredGate = this.authoredWorld ? explicitGate ?? this.authoredSpawnGate(zone) : null;
     const authoredPath = authoredGate
       ? this.shortestRoomPath(authoredGate.roomId, this.authoredWorld!.baseRoomId)
       : null;
@@ -651,7 +709,7 @@ export class GameCore {
         ? { roomId: authoredGate.roomId, path: authoredPath, position: authoredPosition }
         : undefined,
     );
-    const gate = authoredGate ?? this.livingGateInZone(zone);
+    const gate = authoredGate ?? explicitGate ?? this.livingGateInZone(zone);
     if (gate) {
       const roomCenter = this.roomWorldCenterOf(gate.roomId);
       const dx = roomCenter.x - gate.x;
@@ -958,13 +1016,18 @@ export class GameCore {
       this.cancelTravel();
       return;
     }
+    if (destination.zone > this.currentZone && this.hasLivingGateInZone(this.currentZone)) {
+      for (const player of players) this.pushZoneGateWarning(player.userId, this.currentZone);
+      this.cancelTravel();
+      return;
+    }
     for (const player of players) {
       player.roomId = destination.roomId;
       player.x = destination.x;
       player.y = destination.y;
     }
     this.discoverRoom(destination.roomId);
-    this.currentZone = destination.zone;
+    if (destination.zone > this.currentZone) this.currentZone = destination.zone;
     this.cancelTravel();
   }
 
@@ -1188,11 +1251,13 @@ export class GameCore {
   }
 
   private updateInvaderSpawning(delta: number): void {
+    this.pruneInvaderWaveQueue();
     if (this.phase !== "day" && this.phase !== "night") return;
-    const spawnGate = this.authoredWorld ? this.authoredSpawnGate() : this.livingGateInZone(this.currentZone);
+    const spawnGate = this.authoredWorld ? this.authoredSpawnGate(this.currentZone) : this.livingGateInZone(this.currentZone);
     if (!spawnGate) {
       this.invaderSpawnAccumulator = 0;
       this.invaderWaveIndex = 0;
+      this.invaderWaveQueue.length = 0;
       return;
     }
     const isNight = this.phase === "night";
@@ -1204,7 +1269,48 @@ export class GameCore {
     this.invaderSpawnAccumulator = 0;
     const count = isNight ? 3 + this.invaderWaveIndex * 2 : this.invaderWaveIndex + 1;
     this.invaderWaveIndex = Math.min(waveCount, this.invaderWaveIndex + 1);
-    for (let index = 0; index < count; index += 1) this.spawnInvader(this.currentZone);
+    this.enqueueInvaderWave(spawnGate.id, this.currentZone, count);
+    this.releaseOldestInvaderWave();
+  }
+
+  private enqueueInvaderWave(gateEnemyId: string, zone: ZoneId, count: number): void {
+    const available = Math.max(0, MAX_PENDING_INVADERS - this.pendingInvaderCount);
+    const accepted = Math.min(Math.max(0, Math.floor(count)), available);
+    if (accepted > 0) this.invaderWaveQueue.push({ gateEnemyId, zone, remaining: accepted });
+    if (accepted < count) this.invaderCapHits += 1;
+  }
+
+  private releaseOldestInvaderWave(): void {
+    const batch = this.invaderWaveQueue[0];
+    if (!batch) return;
+    const available = Math.max(0, this.maxLiveInvaders - this.liveInvaderCount);
+    const spawnCount = Math.min(batch.remaining, available);
+    if (spawnCount < batch.remaining) this.invaderCapHits += 1;
+    for (let index = 0; index < spawnCount; index += 1) {
+      this.spawnInvader(batch.zone, batch.gateEnemyId);
+    }
+    batch.remaining -= spawnCount;
+    if (batch.remaining <= 0) this.invaderWaveQueue.shift();
+  }
+
+  private pruneInvaderWaveQueue(): void {
+    for (let index = this.invaderWaveQueue.length - 1; index >= 0; index -= 1) {
+      const gate = this.enemies.get(this.invaderWaveQueue[index]!.gateEnemyId);
+      if (!gate || gate.kind !== "gate" || !gate.alive || this.invaderWaveQueue[index]!.zone !== this.currentZone) {
+        this.invaderWaveQueue.splice(index, 1);
+      }
+    }
+  }
+
+  private retireInactiveInvaders(): void {
+    for (const [id, enemy] of this.enemies) {
+      if (enemy.behavior !== "invader" || enemy.alive) continue;
+      this.enemies.delete(id);
+      this.invaderNavigation.delete(id);
+      this.vulnerableEnemies.delete(id);
+      this.markedEnemies.delete(id);
+      this.retiredInvaders += 1;
+    }
   }
 
   private livingGateInZone(zone: ZoneId): CoreEnemy | null {
@@ -1605,30 +1711,52 @@ export class GameCore {
       player.y,
       ACTOR_COLLISION_RADIUS,
     );
+    const containing = this.authoredWorld.rooms.find((room) => pointInWorldRect(resolved.x, resolved.y, room.rect));
+    if (containing && containing.id !== player.roomId && !this.canEnterRoom(player, containing.id)) return false;
     player.x = resolved.x;
     player.y = resolved.y;
-    const containing = this.authoredWorld.rooms.find((room) => pointInWorldRect(resolved.x, resolved.y, room.rect));
     if (!containing || containing.id === player.roomId) return false;
     player.roomId = containing.id;
     if (containing.id === this.authoredWorld.bossRoomId && this.phase !== "boss") this.enterBossEncounter();
     return true;
   }
 
-  private authoredSpawnGate(): CoreEnemy | null {
+  private canEnterRoom(player: CorePlayer, destinationId: CoreRoomId): boolean {
+    const destination = this.rooms.get(destinationId);
+    const source = this.rooms.get(player.roomId);
+    if (!destination || !source || destination.zone <= this.currentZone) return true;
+    if (!this.hasLivingGateInZone(this.currentZone)) return true;
+    this.pushZoneGateWarning(player.userId, this.currentZone);
+    return false;
+  }
+
+  private hasLivingGateInZone(zone: ZoneId): boolean {
+    return [...this.enemies.values()].some((enemy) => (
+      enemy.kind === "gate" && enemy.alive && this.rooms.get(enemy.roomId)?.zone === zone
+    ));
+  }
+
+  private pushZoneGateWarning(userId: string, zone: ZoneId): void {
+    if (userId.startsWith("ai:")) return;
+    const key = `${userId}:ZONE_GATE_LOCKED`;
+    if ((this.noticeCooldowns.get(key) ?? -Infinity) > this.elapsed) return;
+    this.noticeCooldowns.set(key, this.elapsed + 1.5);
+    this.notices.push({
+      userId,
+      code: "ZONE_GATE_LOCKED",
+      message: `구역 ${zone}의 게이트를 모두 파괴해야 다음 구역에 진입할 수 있습니다.`,
+    });
+  }
+
+  private authoredSpawnGate(zone: ZoneId): CoreEnemy | null {
     if (!this.authoredWorld) return null;
-    // Gate waves are a world threat, not an exploration reward. An authored
-    // gate must assault the base from the start even before players discover
-    // its room. Ordinary room monsters remain room-bound elsewhere.
+    // Only the current progression zone may create a wave. Gates do not need
+    // to be discovered, but earlier-zone gates never resume after advancing.
     const gates = [...this.enemies.values()]
-      .filter((enemy) => enemy.kind === "gate" && enemy.alive)
-      .sort((left, right) => {
-        const zoneDelta = (this.rooms.get(right.roomId)?.zone ?? 1) - (this.rooms.get(left.roomId)?.zone ?? 1);
-        return zoneDelta || left.roomId.localeCompare(right.roomId);
-      });
+      .filter((enemy) => enemy.kind === "gate" && enemy.alive && this.rooms.get(enemy.roomId)?.zone === zone)
+      .sort((left, right) => left.roomId.localeCompare(right.roomId));
     if (gates.length === 0) return null;
-    const highestZone = this.rooms.get(gates[0]!.roomId)?.zone;
-    const candidates = gates.filter((gate) => this.rooms.get(gate.roomId)?.zone === highestZone);
-    return candidates[this.invaderSerial % candidates.length] ?? candidates[0] ?? null;
+    return gates[this.invaderSerial % gates.length] ?? gates[0] ?? null;
   }
 
   private hasLivingAuthoredGate(): boolean {
@@ -1918,7 +2046,7 @@ export class GameCore {
       const room = this.rooms.get(player.roomId);
       if (room && room.zone > zone) zone = room.zone;
     }
-    this.currentZone = zone;
+    if (zone > this.currentZone) this.currentZone = zone;
   }
 }
 

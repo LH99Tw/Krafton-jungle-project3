@@ -10,8 +10,8 @@ DEPLOY_USER="${DEPLOY_USER:-deploy}"
 AWS_REGION_NAME="${AWS_REGION_NAME:-ap-northeast-2}"
 SECRET_DIR="${SECRET_DIR:-deploy/.secrets}"
 SSH_KEY_FILE="${SSH_KEY_FILE:-$SECRET_DIR/five-days-lightsail.pem}"
-WEB_HOST="${WEB_HOST:-web.$LIGHTSAIL_HOST.sslip.io}"
-GAME_HOST="${GAME_HOST:-game.$LIGHTSAIL_HOST.sslip.io}"
+WEB_HOST="${WEB_HOST:-five-days-web.duckdns.org}"
+GAME_HOST="${GAME_HOST:-five-days-game.duckdns.org}"
 SERVER_ENV_DIR="$SECRET_DIR/server-env"
 
 install -d -m 0700 "$SERVER_ENV_DIR"
@@ -98,6 +98,7 @@ printf '%s\n' \
   'FASTLANE_MAINTENANCE_MS=10000' \
   'MAX_ACTIVE_LOBBIES=100' \
   'MAX_ACTIVE_GAMES=100' \
+  'MAX_LIVE_INVADERS=256' \
   'MAX_WEBSOCKET_CONNECTIONS=300' \
   'MAX_HTTP_CONNECTIONS=350' \
   'WS_AUTH_PER_MINUTE=20' \

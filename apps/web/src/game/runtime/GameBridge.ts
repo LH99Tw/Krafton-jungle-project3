@@ -14,6 +14,7 @@ type BridgeEvents = {
   upgrade: UpgradeChoice[];
   result: GameResult;
   ready: undefined;
+  loading: { progress: number; label: string };
   message: string;
   network: NetworkWorldSnapshot;
   worldFrame: WorldFrame;

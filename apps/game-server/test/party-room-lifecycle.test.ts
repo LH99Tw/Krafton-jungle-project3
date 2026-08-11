@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { Client } from "@colyseus/core";
+import { GameCore } from "@five-days/game-core";
 import {
   INPUT_LEASE_MS,
   OperationTimeoutError,
@@ -8,6 +9,12 @@ import {
   runWithTimeoutAndRetry,
 } from "../src/party-room";
 import { PROTOCOL_VERSION, transformFlags } from "@five-days/protocol";
+import { PartyRoomState } from "../src/state";
+import {
+  realtimeMetricsSnapshot,
+  recordRoomInvaderMetrics,
+  removeRoomInvaderMetrics,
+} from "../src/realtime-metrics";
 
 test("bounded persistence retries use the configured backoff and stop after success", async () => {
   const attempts: number[] = [];
@@ -91,6 +98,7 @@ test("a fresh active session wins a race against an older reserved reconnect", a
   const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
   const clients: Client[] = [];
   harness.clients = clients;
+  harness.activeHumanSessions = new Set([oldClient.sessionId, replacement.sessionId]);
   harness.core = {
     setConnected: (_userId: string, connected: boolean) => {
       connectedStates.push(connected);
@@ -121,7 +129,7 @@ test("a fresh active session wins a race against an older reserved reconnect", a
   assert.equal(syncCount, 2);
 });
 
-test("a consented departure hands the existing character to server AI", async () => {
+test("a consented departure hands the existing character to server AI while a teammate remains", async () => {
   const takeoverCalls: string[] = [];
   const disconnectedStates: boolean[] = [];
   let syncCount = 0;
@@ -129,16 +137,20 @@ test("a consented departure hands the existing character to server AI", async ()
     sessionId: "leaving-session",
     userData: { userId: "user-1" },
   } as unknown as Client;
-  const player = { userId: "user-1", inputX: 1, inputY: -1 };
+  const player = { userId: "user-1", connected: true, inputX: 1, inputY: -1 };
+  const teammate = { userId: "user-2", connected: true, inputX: 0, inputY: 0 };
+  const teammateClient = { sessionId: "remaining-session", userData: { userId: teammate.userId } } as unknown as Client;
   const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
-  harness.clients = [];
+  harness.clients = [teammateClient];
+  harness.activeHumanSessions = new Set([client.sessionId, teammateClient.sessionId]);
   harness.core = {
-    players: new Map([[player.userId, player]]),
+    players: new Map([[player.userId, player], [teammate.userId, teammate]]),
     takeOverPlayerWithAi: (userId: string) => {
       takeoverCalls.push(userId);
       return true;
     },
     setConnected: (_userId: string, connected: boolean) => disconnectedStates.push(connected),
+    finish: () => undefined,
   };
   harness.messageWindows = new Map();
   harness.inputMessageWindows = new Map();
@@ -153,10 +165,83 @@ test("a consented departure hands the existing character to server AI", async ()
   await PartyRoom.prototype.onLeave.call(harness as unknown as PartyRoom, client, true);
 
   assert.deepEqual(takeoverCalls, [player.userId]);
-  assert.deepEqual(disconnectedStates, []);
+  assert.deepEqual(disconnectedStates, [false]);
   assert.equal(player.inputX, 0);
   assert.equal(player.inputY, 0);
   assert.equal(syncCount, 1);
+});
+
+test("the last consented player departure abandons and disposes the room instead of creating AI", async () => {
+  const client = { sessionId: "last-session", userData: { userId: "user-1" } } as unknown as Client;
+  const player = { userId: "user-1", connected: true, inputX: 1, inputY: 0 };
+  let takeoverCalls = 0;
+  let finalizeCalls = 0;
+  let syncCount = 0;
+  const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
+  harness.clients = [];
+  harness.activeHumanSessions = new Set([client.sessionId]);
+  harness.shutdownStarted = false;
+  harness.core = {
+    phase: "day",
+    players: new Map([[player.userId, player]]),
+    setConnected: (_userId: string, connected: boolean) => { player.connected = connected; },
+    takeOverPlayerWithAi: () => { takeoverCalls += 1; return true; },
+    finish: (_state: string, reason: string) => {
+      (harness.core as { phase: string; resultReason?: string }).phase = "ended";
+      (harness.core as { phase: string; resultReason?: string }).resultReason = reason;
+    },
+  };
+  harness.messageWindows = new Map();
+  harness.inputMessageWindows = new Map();
+  harness.reliableCommandSequences = new Map();
+  harness.visibleEnemies = new Map();
+  harness.visibleDrops = new Map();
+  harness.visiblePlayerTransforms = new Map();
+  harness.inputSequences = new Map();
+  harness.lastInputAt = new Map();
+  harness.syncState = () => { syncCount += 1; };
+  harness.finalizeAndDisconnect = async () => { finalizeCalls += 1; };
+
+  await PartyRoom.prototype.onLeave.call(harness as unknown as PartyRoom, client, true);
+
+  assert.equal(takeoverCalls, 0);
+  assert.equal(finalizeCalls, 1);
+  assert.equal(syncCount, 1);
+  assert.equal((harness.core as { phase: string }).phase, "ended");
+  assert.equal((harness.core as { resultReason?: string }).resultReason, "모든 용사가 원정을 떠났습니다.");
+});
+
+test("an expired reconnect for the last player also disposes the room", async () => {
+  const client = { sessionId: "lost-session", userData: { userId: "user-1" } } as unknown as Client;
+  const player = { userId: "user-1", connected: true, inputX: 0, inputY: 0 };
+  let finalizeCalls = 0;
+  let takeoverCalls = 0;
+  const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
+  harness.clients = [];
+  harness.activeHumanSessions = new Set([client.sessionId]);
+  harness.shutdownStarted = false;
+  harness.core = {
+    phase: "day",
+    players: new Map([[player.userId, player]]),
+    setConnected: (_userId: string, connected: boolean) => { player.connected = connected; },
+    takeOverPlayerWithAi: () => { takeoverCalls += 1; return true; },
+    finish: () => { (harness.core as { phase: string }).phase = "ended"; },
+  };
+  harness.messageWindows = new Map();
+  harness.inputMessageWindows = new Map();
+  harness.reliableCommandSequences = new Map();
+  harness.visibleEnemies = new Map();
+  harness.visibleDrops = new Map();
+  harness.visiblePlayerTransforms = new Map();
+  harness.allowReconnection = async () => { throw new Error("reconnect expired"); };
+  harness.syncState = () => undefined;
+  harness.finalizeAndDisconnect = async () => { finalizeCalls += 1; };
+
+  await PartyRoom.prototype.onLeave.call(harness as unknown as PartyRoom, client, false);
+
+  assert.equal(takeoverCalls, 0);
+  assert.equal(finalizeCalls, 1);
+  assert.equal((harness.core as { phase: string }).phase, "ended");
 });
 
 test("ended-room shutdown disconnects even when result persistence fails", async (t) => {
@@ -191,6 +276,95 @@ test("input lease stops movement after a lost key-up frame", () => {
   expire.call(harness as unknown as PartyRoom, 1_000 + INPUT_LEASE_MS + 1);
   assert.equal(player.inputX, 0);
   assert.equal(player.inputY, 0);
+});
+
+test("schema sync removes retired enemies and their transform caches", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "schema-retirement", minimumPlayers: 1 });
+  const invader = core.spawnInvader(1);
+  core.discoveredRooms.add(invader.roomId);
+  const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
+  harness.core = core;
+  harness.state = new PartyRoomState();
+  harness.clients = [];
+  harness.visibleEnemies = new Map();
+  harness.schemaRoomIds = new Map();
+  harness.previousTransforms = new Map([[`enemy:${invader.id}`, { roomId: invader.roomId, x: invader.x, y: invader.y, at: 1 }]]);
+  harness.lastKeyframeAt = 0;
+  const syncState = (PartyRoom.prototype as unknown as { syncState(this: PartyRoom, force?: boolean): void }).syncState;
+
+  syncState.call(harness as unknown as PartyRoom, true);
+  assert.ok((harness.state as PartyRoomState).enemies.has(invader.id));
+  invader.alive = false;
+  (core as unknown as { retireInactiveInvaders(): void }).retireInactiveInvaders();
+  syncState.call(harness as unknown as PartyRoom, true);
+
+  assert.equal((harness.state as PartyRoomState).enemies.has(invader.id), false);
+  assert.equal((harness.previousTransforms as Map<string, unknown>).has(`enemy:${invader.id}`), false);
+  assert.equal((harness.schemaRoomIds as Map<string, unknown>).has(`enemy:${invader.id}`), false);
+});
+
+test("party room keeps simulation at 60Hz while schema work is limited to 10Hz", () => {
+  const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
+  let updates = 0;
+  let syncs = 0;
+  let viewUpdates = 0;
+  Object.defineProperty(harness, "roomId", { value: "schema-rate-test" });
+  harness.core = {
+    phase: "day",
+    players: new Map(),
+    update: () => { updates += 1; },
+    liveInvaderCount: 0,
+    pendingInvaderCount: 0,
+    invaderCapHitCount: 0,
+    retiredInvaderCount: 0,
+    takeNotices: () => [],
+  };
+  harness.simulationAccumulatorMs = 0;
+  harness.schemaSyncAccumulatorMs = 0;
+  harness.explorationAccumulatorMs = 0;
+  harness.serverTick = 0;
+  harness.createdAt = Date.now();
+  harness.gameplayLocked = true;
+  harness.resultBroadcast = false;
+  harness.shutdownStarted = false;
+  harness.exploration = {
+    update: () => undefined,
+    takeGeometryUpdates: () => [],
+    flush: () => [],
+  };
+  harness.expireStaleInputs = () => undefined;
+  harness.syncState = () => { syncs += 1; };
+  harness.updateClientViews = () => { viewUpdates += 1; };
+  harness.emitWorldFrames = () => undefined;
+  harness.broadcast = () => undefined;
+  const simulate = (PartyRoom.prototype as unknown as { simulate(this: PartyRoom, deltaMs: number): void }).simulate;
+
+  simulate.call(harness as unknown as PartyRoom, 17);
+  simulate.call(harness as unknown as PartyRoom, 17);
+  assert.equal(syncs, 0);
+  simulate.call(harness as unknown as PartyRoom, 17);
+  simulate.call(harness as unknown as PartyRoom, 17);
+  simulate.call(harness as unknown as PartyRoom, 17);
+  assert.equal(syncs, 0);
+  simulate.call(harness as unknown as PartyRoom, 17);
+  assert.equal(updates, 6);
+  assert.equal(syncs, 1);
+  assert.equal(viewUpdates, 1);
+  removeRoomInvaderMetrics("schema-rate-test");
+});
+
+test("realtime metrics expose bounded invader population and lifecycle counters", () => {
+  const before = realtimeMetricsSnapshot() as { invaders: { active: number; pending: number; capHits: number; retired: number } };
+  recordRoomInvaderMetrics("metrics-room", { active: 7, pending: 11, capHits: 2, retired: 3 });
+  const during = realtimeMetricsSnapshot() as { invaders: { active: number; pending: number; capHits: number; retired: number } };
+  assert.equal(during.invaders.active, before.invaders.active + 7);
+  assert.equal(during.invaders.pending, before.invaders.pending + 11);
+  assert.equal(during.invaders.capHits, before.invaders.capHits + 2);
+  assert.equal(during.invaders.retired, before.invaders.retired + 3);
+  removeRoomInvaderMetrics("metrics-room");
+  const after = realtimeMetricsSnapshot() as { invaders: { active: number; pending: number } };
+  assert.equal(after.invaders.active, before.invaders.active);
+  assert.equal(after.invaders.pending, before.invaders.pending);
 });
 
 test("crossing into a connected room keeps a continuous transform while a real teleport snaps", () => {

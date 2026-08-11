@@ -95,6 +95,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     });
     const offUpgrade = gameBridge.on("upgrade", setUpgradeChoices);
     const offResult = gameBridge.on("result", setResult);
+    const offReady = gameBridge.on("ready", () => colyseusTransport.markRendererReady());
     const offNetwork = colyseusTransport.subscribe((state) => {
       setNetworkStatus(state.phase === "lobby" ? "waiting" : "connected");
       if (state.phase === "ended") {
@@ -114,6 +115,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       if (event.type === "reconnecting") setNetworkStatus("reconnecting");
       if (event.type === "reconnected") setNetworkStatus("connected");
       if (event.type === "disconnected") setNetworkStatus("disconnected");
+      if (event.type === "message" && event.message) gameBridge.emit("message", event.message);
       if (event.type === "result") {
         clearRunRecovery();
         const current = snapshotRef.current;
@@ -130,7 +132,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     });
     return () => {
       runGenerationRef.current += 1;
-      offSnapshot(); offUpgrade(); offResult(); offNetwork(); offNetworkEvent();
+      offSnapshot(); offUpgrade(); offResult(); offReady(); offNetwork(); offNetworkEvent();
       colyseusTransport.disconnect();
     };
   }, []);
