@@ -154,17 +154,24 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     setNetworkStatus("connecting");
     setSurfaceError("");
     try {
-      if (gameServerUrl) {
-        await colyseusTransport.connect({ serverUrl: gameServerUrl, csrfToken: viewer!.csrfToken, options, roomId, userId: viewer!.userId });
-        const activeRoomId = colyseusTransport.activeRoomId;
-        if (activeRoomId) saveRunRecovery(viewer!.userId, activeRoomId, options);
+      let isNetworkActive = false;
+      if (gameServerUrl && !options.targetRoomType) {
+        try {
+          await colyseusTransport.connect({ serverUrl: gameServerUrl, csrfToken: viewer!.csrfToken, options, roomId, userId: viewer!.userId });
+          const activeRoomId = colyseusTransport.activeRoomId;
+          if (activeRoomId) saveRunRecovery(viewer!.userId, activeRoomId, options);
+          isNetworkActive = true;
+        } catch {
+          // Automatic local fallback for quick play and dev ticket bypass
+          isNetworkActive = false;
+        }
       }
       if (runGeneration !== runGenerationRef.current) return;
       setNetworkStatus("connected");
       setSnapshot(EMPTY_SNAPSHOT);
       setUpgradeChoices([]);
       setResult(null);
-      setActiveOptions(resolveRuntimeOptions(options, gameServerUrl));
+      setActiveOptions(resolveRuntimeOptions(options, isNetworkActive ? gameServerUrl : null));
       setRunKey((value) => value + 1);
       setScreen("playing");
     } catch (error) {

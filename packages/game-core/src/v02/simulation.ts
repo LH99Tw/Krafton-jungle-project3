@@ -323,7 +323,7 @@ export function createRuntimeWorld(
 
 export function createBossEnemy(seed: string | number, difficulty: "easy" | "normal" | "hard"): CoreEnemy {
   const multiplier = DIFFICULTY_MULTIPLIER[difficulty];
-  const hp = Math.round(650 * multiplier.hp);
+  const hp = Math.round(950 * multiplier.hp);
   const boss = bossWorldRect();
   const x = boss.x + boss.width / 2;
   const y = boss.y + boss.height * 0.3;
@@ -339,7 +339,7 @@ export function createBossEnemy(seed: string | number, difficulty: "easy" | "nor
     spawnY: y,
     hp,
     maxHp: hp,
-    damage: Math.round(26 * multiplier.damage),
+    damage: Math.round(28 * multiplier.damage),
     speed: 0,
     attackRange: 0,
     attackCooldown: 0,

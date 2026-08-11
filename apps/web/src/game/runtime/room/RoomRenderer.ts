@@ -33,7 +33,7 @@ const ENEMY_LOOK = {
   invader: { texture: "enemy-skeleton-0", depth: 12, radius: 11 },
   hidden: { texture: "enemy-demon-midboss-0", depth: 16, radius: 64 },
   gate: { texture: "gate", depth: 12, radius: 26 },
-  boss: { texture: "boss", depth: 18, radius: 48 },
+  boss: { texture: "boss", depth: 18, radius: 72 },
 } as const;
 const NETWORK_ENEMY_POOL_LIMIT: Record<EnemyKind, number> = {
   invader: 256,
@@ -388,15 +388,67 @@ export class RoomRenderer {
     });
   }
 
+  applyBullChargeMotion(enemy: Phaser.GameObjects.Sprite): void {
+    if (enemy.getData("hasBullMotion")) return;
+    enemy.setData("hasBullMotion", true);
+
+    // Fast aggressive galloping motion
+    this.scene.tweens.add({
+      targets: enemy,
+      scaleY: enemy.scaleY * 1.07,
+      scaleX: enemy.scaleX * 0.94,
+      duration: 320,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+  }
+
+  applyDragonHoverMotion(enemy: Phaser.GameObjects.Sprite): void {
+    if (enemy.getData("hasDragonMotion")) return;
+    enemy.setData("hasDragonMotion", true);
+
+    // Grand wing-flapping flight motion
+    this.scene.tweens.add({
+      targets: enemy,
+      scaleY: enemy.scaleY * 1.08,
+      displayOriginY: enemy.displayOriginY + 14,
+      duration: 800,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+    this.scene.tweens.add({
+      targets: enemy,
+      angle: 3.5,
+      duration: 1100,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+  }
+
   createEnemy(kind: EnemyKind, x: number, y: number): Phaser.Physics.Arcade.Sprite {
     const look = ENEMY_LOOK[kind];
-    const hasAsset = kind === "hidden" && this.scene.textures.exists("enemy-demon-midboss-asset");
-    const textureKey = kind === "hidden"
-      ? (hasAsset ? "enemy-demon-midboss-asset" : "enemy-demon-midboss-0")
-      : (kind === "static" || kind === "invader" ? "enemy-skeleton-0" : look.texture);
+    const hasMidbossAsset = kind === "hidden" && this.scene.textures.exists("enemy-demon-midboss-asset");
+    const hasGateAsset = kind === "gate" && this.scene.textures.exists("enemy-gate-asset");
+    const hasBossBullAsset = kind === "boss" && this.scene.textures.exists("enemy-boss-bull-asset");
+
+    const textureKey = kind === "gate"
+      ? (hasGateAsset ? "enemy-gate-asset" : "gate")
+      : kind === "hidden"
+        ? (hasMidbossAsset ? "enemy-demon-midboss-asset" : "enemy-demon-midboss-0")
+        : kind === "boss"
+          ? (hasBossBullAsset ? "enemy-boss-bull-asset" : "boss")
+          : "enemy-skeleton-0";
 
     const enemy = this.scene.physics.add.sprite(x, y, textureKey).setDepth(look.depth);
-    if (hasAsset) enemy.setDisplaySize(192, 192);
+    if (hasMidbossAsset) enemy.setDisplaySize(192, 192);
+    if (hasGateAsset) enemy.setDisplaySize(112, 130);
+    if (kind === "boss") {
+      enemy.setDisplaySize(250, 250);
+      if (hasBossBullAsset) this.applyBullChargeMotion(enemy);
+    }
     (enemy.body as Phaser.Physics.Arcade.Body).setCircle(look.radius);
     if (kind === "gate" || kind === "boss") enemy.setImmovable(true);
     if (kind === "hidden") this.applyDemonHoverMotion(enemy);
@@ -407,10 +459,18 @@ export class RoomRenderer {
   acquireNetworkEnemy(kind: EnemyKind, x: number, y: number): Phaser.GameObjects.Sprite {
     const pool = this.networkEnemyPool.get(kind);
     const enemy = pool?.pop() ?? this.scene.add.sprite(x, y, ENEMY_LOOK[kind].texture);
-    const hasAsset = kind === "hidden" && this.scene.textures.exists("enemy-demon-midboss-asset");
-    const textureKey = kind === "hidden"
-      ? (hasAsset ? "enemy-demon-midboss-asset" : "enemy-demon-midboss-0")
-      : (kind === "static" || kind === "invader" ? "enemy-skeleton-0" : ENEMY_LOOK[kind].texture);
+    const hasMidbossAsset = kind === "hidden" && this.scene.textures.exists("enemy-demon-midboss-asset");
+    const hasGateAsset = kind === "gate" && this.scene.textures.exists("enemy-gate-asset");
+    const hasBossBullAsset = kind === "boss" && this.scene.textures.exists("enemy-boss-bull-asset");
+
+    const textureKey = kind === "gate"
+      ? (hasGateAsset ? "enemy-gate-asset" : "gate")
+      : kind === "hidden"
+        ? (hasMidbossAsset ? "enemy-demon-midboss-asset" : "enemy-demon-midboss-0")
+        : kind === "boss"
+          ? (hasBossBullAsset ? "enemy-boss-bull-asset" : "boss")
+          : "enemy-skeleton-0";
+
     enemy
       .setTexture(textureKey)
       .setPosition(x, y)
@@ -418,7 +478,12 @@ export class RoomRenderer {
       .setAlpha(1)
       .setVisible(true)
       .setActive(true);
-    if (hasAsset) enemy.setDisplaySize(192, 192);
+    if (hasMidbossAsset) enemy.setDisplaySize(192, 192);
+    if (hasGateAsset) enemy.setDisplaySize(112, 130);
+    if (kind === "boss") {
+      enemy.setDisplaySize(250, 250);
+      if (hasBossBullAsset) this.applyBullChargeMotion(enemy);
+    }
     if (kind === "hidden") this.applyDemonHoverMotion(enemy);
     return enemy;
   }
@@ -426,6 +491,8 @@ export class RoomRenderer {
   releaseNetworkEnemy(kind: EnemyKind, enemy: Phaser.GameObjects.Sprite): void {
     this.scene.tweens.killTweensOf(enemy);
     enemy.setData("hasHoverMotion", false);
+    enemy.setData("hasBullMotion", false);
+    enemy.setData("hasDragonMotion", false);
     enemy.setAngle(0);
     enemy.setScale(1).setVisible(false).setActive(false).setPosition(-10_000, -10_000);
     const pool = this.networkEnemyPool.get(kind) ?? [];
@@ -458,6 +525,21 @@ export class RoomRenderer {
         sprite.setTexture("enemy-demon-midboss-asset").setDisplaySize(192, 192);
       } else {
         sprite.setTexture(`enemy-demon-midboss-${snapAngle}`);
+      }
+    } else if (kind === "gate") {
+      if (this.scene.textures.exists("enemy-gate-asset")) {
+        sprite.setTexture("enemy-gate-asset").setDisplaySize(112, 130);
+      }
+    } else if (kind === "boss") {
+      const isDragon = sprite.getData("bossPhase") === "dragon";
+      if (isDragon && this.scene.textures.exists("enemy-boss-dragon-asset")) {
+        sprite.setTexture("enemy-boss-dragon-asset").setDisplaySize(250, 250);
+        this.applyDragonHoverMotion(sprite);
+      } else if (this.scene.textures.exists("enemy-boss-bull-asset")) {
+        sprite.setTexture("enemy-boss-bull-asset").setDisplaySize(250, 250);
+        this.applyBullChargeMotion(sprite);
+      } else {
+        sprite.setDisplaySize(250, 250);
       }
     } else if (kind === "static" || kind === "invader") {
       sprite.setTexture(`enemy-skeleton-${snapAngle}`);

@@ -261,6 +261,7 @@ export type GameStartOptions = {
   runtimeMode?: "server" | "legacy-local" | "editor-core";
   userId?: string;
   editorMap?: EditorMapDefinition;
+  targetRoomType?: "boss" | "hidden";
 };
 
 export type GameResult = {
