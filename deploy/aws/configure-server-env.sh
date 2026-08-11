@@ -22,13 +22,18 @@ if [ ! -f "$SECRET_DIR/game-ticket-private.pem" ]; then
 fi
 if [ ! -f "$SECRET_DIR/runtime-secrets.env" ]; then
   umask 077
-  printf 'POSTGRES_PASSWORD=%s\nAUTH_SESSION_ENCRYPTION_KEY=%s\nFASTLANE_SECRET=%s\n' \
+  printf 'POSTGRES_PASSWORD=%s\nAUTH_SESSION_ENCRYPTION_KEY=%s\nFASTLANE_SECRET=%s\nGUESTBOOK_ADMIN_DELETE_KEY=%s\n' \
     "$(openssl rand -base64 36 | tr -d '\n')" \
     "$(openssl rand -base64 32 | tr -d '\n')" \
+    "$(openssl rand -base64 48 | tr -d '\n')" \
     "$(openssl rand -base64 48 | tr -d '\n')" > "$SECRET_DIR/runtime-secrets.env"
 elif ! grep -q '^FASTLANE_SECRET=' "$SECRET_DIR/runtime-secrets.env"; then
   umask 077
   printf 'FASTLANE_SECRET=%s\n' "$(openssl rand -base64 48 | tr -d '\n')" >> "$SECRET_DIR/runtime-secrets.env"
+fi
+if ! grep -q '^GUESTBOOK_ADMIN_DELETE_KEY=' "$SECRET_DIR/runtime-secrets.env"; then
+  umask 077
+  printf 'GUESTBOOK_ADMIN_DELETE_KEY=%s\n' "$(openssl rand -base64 48 | tr -d '\n')" >> "$SECRET_DIR/runtime-secrets.env"
 fi
 
 set -a
@@ -66,6 +71,7 @@ printf '%s\n' \
   'SESSION_PER_MINUTE=120' \
   'READ_API_PER_MINUTE=60' \
   "AUTH_SESSION_ENCRYPTION_KEY=$AUTH_SESSION_ENCRYPTION_KEY" \
+  "GUESTBOOK_ADMIN_DELETE_KEY=$GUESTBOOK_ADMIN_DELETE_KEY" \
   "GAME_TICKET_PRIVATE_KEY_BASE64=$private_key_base64" \
   'GAME_TICKET_ACTIVE_KID=production-v1' \
   'PROTOCOL_VERSION=3' \

@@ -24,6 +24,7 @@ const values = [
   "DB_POOL_MAX=10",
   "DEV_AUTH_BYPASS=true",
   `AUTH_SESSION_ENCRYPTION_KEY=${randomBytes(32).toString("base64")}`,
+  `GUESTBOOK_ADMIN_DELETE_KEY=${randomBytes(48).toString("base64url")}`,
   `GAME_TICKET_PRIVATE_KEY_BASE64=${Buffer.from(privateKey).toString("base64")}`,
   `GAME_TICKET_PUBLIC_KEY_BASE64=${Buffer.from(publicKey).toString("base64")}`,
   "GAME_TICKET_ACTIVE_KID=local-v1",

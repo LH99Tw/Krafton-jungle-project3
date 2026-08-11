@@ -107,6 +107,10 @@ export async function runWithTimeoutAndRetry<T>(
   throw lastError;
 }
 
+export function partyPlayerIdsForView<T extends { userId: string }>(players: Iterable<T>): Set<string> {
+  return new Set([...players].map((player) => player.userId));
+}
+
 async function withTimeout<T>(
   operation: () => Promise<T>,
   timeoutMs: number,
@@ -785,12 +789,10 @@ export class PartyRoom extends Room<PartyRoomState> {
     const viewer = this.core.players.get(userId);
     if (!viewer || !client.view) return;
     const playerIds = this.visiblePlayerTransforms.get(client.sessionId) ?? new Set<string>();
-    const nextPlayerIds = new Set<string>();
+    const nextPlayerIds = partyPlayerIdsForView(this.core.players.values());
     for (const player of this.core.players.values()) {
-      if (player.userId !== userId && !this.isPlayerInAoi(viewer, player)) continue;
       const state = this.state.players.get(player.userId);
       if (!state) continue;
-      nextPlayerIds.add(player.userId);
       if (!playerIds.has(player.userId)) client.view.add(state, PLAYER_TRANSFORM_VIEW);
     }
     for (const id of playerIds) {

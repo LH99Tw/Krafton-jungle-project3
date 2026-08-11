@@ -11,7 +11,7 @@ import {
   normalizePublicText,
   worldFrameSchema,
 } from "@five-days/protocol";
-import { consumeGameTicket } from "../src/party-room";
+import { consumeGameTicket, partyPlayerIdsForView } from "../src/party-room";
 import { GLOBAL_CHAT_HISTORY_LIMIT, retainRecentMessages } from "../src/global-chat-room";
 import { take } from "../src/security";
 import {
@@ -153,6 +153,15 @@ test("validates v3 input and AOI world frames", () => {
     players: [{ id: "p1", roomId: "zone-1:0,0", x: 10, y: 20, vx: 1, vy: 0, aim: 0, flags: 0 }],
     enemies: [],
   }).success, true);
+});
+
+test("keeps every party member in each client state view", () => {
+  const visible = partyPlayerIdsForView([
+    { userId: "player-1", roomId: "zone-1:start" },
+    { userId: "player-2", roomId: "zone-1:gate" },
+    { userId: "player-3", roomId: "zone-2:start" },
+  ]);
+  assert.deepEqual([...visible], ["player-1", "player-2", "player-3"]);
 });
 
 test("consumes each game ticket jti only once", async () => {

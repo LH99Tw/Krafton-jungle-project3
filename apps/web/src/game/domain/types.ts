@@ -85,6 +85,7 @@ export type PartyMemberSnapshot = {
   y: number;
   aim: number;
   isLocal: boolean;
+  equipment: EquipmentSummary[];
 };
 
 export type RoomMapCell = {
@@ -180,7 +181,6 @@ export type NetworkWorldSnapshot = {
     level: number;
     choices: UpgradeChoice[];
   } | null;
-  localEquipment: EquipmentSummary[];
   stats: TeamStats;
 };
 

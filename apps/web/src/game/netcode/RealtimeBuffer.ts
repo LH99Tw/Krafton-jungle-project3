@@ -12,6 +12,13 @@ import type { HeroClassId, RoomMapCell } from "../domain/types";
 
 type TimedTransform = TransformSample & { serverTime: number };
 
+export function shouldRenderPartyMember(
+  member: { connected: boolean; roomId: string },
+  localRoomId: string,
+): boolean {
+  return member.connected && member.roomId === localRoomId;
+}
+
 export class RealtimeTransformBuffer {
   private readonly samples = new Map<string, TimedTransform[]>();
   private readonly lastSeenAt = new Map<string, number>();

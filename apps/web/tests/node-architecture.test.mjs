@@ -53,10 +53,30 @@ test("fails closed on auth outages and bounds public mutation requests", async (
   assert.match(guestbook, /guestbook-write-ip/);
   assert.match(guestbook, /guestbook-write-user/);
   assert.match(guestbook, /GUESTBOOK_PER_MINUTE/);
+  assert.match(guestbook, /hasAllowedOrigin\(request\)/);
+  assert.doesNotMatch(guestbook, /ADMIN_DELETE_KEY\s*=.*admin@/);
   assert.doesNotMatch(guest, /guest-session-marker/);
   assert.doesNotMatch(callback, /member-session-marker/);
   assert.match(instrumentation, /process\.exit\(1\)/);
   assert.doesNotMatch(shell, /setViewer\(\{ userId: "local-guest"/);
+});
+
+test("gates deployments on verification and repairs required production settings", async () => {
+  const workflow = await readFile(new URL("../../.github/workflows/deploy-lightsail.yml", root), "utf8");
+  const configure = await readFile(new URL("../../deploy/aws/configure-server-env.sh", root), "utf8");
+  const instrumentation = await readFile(new URL("instrumentation-node.ts", root), "utf8");
+
+  const verification = workflow.indexOf("name: Verify release candidate");
+  const imageBuild = workflow.indexOf("name: Build and push web");
+  assert.ok(verification >= 0 && imageBuild > verification);
+  assert.match(workflow, /pnpm audit --prod --audit-level moderate/);
+  assert.match(workflow, /pnpm lint/);
+  assert.match(workflow, /pnpm typecheck/);
+  assert.match(workflow, /pnpm test/);
+  assert.match(workflow, /upsert_env \.env\.web GUESTBOOK_ADMIN_DELETE_KEY/);
+  assert.match(workflow, /upsert_env \.env\.web PUBLIC_PLAYTEST_ENABLED true/);
+  assert.match(configure, /GUESTBOOK_ADMIN_DELETE_KEY/);
+  assert.match(instrumentation, /required\("GUESTBOOK_ADMIN_DELETE_KEY"\)/);
 });
 
 test("retains the Phaser game while adding the Colyseus transport", async () => {
