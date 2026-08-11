@@ -36,7 +36,7 @@ export async function getSessionState(): Promise<SessionState> {
     if (process.env.NODE_ENV !== "production") {
       return {
         status: "authenticated",
-        user: { id: "dev-guest-user", displayName: "마법사", accountType: "guest", cognitoSub: "guest:dev-guest-user" } as SessionUser,
+        user: { id: "00000000-0000-0000-0000-000000000001", displayName: "마법사", accountType: "guest", cognitoSub: "guest:00000000-0000-0000-0000-000000000001" } as SessionUser,
       };
     }
     return { status: "unavailable" };

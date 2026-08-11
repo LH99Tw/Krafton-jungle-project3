@@ -248,6 +248,21 @@ export class RoomGameScene extends Phaser.Scene {
   private renderedNetworkRoomKey = "";
   private renderedNetworkDraftId: string | null | undefined;
   private boss: LocalEnemy | null = null;
+  private bossFireTrails: Array<{
+    x: number;
+    y: number;
+    expiresAt: number;
+    graphics: Phaser.GameObjects.Graphics;
+    lastDamageAt: number;
+  }> = [];
+  private dragonFireballs: Array<{
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    createdAt: number;
+    graphics: Phaser.GameObjects.Graphics;
+  }> = [];
   private stats: TeamStats = {
     damage: 0,
     bossDamage: 0,
@@ -319,6 +334,9 @@ export class RoomGameScene extends Phaser.Scene {
     this.load.image("zone-2-blocked", "/Asset/zone-2-blocked-marsh.png");
     this.load.image("zone-3-blocked", "/Asset/zone-3-blocked-wastes.png");
     this.load.image("enemy-demon-midboss-asset", "/images/demon_midboss.png");
+    this.load.image("enemy-gate-asset", "/images/rift_gate.png");
+    this.load.image("enemy-boss-bull-asset", "/images/boss_bull.png");
+    this.load.image("enemy-boss-dragon-asset", "/images/boss_dragon.png");
 
   }
 
@@ -372,6 +390,14 @@ export class RoomGameScene extends Phaser.Scene {
       else this.renderNetworkPlaceholder();
     } else {
       this.enterLocalRoom(this.currentRoomId, null, true);
+      if (this.options.targetRoomType === "boss") {
+        this.time.delayedCall(80, () => this.enterBossRoom());
+      } else if (this.options.targetRoomType === "hidden") {
+        const hiddenRoom = this.allLocalRooms().find((r) => r.type === "hidden-monster");
+        if (hiddenRoom) {
+          this.time.delayedCall(80, () => this.enterLocalRoom(hiddenRoom.id, null));
+        }
+      }
     }
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());
@@ -732,7 +758,7 @@ export class RoomGameScene extends Phaser.Scene {
       : kind === "gate"
         ? { hp: 190, damage: 18, speed: 0, xp: 32, gold: 30 }
         : kind === "boss"
-          ? { hp: 650, damage: 26, speed: 0, xp: 0, gold: 0 }
+          ? { hp: 950, damage: 28, speed: 0, xp: 0, gold: 0 }
           : kind === "invader"
             ? { hp: 28, damage: 9, speed: 92, xp: 7, gold: 5 }
             : { hp: 24, damage: 8, speed: 78, xp: 8, gold: 6 };
@@ -777,9 +803,9 @@ export class RoomGameScene extends Phaser.Scene {
     const isBoss = kind === "boss";
     const isMidboss = kind === "hidden";
     const isElite = kind === "gate" || isMidboss;
-    const width = isBoss ? 56 : isMidboss ? 52 : isElite ? 38 : 28;
-    const height = isBoss ? 6 : isMidboss ? 5 : 4;
-    const offsetY = isBoss ? 36 : isMidboss ? 92 : isElite ? 26 : 20;
+    const width = isBoss ? 72 : isMidboss ? 52 : isElite ? 38 : 28;
+    const height = isBoss ? 7 : isMidboss ? 5 : 4;
+    const offsetY = isBoss ? 125 : isMidboss ? 92 : isElite ? 26 : 20;
     const barX = -width / 2;
     const barY = -offsetY;
 
@@ -988,7 +1014,14 @@ export class RoomGameScene extends Phaser.Scene {
         this.updateLocalEnemyHpBar(enemy);
         continue;
       }
-      if (["hidden", "gate", "boss"].includes(enemy.kind)) {
+      if (enemy.kind === "boss") {
+        enemy.engaged = true;
+        this.updateBossBehavior(enemy, time);
+        this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind, this.player.x, this.player.y);
+        this.updateLocalEnemyHpBar(enemy);
+        continue;
+      }
+      if (["hidden", "gate"].includes(enemy.kind)) {
         enemy.engaged = true;
         enemy.sprite.setVelocity(0);
         const config = enemyPatternConfig(patternTier(enemy.kind));
@@ -1071,6 +1104,199 @@ export class RoomGameScene extends Phaser.Scene {
       enemy.patternIndex += 1;
       enemy.patternActive = false;
     });
+  }
+
+  private updateBossBehavior(boss: LocalEnemy, time: number): void {
+    if (!boss.sprite.active || this.ended) return;
+
+    // Check HP for Phase 2 Dragon Evolution (HP < 50%)
+    const hpRatio = boss.hp / boss.maxHp;
+    const isDragonPhase = hpRatio < 0.5;
+    if (isDragonPhase && boss.sprite.getData("bossPhase") !== "dragon") {
+      boss.sprite.setData("bossPhase", "dragon");
+      this.message = "마왕이 불길에 휩싸여 웅장한 용의 형태로 진화했습니다!";
+      this.roomRenderer.showImpact(boss.sprite.x, boss.sprite.y, 250, 0xff4500);
+      this.cameras.main.shake(400, 0.015);
+    }
+
+    if (!isDragonPhase) {
+      // PHASE 1: MINOTAUR / BULL FORM (HP >= 50%)
+      // Linear Bull Charge + Wall Bounce + 5s Burning Fire Trails (잔상)
+      let chargeVx = boss.sprite.getData("chargeVx") as number | undefined;
+      let chargeVy = boss.sprite.getData("chargeVy") as number | undefined;
+      const nextChargeAt = (boss.sprite.getData("nextChargeAt") as number | undefined) ?? 0;
+      const lastTrailAt = (boss.sprite.getData("lastTrailAt") as number | undefined) ?? 0;
+
+      if (time >= nextChargeAt) {
+        if (chargeVx === undefined || chargeVx === 0) {
+          // Target player's current position and set charge velocity
+          const angle = Phaser.Math.Angle.Between(boss.sprite.x, boss.sprite.y, this.player.x, this.player.y);
+          chargeVx = Math.cos(angle) * 380;
+          chargeVy = Math.sin(angle) * 380;
+          boss.sprite.setData("chargeVx", chargeVx);
+          boss.sprite.setData("chargeVy", chargeVy);
+        }
+
+        // Move boss along linear vector
+        boss.sprite.setVelocity(chargeVx, chargeVy);
+
+        // Leave 5-second burning fire trail every 120ms
+        if (time - lastTrailAt >= 120) {
+          boss.sprite.setData("lastTrailAt", time);
+          this.spawnBossFireTrail(boss.sprite.x, boss.sprite.y, time);
+        }
+
+        // Clamp position to walkable room floor & detect wall collision
+        const anchor = this.lastWalkableEnemyPositions.get(boss.id) ?? { x: boss.sprite.x, y: boss.sprite.y };
+        const clamped = clampToWalkable(this.zoneWorld.walkable, boss.sprite.x, boss.sprite.y, anchor.x, anchor.y, 72);
+
+        const isWallBlocked = Math.hypot(clamped.x - boss.sprite.x, clamped.y - boss.sprite.y) > 1.5 ||
+                              (boss.sprite.body && (boss.sprite.body.blocked.left || boss.sprite.body.blocked.right || boss.sprite.body.blocked.up || boss.sprite.body.blocked.down));
+
+        boss.sprite.setPosition(clamped.x, clamped.y);
+        this.lastWalkableEnemyPositions.set(boss.id, clamped);
+
+        if (isWallBlocked) {
+          // Bounce/stop at wall, pause briefly (0.4s recovery), then re-aim and charge continuously!
+          boss.sprite.setVelocity(0, 0);
+          boss.sprite.setData("chargeVx", 0);
+          boss.sprite.setData("chargeVy", 0);
+          boss.sprite.setData("nextChargeAt", time + 400); // 0.4s pause before re-aiming
+          this.roomRenderer.showImpact(boss.sprite.x, boss.sprite.y, 140, 0xff6600);
+          this.cameras.main.shake(220, 0.012);
+        }
+
+        // Check collision with player
+        const distToPlayer = Phaser.Math.Distance.Between(boss.sprite.x, boss.sprite.y, this.player.x, this.player.y);
+        if (distToPlayer <= 85 && time - boss.lastAttackAt >= 600) {
+          boss.lastAttackAt = time;
+          this.damagePlayer(boss.damage);
+          this.roomRenderer.showImpact(this.player.x, this.player.y, 90, 0xff2200);
+        }
+      } else {
+        boss.sprite.setVelocity(0, 0);
+      }
+    } else {
+      // PHASE 2: FIERY DRAGON FORM (HP < 50%)
+      // Hovering flight + 360-degree 16-directional radial fireball barrage
+      const distToPlayer = Phaser.Math.Distance.Between(boss.sprite.x, boss.sprite.y, this.player.x, this.player.y);
+      if (distToPlayer > 120) {
+        this.physics.moveTo(boss.sprite, this.player.x, this.player.y, 95);
+      } else {
+        boss.sprite.setVelocity(0, 0);
+      }
+
+      // Radial 16-directional Fireball barrage every 1.5 seconds
+      if (time - boss.lastShotAt >= 1500) {
+        boss.lastShotAt = time;
+        this.fireDragonRadialFireballs(boss.sprite.x, boss.sprite.y, time);
+      }
+
+      if (distToPlayer <= 90 && time - boss.lastAttackAt >= 700) {
+        boss.lastAttackAt = time;
+        this.damagePlayer(boss.damage);
+      }
+    }
+
+    // Process & update active 5-second fire trails (잔상)
+    this.updateBossFireTrails(time);
+
+    // Process & update active radial fireballs
+    this.updateDragonFireballs(time);
+  }
+
+  private spawnBossFireTrail(x: number, y: number, time: number): void {
+    const graphics = this.add.graphics().setDepth(10);
+    graphics.fillStyle(0xff3300, 0.7);
+    graphics.fillCircle(0, 0, 18);
+    graphics.lineStyle(2, 0xffaa00, 0.9);
+    graphics.strokeCircle(0, 0, 22);
+    graphics.setPosition(x, y);
+
+    this.bossFireTrails.push({
+      x,
+      y,
+      expiresAt: time + 5000, // 5-second persistence
+      graphics,
+      lastDamageAt: 0,
+    });
+  }
+
+  private updateBossFireTrails(time: number): void {
+    for (let i = this.bossFireTrails.length - 1; i >= 0; i--) {
+      const trail = this.bossFireTrails[i];
+      if (time >= trail.expiresAt) {
+        trail.graphics.clear();
+        trail.graphics.destroy();
+        this.bossFireTrails.splice(i, 1);
+        continue;
+      }
+      // Pulsating alpha fadeout over last 1 second
+      const remainingMs = trail.expiresAt - time;
+      if (remainingMs < 1000) {
+        trail.graphics.setAlpha(remainingMs / 1000);
+      }
+      // Stepping on trail deals damage
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, trail.x, trail.y);
+      if (dist <= 32 && time - trail.lastDamageAt >= 450) {
+        trail.lastDamageAt = time;
+        this.damagePlayer(8);
+      }
+    }
+  }
+
+  private fireDragonRadialFireballs(x: number, y: number, time: number): void {
+    const count = 16;
+    for (let i = 0; i < count; i++) {
+      const angle = i * ((Math.PI * 2) / count);
+      const speed = 320;
+      const vx = Math.cos(angle) * speed;
+      const vy = Math.sin(angle) * speed;
+
+      const graphics = this.add.graphics().setDepth(20);
+      graphics.fillStyle(0xff1100, 0.95);
+      graphics.fillCircle(0, 0, 8);
+      graphics.lineStyle(2, 0xffcc00, 1);
+      graphics.strokeCircle(0, 0, 10);
+      graphics.setPosition(x, y);
+
+      this.dragonFireballs.push({
+        x,
+        y,
+        vx,
+        vy,
+        createdAt: time,
+        graphics,
+      });
+    }
+  }
+
+  private updateDragonFireballs(time: number): void {
+    const deltaSec = 0.016;
+    for (let i = this.dragonFireballs.length - 1; i >= 0; i--) {
+      const fb = this.dragonFireballs[i];
+      fb.x += fb.vx * deltaSec;
+      fb.y += fb.vy * deltaSec;
+      fb.graphics.setPosition(fb.x, fb.y);
+
+      // Check collision with player
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, fb.x, fb.y);
+      if (dist <= 24) {
+        this.damagePlayer(16);
+        this.roomRenderer.showImpact(fb.x, fb.y, 45, 0xff2200);
+        fb.graphics.clear();
+        fb.graphics.destroy();
+        this.dragonFireballs.splice(i, 1);
+        continue;
+      }
+
+      // Expire after 2.2 seconds
+      if (time - fb.createdAt >= 2200) {
+        fb.graphics.clear();
+        fb.graphics.destroy();
+        this.dragonFireballs.splice(i, 1);
+      }
+    }
   }
 
   private damageEnemy(enemy: LocalEnemy, damage: number): void {
