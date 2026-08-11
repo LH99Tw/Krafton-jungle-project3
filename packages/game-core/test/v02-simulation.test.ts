@@ -3,12 +3,15 @@ import test from "node:test";
 import { PROTOCOL_VERSION, type PlayerInputCommand } from "@five-days/protocol";
 import {
   BOSS_ROOM_ID,
+  buildWorldFromRooms,
+  doorId,
   enemyPatternConfig,
   GameCore,
   ROOM_HEIGHT,
   ROOM_WIDTH,
   roomWorldCenter,
   roomWorldRect,
+  shortestRoomPath,
   shouldAiYieldEquipment,
   waypointId,
   type CoreEnemy,
@@ -244,18 +247,112 @@ test("defender AI does not block travel while follower AI travels with the playe
   assert.equal(defender.roomId, core.maps.zones[0].startRoomId);
 });
 
-test("invaders ignore players and advance coarsely from their gate to the zone-one base", () => {
+test("invaders physically traverse connected corridors and damage the base only after arrival", () => {
   const core = startedCore("invader-path");
   core.setConnected("p1", false);
-  const invader = core.spawnInvader(3);
-  assert.equal(invader.targetId, "base");
-  assert.equal(invader.path[0], core.maps.zones[2].gateRoomId);
-  assert.equal(invader.path.at(-1), core.maps.zones[0].startRoomId);
+  const invader = core.spawnInvader(1);
+  invader.speed = 920;
+  const firstRoom = invader.roomId;
+  const firstPosition = { x: invader.x, y: invader.y };
   const baseBefore = core.baseHp;
-  for (let index = 0; index < (invader.path.length + 1) * 26; index += 1) core.update(0.1);
+
+  for (let index = 0; index < 300 && invader.roomId === firstRoom; index += 1) core.update(0.1);
+  assert.notEqual(invader.roomId, firstRoom, "the invader should enter the next room using world movement");
+  assert.ok(Math.hypot(invader.x - firstPosition.x, invader.y - firstPosition.y) > 100);
+  assert.equal(invader.path[invader.pathIndex], invader.roomId);
+  assert.equal(core.baseHp, baseBefore, "crossing an intermediate room must not damage the base");
+
+  for (let index = 0; index < 1_500 && invader.alive; index += 1) core.update(0.1);
   assert.equal(invader.targetId, "base");
   assert.equal(invader.alive, false);
   assert.ok(core.baseHp < baseBefore);
+});
+
+test("invaders hand off from an upper-zone start to the previous-zone gate", () => {
+  const core = startedCore("invader-zone-handoff");
+  core.setConnected("p1", false);
+  const invader = core.spawnInvader(3);
+  invader.speed = 920;
+
+  for (let index = 0; index < 1_000 && !invader.roomId.startsWith("zone-2:"); index += 1) core.update(0.1);
+  assert.equal(invader.roomId, core.maps.zones[1].gateRoomId);
+  assert.equal(invader.path[0], core.maps.zones[1].gateRoomId);
+  assert.equal(invader.path.at(-1), core.maps.zones[1].startRoomId);
+});
+
+test("invader path selection is deterministic and occasionally chooses a route up to two hops longer", () => {
+  const first = startedCore("route-determinism");
+  const second = startedCore("route-determinism");
+  assert.deepEqual(first.spawnInvader(1).path, second.spawnInvader(1).path);
+
+  let foundLonger = false;
+  for (let index = 0; index < 80; index += 1) {
+    const core = startedCore(`route-random-${index}`);
+    const invader = core.spawnInvader(1);
+    const map = core.maps.zones[0];
+    const shortest = shortestRoomPath(map, map.gateRoomId, map.startRoomId);
+    assert.ok(invader.path.length <= shortest.length + 2);
+    if (invader.path.length > shortest.length) foundLonger = true;
+  }
+  assert.equal(foundLonger, true, "seeded 20% routing should produce at least one valid detour");
+});
+
+test("invaders acquire, attack, and release nearby players with aggro hysteresis", () => {
+  const core = startedCore("invader-aggro");
+  const player = core.players.get("p1")!;
+  const invader = core.spawnInvader(1);
+  player.autoAttackCooldown = 999;
+  core.movePlayerToRoom(player.userId, invader.roomId);
+  player.x = invader.x + 30;
+  player.y = invader.y;
+  const hpBefore = player.hp;
+
+  core.update(0.1);
+  assert.equal(invader.targetId, player.userId);
+  assert.ok(player.hp < hpBefore, "an invader in melee range should attack its player target");
+
+  core.movePlayerToRoom(player.userId, core.maps.zones[0].startRoomId);
+  core.update(0.1);
+  assert.equal(invader.targetId, "base");
+});
+
+test("invaders replan instead of entering a newly locked connection", () => {
+  const core = startedCore("invader-blocked-edge");
+  core.setConnected("p1", false);
+  const invader = core.spawnInvader(1);
+  const blockedRoom = invader.path[1];
+  assert.ok(blockedRoom);
+  const blockedDoor = core.doors.get(doorId(invader.roomId as `zone-1:${number},${number}`, blockedRoom as `zone-1:${number},${number}`));
+  assert.ok(blockedDoor);
+  blockedDoor.locked = true;
+  const before = { x: invader.x, y: invader.y };
+
+  core.update(0.1);
+  assert.notEqual(invader.path[1], blockedRoom, "the locked edge must be removed from the next route");
+  assert.equal(invader.roomId, core.maps.zones[0].gateRoomId);
+  const world = buildWorldFromRooms(
+    [...core.rooms.values()].filter((room) => room.zone === 1 && room.id !== BOSS_ROOM_ID),
+    false,
+  );
+  assert.ok(world.rects.some((rect) => (
+    invader.x >= rect.x && invader.x < rect.x + rect.width && invader.y >= rect.y && invader.y < rect.y + rect.height
+  )));
+  assert.ok(Math.hypot(invader.x - before.x, invader.y - before.y) < 20, "replanning must not teleport through the wall");
+});
+
+test("stalled invaders blacklist the blocked edge and safely choose another route", () => {
+  const core = startedCore("invader-blocked-edge");
+  core.setConnected("p1", false);
+  const invader = core.spawnInvader(1);
+  const blockedRoom = invader.path[1];
+  assert.ok(blockedRoom);
+  invader.speed = 0;
+
+  for (let index = 0; index < 9; index += 1) core.update(0.1);
+  assert.notEqual(invader.path[1], blockedRoom);
+  assert.equal(invader.roomId, core.maps.zones[0].gateRoomId);
+  assert.equal(invader.x, invader.spawnX);
+  assert.equal(invader.y, invader.spawnY);
 });
 
 test("each discovered resource room produces one shared gold every five simulation seconds", () => {
@@ -380,10 +477,48 @@ test("boss pattern volley damages players inside the boss room", () => {
   assert.equal(boss.alive, true);
 });
 
-test("gates spawn invaders during the day (dynamic field pressure)", () => {
+test("a living gate spawns exactly 36 daytime and 120 nighttime invaders per phase", () => {
   const core = startedCore("day-spawn");
-  for (let index = 0; index < 140; index += 1) core.update(0.1);
-  assert.ok([...core.enemies.values()].some((candidate) => candidate.kind === "invader"), "an invader should spawn from a gate");
+  for (let index = 0; index < 300; index += 1) core.update(0.1);
+  assert.equal(
+    [...core.enemies.values()].filter((candidate) => candidate.kind === "invader").length,
+    10,
+    "the first half of daytime should spawn only waves 1 through 4",
+  );
+  while (core.phase === "day") core.update(0.1);
+  assert.equal(
+    [...core.enemies.values()].filter((candidate) => candidate.kind === "invader").length,
+    36,
+    "a living gate should spawn 36 invaders during the full daytime phase",
+  );
+  for (let index = 0; index < 125; index += 1) core.update(0.1);
+  assert.equal(
+    [...core.enemies.values()].filter((candidate) => candidate.kind === "invader").length,
+    71,
+    "the first half of nighttime should add only 35 invaders",
+  );
+  while (core.phase === "night") core.update(0.1);
+  assert.equal(
+    [...core.enemies.values()].filter((candidate) => candidate.kind === "invader").length,
+    156,
+    "a living gate should add 120 invaders during the full nighttime phase",
+  );
+});
+
+test("destroying the current-zone gate stops new spawns while existing invaders keep moving", () => {
+  const core = startedCore("destroyed-gate-spawn");
+  const player = core.players.get("p1")!;
+  const invader = core.spawnInvader(1);
+  const gate = [...core.enemies.values()].find((candidate) => candidate.kind === "gate" && candidate.roomId === core.maps.zones[0].gateRoomId)!;
+  core.movePlayerToRoom(player.userId, gate.roomId);
+  core.damageEnemy(player.userId, gate.id, gate.hp);
+  core.setConnected(player.userId, false);
+  const invaderCount = [...core.enemies.values()].filter((candidate) => candidate.kind === "invader").length;
+  const before = { x: invader.x, y: invader.y };
+
+  for (let index = 0; index < 200; index += 1) core.update(0.1);
+  assert.equal([...core.enemies.values()].filter((candidate) => candidate.kind === "invader").length, invaderCount);
+  assert.ok(Math.hypot(invader.x - before.x, invader.y - before.y) > 100, "an existing invader should continue after gate destruction");
 });
 
 test("solo AI companions: defender guards base, follower is driven toward the leader", () => {
@@ -413,6 +548,24 @@ test("solo AI companions: defender guards base, follower is driven toward the le
   const followerDriven = follower.inputX !== 0 || follower.inputY !== 0;
   assert.ok(defenderNearBase, "defender AI should guard the base room");
   assert.ok(followerMoved || followerDriven, "follower AI should be actively driven toward the leader");
+});
+
+test("follower AI keeps a wider trailing gap and resumes following beyond it", () => {
+  const core = startedCore("ai-follow-gap");
+  core.addPlayer({ userId: "ai:1", displayName: "수호자", heroClass: "swordsman" });
+  const follower = core.addPlayer({ userId: "ai:2", displayName: "동행", heroClass: "archer" });
+  const human = core.players.get("p1")!;
+
+  follower.roomId = human.roomId;
+  follower.x = human.x;
+  follower.y = human.y;
+  human.x += 160;
+  core.update(0.01);
+  assert.equal(follower.inputX, 0, "follower should hold position inside the wider trailing gap");
+
+  human.x = follower.x + 220;
+  core.update(0.01);
+  assert.ok(follower.inputX > 0, "follower should resume moving when the leader exceeds the trailing gap");
 });
 
 function startedCore(seed: string): GameCore {

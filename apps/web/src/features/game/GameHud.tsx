@@ -34,6 +34,10 @@ export function GameHud({
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const definition = CLASS_DEFINITIONS[heroClass];
   const phaseWarning = snapshot.phase === "night" || snapshot.phase === "boss";
+  const editorWorld = snapshot.worldMode === "editor";
+  const gateGoal = editorWorld
+    ? snapshot.roomMap.filter((room) => room.type === "gate").length
+    : 3;
   const party = snapshot.party.length > 0
     ? snapshot.party
     : [{
@@ -101,8 +105,8 @@ export function GameHud({
           );
         })}
         <div className="objective-list">
-          <span><i className={snapshot.gatesDestroyed >= 3 ? "done" : ""} /> 게이트 파괴 <b>{snapshot.gatesDestroyed}/3</b></span>
-          <span><i className={snapshot.roomsExplored >= 15 ? "done" : ""} /> 구역 탐색 <b>{snapshot.roomsExplored}/15</b></span>
+          <span><i className={snapshot.gatesDestroyed >= gateGoal ? "done" : ""} /> 게이트 파괴 <b>{snapshot.gatesDestroyed}/{gateGoal}</b></span>
+          <span><i className={snapshot.explorationPercent >= 95 ? "done" : ""} /> {editorWorld ? "전체 탐색" : "구역 탐색"} <b>{Math.floor(snapshot.explorationPercent)}%</b></span>
         </div>
       </section>
 
@@ -111,7 +115,7 @@ export function GameHud({
       </section>
 
       <section className="bottom-right-panel hud-panel" aria-label="탐색 지도 및 기지 내구도">
-        <RoomMiniMap rooms={snapshot.roomMap} zone={snapshot.currentZone} embed={true} />
+        <RoomMiniMap minimap={snapshot.minimap} party={snapshot.party} embed={true} />
 
         <div className="base-health">
           <span><b>베이스 내구도</b><small>{Math.ceil(snapshot.baseHp)} / {snapshot.baseMaxHp}</small></span>

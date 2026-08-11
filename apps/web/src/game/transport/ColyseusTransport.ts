@@ -3,18 +3,22 @@ import {
   PARTY_ROOM,
   PROTOCOL_VERSION,
   fastLaneOfferSchema,
+  minimapDeltaSchema,
+  minimapInitSchema,
   worldFrameSchema,
   type FastLaneOffer,
   type InputFrame,
   type RoomOptions,
   type TransportMode,
 } from "@five-days/protocol";
+import { applyCellRanges, decodeMask } from "@five-days/game-core";
 import type {
   HeroClassId,
   EquipmentSummary,
   NetworkDropSnapshot,
   NetworkEnemySnapshot,
   NetworkWorldSnapshot,
+  MiniMapSnapshot,
   PartyMemberSnapshot,
   RoomMapCell,
   TeamStats,
@@ -183,6 +187,7 @@ export class ColyseusTransport {
   private readonly stateListeners = new Set<StateListener>();
   private readonly eventListeners = new Set<EventListener>();
   private latestState: NetworkWorldSnapshot | null = null;
+  private readonly minimaps = new Map<string, MiniMapSnapshot>();
   private localUserId = "";
   private fastLane: WebTransport | null = null;
   private fastLaneWriter: WritableStreamDefaultWriter<Uint8Array> | null = null;
@@ -249,6 +254,10 @@ export class ColyseusTransport {
     return this.transportModeValue;
   }
 
+  get activeRoomId(): string | null {
+    return this.room?.roomId ?? null;
+  }
+
   get unacknowledgedInputs(): InputFrame[] {
     return [...this.pendingInputs.values()];
   }
@@ -289,6 +298,7 @@ export class ColyseusTransport {
     void room?.leave(true);
     room?.removeAllListeners();
     this.latestState = null;
+    this.minimaps.clear();
   }
 
   private attachRoom(room: Room, generation: number): void {
@@ -314,6 +324,38 @@ export class ColyseusTransport {
       if (!isCurrentRoom()) return;
       this.handleWorldFrame(message);
     });
+    room.onMessage("minimap.init", (message: unknown) => {
+      if (!isCurrentRoom()) return;
+      const parsed = minimapInitSchema.safeParse(message);
+      if (!parsed.success) return;
+      const { geometry, explorationMask, revision } = parsed.data;
+      try {
+        const mask = decodeMask(explorationMask, Math.ceil(geometry.columns * geometry.rows / 8));
+        const current = this.minimaps.get(geometry.areaId);
+        if (current?.geometry.mapRevision === geometry.mapRevision && current.revision > revision) return;
+        this.minimaps.set(geometry.areaId, { geometry, explorationMask: mask, revision });
+        this.publishMinimap();
+      } catch {
+        // Invalid masks never reach the renderer.
+      }
+    });
+    room.onMessage("minimap.delta", (message: unknown) => {
+      if (!isCurrentRoom()) return;
+      const parsed = minimapDeltaSchema.safeParse(message);
+      if (!parsed.success) return;
+      const delta = parsed.data;
+      const current = this.minimaps.get(delta.areaId);
+      if (!current || current.geometry.mapRevision !== delta.mapRevision) return;
+      if (delta.revision <= current.revision) return;
+      if (delta.revision !== current.revision + 1) {
+        room.send("minimap.resync", { v: PROTOCOL_VERSION, areaId: delta.areaId, mapRevision: delta.mapRevision });
+        return;
+      }
+      const mask = current.explorationMask.slice();
+      if (!applyCellRanges(mask, delta.ranges, current.geometry.columns * current.geometry.rows)) return;
+      this.minimaps.set(delta.areaId, { ...current, explorationMask: mask, revision: delta.revision });
+      this.publishMinimap();
+    });
     room.onMessage("fastlane.offer", (message: unknown) => {
       if (!isCurrentRoom()) return;
       const offer = fastLaneOfferSchema.safeParse(message);
@@ -335,6 +377,7 @@ export class ColyseusTransport {
       void this.tryReconnect(room.reconnectionToken, generation);
     });
     room.send("fastlane.request", { v: PROTOCOL_VERSION });
+    room.send("minimap.ready", { v: PROTOCOL_VERSION });
     setTimeout(() => {
       if (isCurrentRoom() && this.transportModeValue === "websocket-fallback") {
         room.send("fastlane.request", { v: PROTOCOL_VERSION });
@@ -671,7 +714,22 @@ export class ColyseusTransport {
       waypointHoldProgress: state.waypointHoldProgress ?? Math.max(0, ...waypoints.map((waypoint) => waypoint.holdProgress)),
       localUpgradeDraft,
       stats,
+      minimap: this.minimapForRoom(localRoomId),
     };
+    this.latestState = snapshot;
+    gameBridge.emit("network", snapshot);
+    this.stateListeners.forEach((listener) => listener(snapshot));
+  }
+
+  private minimapForRoom(roomId: string): MiniMapSnapshot | null {
+    const match = /^zone-(\d+)/u.exec(roomId);
+    return match ? this.minimaps.get(`zone-${match[1]}`) ?? null : roomId === "boss:arena" ? this.minimaps.get("zone-3") ?? null : null;
+  }
+
+  private publishMinimap(): void {
+    if (!this.latestState) return;
+    const localRoomId = this.latestState.players.find((player) => player.isLocal)?.roomId ?? "";
+    const snapshot = { ...this.latestState, minimap: this.minimapForRoom(localRoomId) };
     this.latestState = snapshot;
     gameBridge.emit("network", snapshot);
     this.stateListeners.forEach((listener) => listener(snapshot));

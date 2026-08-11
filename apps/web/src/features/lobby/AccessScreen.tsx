@@ -13,6 +13,7 @@ export function AccessScreen({
   onLogout,
   onStart,
   onOpenEditor,
+  editorEnabled,
 }: {
   viewer: Viewer;
   busy: boolean;
@@ -21,6 +22,7 @@ export function AccessScreen({
   onLogout: () => Promise<void>;
   onStart: () => void;
   onOpenEditor: () => void;
+  editorEnabled: boolean;
 }) {
   return (
     <main className="access-screen">
@@ -32,7 +34,7 @@ export function AccessScreen({
         <div className="access-launch">
           <p>{viewer ? "함께 싸울 원정대를 찾으세요." : "왼쪽에서 먼저 접속해 주세요."}</p>
           <div className="access-launch-actions">
-            <FantasyButton variant="quiet" size="large" type="button" onClick={onOpenEditor} trailingIcon="⌘">로컬 맵 빌더</FantasyButton>
+            {process.env.NODE_ENV !== "production" && editorEnabled && <FantasyButton variant="quiet" size="large" type="button" onClick={onOpenEditor} trailingIcon="⌘">로컬 맵 빌더</FantasyButton>}
             <FantasyButton variant="secondary" size="large" type="button" onClick={onStart} disabled={!viewer || busy} trailingIcon="→">원정대 찾기</FantasyButton>
           </div>
         </div>

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 export const PARTY_ROOM = "party_room";
 export const LOBBY_ROOM = "lobby_room";
 export const GLOBAL_CHAT_ROOM = "global_chat";
@@ -108,6 +108,59 @@ export const fastLaneOfferSchema = z.object({
 
 export const transportModeSchema = z.enum(["webtransport", "websocket-fallback"]);
 
+const minimapCoordinate = z.number().finite().min(-1_000_000).max(1_000_000);
+export const minimapPointSchema = z.object({ x: minimapCoordinate, y: minimapCoordinate }).strict();
+export const minimapBoundsSchema = z.object({
+  x: minimapCoordinate,
+  y: minimapCoordinate,
+  width: z.number().finite().positive().max(2_000_000),
+  height: z.number().finite().positive().max(2_000_000),
+}).strict();
+export const minimapSurfaceSchema = z.object({
+  id: networkIdSchema,
+  points: z.array(minimapPointSchema).min(3).max(32),
+}).strict();
+export const minimapMarkerSchema = z.object({
+  id: networkIdSchema,
+  kind: z.enum(["gate", "waypoint", "boss"]),
+  label: publicText(1, 48),
+  x: minimapCoordinate,
+  y: minimapCoordinate,
+  areaId: networkIdSchema,
+}).strict();
+export const minimapGeometrySchema = z.object({
+  mapRevision: networkIdSchema,
+  areaId: networkIdSchema,
+  bounds: minimapBoundsSchema,
+  cellSize: z.number().finite().min(16).max(16_384),
+  columns: z.number().int().min(1).max(256),
+  rows: z.number().int().min(1).max(256),
+  surfaces: z.array(minimapSurfaceSchema).min(1).max(512),
+  markers: z.array(minimapMarkerSchema).max(128),
+}).strict().refine((value) => value.columns * value.rows <= 65_536, "minimap grid is too large");
+export const minimapInitSchema = z.object({
+  v: z.literal(PROTOCOL_VERSION),
+  geometry: minimapGeometrySchema,
+  revision: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
+  explorationMask: z.string().max(12_000).regex(/^[A-Za-z0-9+/]*={0,2}$/u),
+}).strict();
+export const minimapDeltaSchema = z.object({
+  v: z.literal(PROTOCOL_VERSION),
+  mapRevision: networkIdSchema,
+  areaId: networkIdSchema,
+  revision: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  ranges: z.array(z.tuple([
+    z.number().int().nonnegative().max(65_535),
+    z.number().int().positive().max(65_536),
+  ])).max(4_096),
+}).strict().refine((value) => value.ranges.every(([start, length]) => start + length <= 65_536), "minimap delta range is too large");
+export const minimapResyncSchema = z.object({
+  v: z.literal(PROTOCOL_VERSION),
+  areaId: networkIdSchema,
+  mapRevision: networkIdSchema,
+}).strict();
+export const minimapReadySchema = z.object({ v: z.literal(PROTOCOL_VERSION) }).strict();
+
 export const skillCastSchema = z.object({
   ...envelope,
   type: z.literal("skill.cast"),
@@ -197,6 +250,14 @@ export type TransformSample = z.infer<typeof transformSampleSchema>;
 export type WorldFrame = z.infer<typeof worldFrameSchema>;
 export type FastLaneOffer = z.infer<typeof fastLaneOfferSchema>;
 export type TransportMode = z.infer<typeof transportModeSchema>;
+export type MiniMapPoint = z.infer<typeof minimapPointSchema>;
+export type MiniMapBounds = z.infer<typeof minimapBoundsSchema>;
+export type MiniMapSurface = z.infer<typeof minimapSurfaceSchema>;
+export type MiniMapMarker = z.infer<typeof minimapMarkerSchema>;
+export type MiniMapGeometry = z.infer<typeof minimapGeometrySchema>;
+export type MiniMapInit = z.infer<typeof minimapInitSchema>;
+export type MiniMapDelta = z.infer<typeof minimapDeltaSchema>;
+export type MiniMapResync = z.infer<typeof minimapResyncSchema>;
 export type RoomOptionsInput = z.input<typeof roomOptionsSchema>;
 export type ResolvedRoomOptions = z.output<typeof roomOptionsSchema>;
 // `partyMode` remains optional at existing call sites while the parser resolves it to "coop".

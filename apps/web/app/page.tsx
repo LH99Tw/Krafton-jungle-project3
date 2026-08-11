@@ -38,6 +38,7 @@ export default async function Home({ searchParams }: {
     viewer={viewer}
     gameServerUrl={process.env.GAME_SERVER_PUBLIC_URL || (process.env.NODE_ENV !== "production" ? "ws://localhost:2567" : "")}
     publicPlaytestEnabled={process.env.PUBLIC_PLAYTEST_ENABLED === "true" || process.env.NODE_ENV !== "production"}
+    localMapEditorEnabled={process.env.NODE_ENV !== "production"}
     autoStartOptions={parseAutoStartOptions(query)}
     sessionUnavailable={sessionUnavailable}
   />;

@@ -5,9 +5,11 @@ import {
 } from "./vision";
 
 const PLAYER_SOURCE_ID = "player";
-const PLAYER_VISION_RADIUS = 400;
+const PLAYER_VISION_RADIUS = 800;
 const FOG_DEPTH = 180;
 const FOG_WORLD_SIZE = 100_000;
+const FOG_EDGE_INNER_SCALE = 0.94;
+const FOG_EDGE_OUTER_SCALE = 1.06;
 
 type FogLayer = {
   overlay: Phaser.GameObjects.Rectangle;
@@ -18,7 +20,7 @@ type FogLayer = {
 };
 
 /**
- * A client-only, screen-space fog layer. It never changes authoritative game
+ * A client-only, world-space fog layer. It never changes authoritative game
  * state: the player and future installed lights simply contribute reveal
  * apertures to the local HUD composition.
  */
@@ -93,7 +95,13 @@ export class PlayerVisionFog {
     const layerCount = 18;
     this.layers = Array.from({ length: layerCount }, (_, index) => {
       const progress = index / (layerCount - 1);
-      const radiusScale = Phaser.Math.Linear(0.58, 1.18, progress);
+      // Keep the playable area clear, then stack the fog layers across a
+      // narrow band so visibility falls off rapidly just beyond the radius.
+      const radiusScale = Phaser.Math.Linear(
+        FOG_EDGE_INNER_SCALE,
+        FOG_EDGE_OUTER_SCALE,
+        progress,
+      );
       const color = index % 3 === 0 ? 0x0a1712 : 0x030806;
       const alpha = Phaser.Math.Linear(0.135, 0.075, progress);
       const overlay = this.scene.add.rectangle(

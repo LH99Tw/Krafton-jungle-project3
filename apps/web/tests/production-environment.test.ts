@@ -20,7 +20,7 @@ test("production refuses a missing or weak guestbook administrator key", () => {
     COGNITO_ISSUER: "https://cognito-idp.example.com/pool",
     COGNITO_DOMAIN: "https://auth.example.com",
     COGNITO_REDIRECT_URI: "https://web.example.com/api/auth/callback",
-    PROTOCOL_VERSION: "3",
+    PROTOCOL_VERSION: "4",
   });
   delete mutableEnv.GUESTBOOK_ADMIN_DELETE_KEY;
   try {

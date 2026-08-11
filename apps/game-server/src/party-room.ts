@@ -8,6 +8,8 @@ import {
   PROTOCOL_VERSION,
   clientCommandSchema,
   inputFrameSchema,
+  minimapResyncSchema,
+  minimapReadySchema,
   playerInputSchema,
   roomOptionsSchema,
   transformFlags,
@@ -52,6 +54,7 @@ import {
   recordRealtimeWorldFrame,
   recordSimulationCatchUp,
 } from "./realtime-metrics";
+import { PartyExploration } from "./minimap";
 
 const FINALIZE_ATTEMPT_TIMEOUT_MS = 3_000;
 const FINALIZE_RETRY_DELAYS_MS = [250, 750] as const;
@@ -158,6 +161,9 @@ export class PartyRoom extends Room<PartyRoomState> {
   private simulationAccumulatorMs = 0;
   private serverTick = 0;
   private lastKeyframeAt = 0;
+  private exploration!: PartyExploration;
+  private explorationAccumulatorMs = 0;
+  private explorationBroadcastAccumulatorMs = 0;
 
   static async onAuth(token: string, _options: unknown, context: AuthContext): Promise<GameTicketClaims> {
     return authorizeGameConnection(token, context, "party");
@@ -189,6 +195,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       seed: crypto.randomUUID(),
       minimumPlayers: options.partyMode === "solo" ? 1 : 3,
     });
+    this.exploration = new PartyExploration(this.core);
     this.state.seed = this.core.options.seed;
     for (const ai of aiPlayers) {
       const corePlayer = this.core.addPlayer({ userId: ai.userId, displayName: ai.displayName, heroClass: ai.heroClass });
@@ -224,6 +231,16 @@ export class PartyRoom extends Room<PartyRoomState> {
       if ((message as { v?: unknown })?.v !== PROTOCOL_VERSION) return;
       const userId = client.userData?.userId as string | undefined;
       if (userId) this.sendFastLaneOffer(client, userId);
+    });
+    this.onMessage("minimap.resync", (client, message) => {
+      const parsed = minimapResyncSchema.safeParse(message);
+      if (!parsed.success) return this.reject(client, "INVALID_MINIMAP_RESYNC");
+      const init = this.exploration.init(parsed.data.areaId);
+      if (init && init.geometry.mapRevision === parsed.data.mapRevision) client.send("minimap.init", init);
+    });
+    this.onMessage("minimap.ready", (client, message) => {
+      if (!minimapReadySchema.safeParse(message).success) return this.reject(client, "INVALID_MINIMAP_READY");
+      for (const init of this.exploration.allInit()) client.send("minimap.init", init);
     });
     registerFastLaneRoom(this.roomId, {
       hasSession: (sessionId, userId) => this.clients.some((client) => (
@@ -274,6 +291,8 @@ export class PartyRoom extends Room<PartyRoomState> {
     this.state.players.set(player.userId, state);
     this.syncState(true);
     this.initializeClientView(client, player.userId);
+    this.exploration.update();
+    for (const init of this.exploration.allInit()) client.send("minimap.init", init);
     this.sendFastLaneOffer(client, player.userId);
   }
 
@@ -312,6 +331,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       unregisterConnection("party", userId, client);
       this.core.setConnected(userId, true);
       this.initializeClientView(reconnected, userId);
+      for (const init of this.exploration.allInit()) reconnected.send("minimap.init", init);
       this.sendFastLaneOffer(reconnected, userId);
     } catch {
       unregisterConnection("party", userId, client);
@@ -445,6 +465,17 @@ export class PartyRoom extends Room<PartyRoomState> {
       this.simulationAccumulatorMs %= SIMULATION_STEP_MS;
     }
     recordSimulationCatchUp(simulatedTicks - 1, droppedCatchUp);
+    this.explorationAccumulatorMs += Math.max(0, deltaMs);
+    this.explorationBroadcastAccumulatorMs += Math.max(0, deltaMs);
+    if (this.explorationAccumulatorMs >= 100) {
+      this.explorationAccumulatorMs %= 100;
+      this.exploration.update();
+      for (const init of this.exploration.takeGeometryUpdates()) this.broadcast("minimap.init", init);
+    }
+    if (this.explorationBroadcastAccumulatorMs >= 200) {
+      this.explorationBroadcastAccumulatorMs %= 200;
+      for (const delta of this.exploration.flush()) this.broadcast("minimap.delta", delta);
+    }
     if (Date.now() - this.createdAt >= 35 * 60 * 1000 && this.core.phase !== "ended") {
       this.core.finish("abandoned", "원정 최대 진행 시간 35분을 초과했습니다.");
     }

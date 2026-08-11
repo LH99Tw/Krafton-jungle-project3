@@ -8,6 +8,11 @@ import {
   enemyFloorPatternCircles,
   enemyPatternConfig,
   generateThreeZoneMap,
+  createExplorationMask,
+  createMiniMapGrid,
+  explorationPercent as calculateExplorationPercent,
+  rectToMiniMapSurface,
+  revealAround,
   rollPersonalHiddenDrop,
   type AugmentId,
   type PersonalHiddenDrop,
@@ -24,6 +29,7 @@ import type {
   GameSnapshot,
   GameStartOptions,
   NetworkWorldSnapshot,
+  MiniMapSnapshot,
   PartyMemberSnapshot,
   Phase,
   RoomMapCell,
@@ -155,6 +161,7 @@ export class RoomGameScene extends Phaser.Scene {
   private readonly clearedGateZones = new Set<number>();
   private readonly staticRespawnAt = new Map<string, number>();
   private readonly equipment = new Map<EquipmentSummary["slot"], EquippedRuntime>();
+  private readonly localMiniMaps = new Map<string, MiniMapSnapshot>();
   private currentZone: ZoneId = 1;
   private currentRoomId: string;
   private zoneWorld!: RenderZoneWorld;
@@ -1353,7 +1360,10 @@ export class RoomGameScene extends Phaser.Scene {
     const equipped = [...this.equipment.values()].map((item) => item.summary);
     const teamPower = this.progression.powerScore + equipped.reduce((sum, item) => sum + item.power, 0);
     const boss = this.boss?.sprite.active ? this.boss : null;
+    const minimap = this.localMiniMap();
+    const explored = minimap ? calculateExplorationPercent(minimap.geometry, minimap.explorationMask) : 0;
     return {
+      worldMode: this.options.editorMap ? "editor" : "procedural",
       running: !this.ended,
       phase: this.localPhase,
       phaseLabel: PHASE_LABELS[this.localPhase],
@@ -1369,7 +1379,9 @@ export class RoomGameScene extends Phaser.Scene {
       xpToNext: this.progression.xpToNext,
       gold: this.gold,
       teamPower,
-      gatesDestroyed: this.clearedGateZones.size,
+      gatesDestroyed: this.options.editorMap
+        ? roomMap.filter((room) => room.type === "gate" && room.cleared).length
+        : this.clearedGateZones.size,
       buildMode: this.buildMode,
       qCooldown: Math.max(0, (this.qReadyAt - this.time.now) / 1000),
       eCooldown: Math.max(0, (this.eReadyAt - this.time.now) / 1000),
@@ -1400,8 +1412,10 @@ export class RoomGameScene extends Phaser.Scene {
       }],
       currentZone: this.currentZone,
       currentRoomId: this.currentRoomId,
-      roomsExplored: roomMap.filter((room) => room.zone === this.currentZone && room.visited).length,
+      roomsExplored: roomMap.filter((room) => (this.options.editorMap || room.zone === this.currentZone) && room.visited).length,
       roomMap,
+      minimap,
+      explorationPercent: explored,
       equipment: equipped,
       buildSupported: true,
       inBuildZone: this.isLocalBuildRoom() && isInsideBuildBounds(this.player.x, this.player.y),
@@ -1454,6 +1468,7 @@ export class RoomGameScene extends Phaser.Scene {
       rooms: roomMap,
     });
     return {
+      worldMode: "procedural",
       running: phase !== "ended",
       phase,
       phaseLabel: PHASE_LABELS[phase],
@@ -1485,6 +1500,8 @@ export class RoomGameScene extends Phaser.Scene {
       currentRoomId: local?.roomId ?? this.currentRoomId,
       roomsExplored: shared.roomsExplored,
       roomMap: shared.roomMap,
+      minimap: state?.minimap ?? null,
+      explorationPercent: state?.minimap ? calculateExplorationPercent(state.minimap.geometry, state.minimap.explorationMask) : 0,
       equipment: local?.equipment ?? [],
       buildSupported: false,
       inBuildZone: false,
@@ -1502,6 +1519,32 @@ export class RoomGameScene extends Phaser.Scene {
         presentPlayers: activeWaypoint?.holdingPlayers ?? 0,
       },
     };
+  }
+
+  private localMiniMap(): MiniMapSnapshot | null {
+    if (!this.zoneWorld?.walkable.length) return null;
+    const areaId = this.options.editorMap ? "editor" : `zone-${this.currentZone}`;
+    const mapRevision = `${this.runSeed}:${areaId}`;
+    let snapshot = this.localMiniMaps.get(areaId);
+    if (!snapshot || snapshot.geometry.mapRevision !== mapRevision) {
+      const bounds = this.zoneWorld.bounds;
+      const grid = createMiniMapGrid(bounds);
+      const surfaces = this.zoneWorld.walkable.map((rect, index) => rectToMiniMapSurface(rect, `${areaId}:surface:${index}`));
+      const markers = this.zoneWorld.rooms.flatMap((entry) => {
+        const kind = entry.room.type === "gate" ? "gate" : entry.room.type === "boss" ? "boss"
+          : entry.room.type === "central-waypoint" || entry.room.type === "start" ? "waypoint" : null;
+        return kind ? [{
+          id: `${entry.room.id}:marker`, kind, label: kind === "boss" ? "마왕의 제단" : kind === "gate" ? "구역 게이트" : "활성 웨이포인트",
+          x: entry.center.x, y: entry.center.y, areaId,
+        }] : [];
+      });
+      const geometry = { mapRevision, areaId, bounds, ...grid, surfaces, markers } as MiniMapSnapshot["geometry"];
+      snapshot = { geometry, explorationMask: createExplorationMask(geometry), revision: 0 };
+      this.localMiniMaps.set(areaId, snapshot);
+    }
+    const newlyRevealed = revealAround(snapshot.geometry, snapshot.explorationMask, this.player.x, this.player.y);
+    if (newlyRevealed.length > 0) snapshot.revision += 1;
+    return snapshot;
   }
 
   private localRoomMap(): RoomMapCell[] {

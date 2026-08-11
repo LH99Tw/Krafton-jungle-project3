@@ -28,7 +28,7 @@ const values = [
   `GAME_TICKET_PRIVATE_KEY_BASE64=${Buffer.from(privateKey).toString("base64")}`,
   `GAME_TICKET_PUBLIC_KEY_BASE64=${Buffer.from(publicKey).toString("base64")}`,
   "GAME_TICKET_ACTIVE_KID=local-v1",
-  "PROTOCOL_VERSION=3",
+  "PROTOCOL_VERSION=4",
   "ALLOWED_ORIGINS=http://localhost:3000",
   "SERVER_VERSION=development",
   "",

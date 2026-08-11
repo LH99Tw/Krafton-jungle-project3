@@ -1,4 +1,5 @@
 import type { AugmentId } from "@five-days/game-core";
+import type { MiniMapGeometry } from "@five-days/protocol";
 import type { EditorMapDefinition } from "./mapEditor";
 export type {
   FastLaneOffer,
@@ -101,6 +102,12 @@ export type RoomMapCell = {
   connections: string[];
 };
 
+export type MiniMapSnapshot = {
+  geometry: MiniMapGeometry;
+  explorationMask: Uint8Array;
+  revision: number;
+};
+
 export type EquipmentSummary = {
   slot: "weapon" | "armor" | "accessory";
   name: string;
@@ -188,9 +195,11 @@ export type NetworkWorldSnapshot = {
     choices: UpgradeChoice[];
   } | null;
   stats: TeamStats;
+  minimap: MiniMapSnapshot | null;
 };
 
 export type GameSnapshot = {
+  worldMode: "procedural" | "editor";
   running: boolean;
   phase: Phase;
   phaseLabel: string;
@@ -222,6 +231,8 @@ export type GameSnapshot = {
   currentRoomId: string;
   roomsExplored: number;
   roomMap: RoomMapCell[];
+  minimap: MiniMapSnapshot | null;
+  explorationPercent: number;
   equipment: EquipmentSummary[];
   buildSupported: boolean;
   inBuildZone: boolean;
@@ -249,6 +260,7 @@ export type GameResult = {
 };
 
 export const EMPTY_SNAPSHOT: GameSnapshot = {
+  worldMode: "procedural",
   running: false,
   phase: "day",
   phaseLabel: "낮",
@@ -288,6 +300,8 @@ export const EMPTY_SNAPSHOT: GameSnapshot = {
   currentRoomId: "zone-1:0,4",
   roomsExplored: 1,
   roomMap: [],
+  minimap: null,
+  explorationPercent: 0,
   equipment: [],
   buildSupported: false,
   inBuildZone: true,

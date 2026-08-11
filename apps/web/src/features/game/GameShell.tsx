@@ -32,16 +32,20 @@ export type Viewer = {
 } | null;
 
 type Screen = "access" | "lobby" | "selecting" | "editor" | "playing";
+const RUN_RECOVERY_KEY = "five-days:active-run:v1";
+const RUN_RECOVERY_TTL_MS = 35 * 60 * 1000;
 
-export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytestEnabled, autoStartOptions, sessionUnavailable = false }: {
+export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytestEnabled, localMapEditorEnabled, autoStartOptions, sessionUnavailable = false }: {
   viewer: Viewer;
   gameServerUrl: string;
   publicPlaytestEnabled: boolean;
+  localMapEditorEnabled: boolean;
   autoStartOptions: GameStartOptions | null;
   sessionUnavailable?: boolean;
 }) {
   const router = useRouter();
   const autoStartAttempted = useRef(false);
+  const recoveryAttempted = useRef(false);
   const snapshotRef = useRef<GameSnapshot>(EMPTY_SNAPSHOT);
   const runGenerationRef = useRef(0);
   const [viewer, setViewer] = useState<Viewer>(initialViewer);
@@ -108,6 +112,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       if (event.type === "reconnected") setNetworkStatus("connected");
       if (event.type === "disconnected") setNetworkStatus("disconnected");
       if (event.type === "result") {
+        clearRunRecovery();
         const current = snapshotRef.current;
         setResult({
           state: event.state === "victory" ? "victory" : "defeat",
@@ -138,6 +143,8 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     try {
       if (gameServerUrl) {
         await colyseusTransport.connect({ serverUrl: gameServerUrl, csrfToken: viewer!.csrfToken, options, roomId, userId: viewer!.userId });
+        const activeRoomId = colyseusTransport.activeRoomId;
+        if (activeRoomId) saveRunRecovery(viewer!.userId, activeRoomId, options);
       }
       if (runGeneration !== runGenerationRef.current) return;
       setNetworkStatus("connected");
@@ -152,8 +159,16 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       setNetworkStatus("error");
       setLaunching(false);
       setSurfaceError(formatClientError(error, "게임 서버에 연결하지 못했습니다."));
+      if (roomId) clearRunRecovery();
     }
   }, [gameServerUrl, viewer]);
+
+  useEffect(() => {
+    if (!viewer || !gameServerUrl || recoveryAttempted.current || autoStartOptions) return;
+    recoveryAttempted.current = true;
+    const recovery = readRunRecovery(viewer.userId);
+    if (recovery) void beginRun(recovery.options, recovery.roomId);
+  }, [autoStartOptions, beginRun, gameServerUrl, viewer]);
 
   useEffect(() => {
     const offSnapshot = lobbyTransport.on("snapshot", (value) => {
@@ -282,6 +297,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
         headers: { "x-csrf-token": viewer.csrfToken },
       });
       if (!response.ok) throw new Error("로그아웃 요청을 처리하지 못했습니다.");
+      clearRunRecovery();
       setViewer(null);
       router.refresh();
     } catch (error) {
@@ -294,6 +310,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   const returnToLobby = useCallback(() => {
     const wasEditorPlaytest = Boolean(activeOptions?.editorMap);
     runGenerationRef.current += 1;
+    clearRunRecovery();
     colyseusTransport.disconnect();
     lobbyTransport.returnFromGame();
     setNetworkStatus("disconnected"); setResult(null); setUpgradeChoices([]); snapshotRef.current = EMPTY_SNAPSHOT; setSnapshot(EMPTY_SNAPSHOT); setActiveOptions(null); setLaunching(false);
@@ -306,6 +323,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   }, [activeOptions?.networked]);
 
   const playEditorMap = useCallback((editorMap: EditorMapDefinition) => {
+    if (!localMapEditorEnabled) return;
     runGenerationRef.current += 1;
     colyseusTransport.disconnect();
     setNetworkStatus("connected");
@@ -315,7 +333,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     setActiveOptions({ heroClass: "swordsman", sessionMode: "prototype", difficulty: "normal", partyMode: "solo", networked: false, userId: viewer?.userId ?? "map-editor", editorMap });
     setRunKey((value) => value + 1);
     setScreen("playing");
-  }, [viewer?.userId]);
+  }, [localMapEditorEnabled, viewer?.userId]);
 
   if (screen === "playing" && activeOptions) return <main className="play-screen">
     <div className="network-status" role="status">{activeOptions.editorMap ? "로컬 맵 테스트" : `게임 서버 · ${networkStatus === "connected" ? "연결됨" : networkStatus}`}</div>
@@ -328,9 +346,43 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
 
   if (screen === "lobby" && viewer) return <LobbyScreen viewer={viewer} rooms={rooms} snapshot={lobby} messages={messages} busy={busy} error={surfaceError} onCreate={createLobby} onJoin={joinLobby} onLeave={leaveLobby} onReady={(ready) => lobbyTransport.ready(ready)} onStart={() => lobbyTransport.startSelection()} onSoloStart={startSoloExpedition} onChat={(message) => globalChatTransport.chat(message)} onAddAi={() => lobbyTransport.addAi()} onRemoveAi={(userId) => lobbyTransport.removeAi(userId)} onBack={() => setScreen("access")} />;
 
-  if (screen === "editor") return <MapEditorScreen onBack={() => setScreen("access")} onPlay={playEditorMap} />;
+  if (screen === "editor" && localMapEditorEnabled) return <MapEditorScreen onBack={() => setScreen("access")} onPlay={playEditorMap} />;
 
-  return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onLogout={logout} onOpenEditor={() => setScreen("editor")} onStart={() => { setSurfaceError(""); if (gameServerUrl) setScreen("lobby"); else void beginRun({ heroClass: "swordsman", sessionMode: "prototype", difficulty: "normal", partyMode: "solo" }); }} />;
+  return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onLogout={logout} editorEnabled={localMapEditorEnabled} onOpenEditor={() => { if (localMapEditorEnabled) setScreen("editor"); }} onStart={() => { setSurfaceError(""); if (gameServerUrl) setScreen("lobby"); else void beginRun({ heroClass: "swordsman", sessionMode: "prototype", difficulty: "normal", partyMode: "solo" }); }} />;
+}
+
+function saveRunRecovery(userId: string, roomId: string, options: GameStartOptions): void {
+  if (typeof window === "undefined" || options.editorMap) return;
+  const safeOptions = {
+    heroClass: options.heroClass,
+    sessionMode: options.sessionMode,
+    difficulty: options.difficulty,
+    partyMode: options.partyMode,
+  } satisfies GameStartOptions;
+  sessionStorage.setItem(RUN_RECOVERY_KEY, JSON.stringify({ userId, roomId, options: safeOptions, expiresAt: Date.now() + RUN_RECOVERY_TTL_MS }));
+}
+
+function readRunRecovery(userId: string): { roomId: string; options: GameStartOptions } | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const value = JSON.parse(sessionStorage.getItem(RUN_RECOVERY_KEY) ?? "null") as Record<string, unknown> | null;
+    const options = value?.options as Record<string, unknown> | undefined;
+    if (!value || value.userId !== userId || typeof value.roomId !== "string" || typeof value.expiresAt !== "number" || value.expiresAt <= Date.now()
+      || !options || !["swordsman", "archer", "mage"].includes(String(options.heroClass))
+      || !["prototype", "full"].includes(String(options.sessionMode)) || !["easy", "normal", "hard"].includes(String(options.difficulty))
+      || !["solo", "coop"].includes(String(options.partyMode))) {
+      clearRunRecovery();
+      return null;
+    }
+    return { roomId: value.roomId, options: options as GameStartOptions };
+  } catch {
+    clearRunRecovery();
+    return null;
+  }
+}
+
+function clearRunRecovery(): void {
+  if (typeof window !== "undefined") sessionStorage.removeItem(RUN_RECOVERY_KEY);
 }
 
 function formatClientError(error: unknown, fallback: string): string {

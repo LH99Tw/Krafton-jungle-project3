@@ -29,31 +29,28 @@ const THEMES: Array<{ id: EditorAssetTheme; label: string; image: string }> = [
 
 type Tool = "select" | "room" | "connect";
 
+function loadInitialMap(): EditorMapDefinition {
+  if (typeof window === "undefined") return cloneEditorMap(DEFAULT_EDITOR_MAP);
+  try {
+    const stored = window.localStorage.getItem(EDITOR_MAP_STORAGE_KEY);
+    if (!stored) return cloneEditorMap(DEFAULT_EDITOR_MAP);
+    const parsed = JSON.parse(stored) as EditorMapDefinition;
+    if (parsed.version === 1 && Array.isArray(parsed.rooms) && Array.isArray(parsed.connections)) return parsed;
+  } catch {
+    // Corrupt local drafts fall back to the bundled starter map.
+  }
+  return cloneEditorMap(DEFAULT_EDITOR_MAP);
+}
+
 export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay: (map: EditorMapDefinition) => void }) {
-  const [map, setMap] = useState(() => cloneEditorMap(DEFAULT_EDITOR_MAP));
+  const [map, setMap] = useState(loadInitialMap);
   const [tool, setTool] = useState<Tool>("select");
   const [placementType, setPlacementType] = useState<EditorRoomType>("empty");
-  const [selectedId, setSelectedId] = useState<string>(DEFAULT_EDITOR_MAP.rooms[0]?.id ?? "");
+  const [selectedId, setSelectedId] = useState<string>(() => map.rooms[0]?.id ?? "");
   const [connectionStart, setConnectionStart] = useState<string | null>(null);
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
   const failures = useMemo(() => validateEditorMap(map), [map]);
   const selected = map.rooms.find((room) => room.id === selectedId) ?? null;
-
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(EDITOR_MAP_STORAGE_KEY);
-      if (!stored) return;
-      const parsed = JSON.parse(stored) as EditorMapDefinition;
-      if (parsed.version === 1 && Array.isArray(parsed.rooms) && Array.isArray(parsed.connections)) {
-        queueMicrotask(() => {
-          setMap(parsed);
-          setSelectedId(parsed.rooms[0]?.id ?? "");
-        });
-      }
-    } catch {
-      // Corrupt local drafts fall back to the bundled starter map.
-    }
-  }, []);
 
   useEffect(() => {
     window.localStorage.setItem(EDITOR_MAP_STORAGE_KEY, JSON.stringify(map));
