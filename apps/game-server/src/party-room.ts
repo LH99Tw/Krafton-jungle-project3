@@ -152,6 +152,27 @@ export function partyPlayerIdsForView<T extends { userId: string }>(players: Ite
   return new Set([...players].map((player) => player.userId));
 }
 
+export function createResultMessage(core: GameCore) {
+  const finalPlayers = [...core.players.values()];
+  return {
+    state: core.result ?? "abandoned",
+    reason: core.resultReason,
+    elapsed: core.elapsed,
+    day: core.day,
+    level: core.teamLevel,
+    teamPower: finalPlayers.reduce((total, player) => total + player.teamPower, 0),
+    stats: finalPlayers.reduce((total, player) => ({
+      damage: total.damage + player.damage,
+      bossDamage: total.bossDamage + player.bossDamage,
+      kills: total.kills + player.kills,
+      deaths: total.deaths + player.deaths,
+      structuresBuilt: total.structuresBuilt + player.structuresBuilt,
+      goldSpent: total.goldSpent + player.goldSpent,
+      gatesDestroyed: total.gatesDestroyed + player.gatesDestroyed,
+    }), { damage: 0, bossDamage: 0, kills: 0, deaths: 0, structuresBuilt: 0, goldSpent: 0, gatesDestroyed: 0 }),
+  };
+}
+
 async function withTimeout<T>(
   operation: () => Promise<T>,
   timeoutMs: number,
@@ -553,6 +574,7 @@ export class PartyRoom extends Room<PartyRoomState> {
         if (client.userData?.userId === notice.userId) client.send("message", { code: notice.code, message: notice.message });
       }
     }
+    for (const attack of this.core.takeCombatAttackEvents()) this.broadcast("combat.attack", attack);
     recordSimulationCatchUp(simulatedTicks - 1, droppedCatchUp);
     this.schemaSyncAccumulatorMs += safeDeltaMs;
     this.explorationAccumulatorMs += safeDeltaMs;
@@ -578,6 +600,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       this.updateClientViews();
       recordRealtimeTiming("aoiUpdate", performance.now() - aoiStartedAt);
       const tiers = this.core.invaderSimulationTiers;
+      const work = this.core.invaderWorkMetrics;
       recordRoomInvaderMetrics(this.roomId, {
         active: this.core.liveInvaderCount,
         pending: this.core.pendingInvaderCount,
@@ -587,6 +610,12 @@ export class PartyRoom extends Room<PartyRoomState> {
         warm: tiers.warm,
         cold: tiers.cold,
         multirateEnabled: this.multirateEnabled,
+        microSpawned: work.microSpawned,
+        pendingReplans: work.pendingReplans,
+        completedReplans: work.completedReplans,
+        oldestPendingWaveSeconds: work.oldestPendingWaveSeconds,
+        combatAttackEvents: work.combatAttackEvents,
+        compensatedAttacks: work.compensatedAttacks,
       });
     }
     if (simulatedTicks > 0 && this.serverTick % WORLD_FRAME_INTERVAL_TICKS === 0) {
@@ -597,10 +626,7 @@ export class PartyRoom extends Room<PartyRoomState> {
     if (this.core.phase === "ended") {
       if (!this.resultBroadcast) {
         this.resultBroadcast = true;
-        this.broadcast("result", {
-          state: this.core.result ?? "abandoned",
-          reason: this.core.resultReason,
-        });
+        this.broadcast("result", createResultMessage(this.core));
       }
       if (!this.shutdownStarted) {
         this.shutdownStarted = true;
@@ -668,6 +694,7 @@ export class PartyRoom extends Room<PartyRoomState> {
         gatesDestroyed: player.gatesDestroyed,
         attackSequence: player.attackCount,
         attackTargetId: player.lastAttackTargetId ?? "",
+        attackCritical: player.lastAttackCritical,
         alive: player.alive,
         ready: player.ready,
         connected: player.connected,

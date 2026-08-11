@@ -25,8 +25,13 @@ import { AugmentLabScreen } from "../lab/AugmentLabScreen";
 import type { EditorMapDefinition } from "@/src/game/domain/mapEditor";
 import { GameHud } from "./GameHud";
 import { ResultOverlay } from "./ResultOverlay";
+import { mergeGameResults, normalizeGameResult, resultFallbackFromSnapshot, type GameResultSignal } from "./gameResult";
 
 const SELECTION_LAUNCH_DELAY_MS = 2_000;
+const RESULT_FALLBACK_DELAY_MS = 1_200;
+const RESULT_PRIORITY_FALLBACK = 1;
+const RESULT_PRIORITY_MESSAGE = 2;
+const RESULT_PRIORITY_AUTHORITATIVE = 3;
 
 export type Viewer = {
   userId: string;
@@ -58,6 +63,9 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   const pendingLobbyStartRef = useRef<LobbyGameStart | null>(null);
   const lobbyLaunchStartedRef = useRef(false);
   const lobbyLaunchTimerRef = useRef<number | null>(null);
+  const resultRef = useRef<GameResult | null>(null);
+  const resultPriorityRef = useRef(0);
+  const terminalFallbackTimerRef = useRef<number | null>(null);
   const [viewer, setViewer] = useState<Viewer>(initialViewer);
   const [authUnavailable, setAuthUnavailable] = useState(sessionUnavailable);
   const [screen, setScreen] = useState<Screen>(initialScreen ?? "access");
@@ -73,6 +81,43 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   const [busy, setBusy] = useState(false);
   const [surfaceError, setSurfaceError] = useState(sessionUnavailable ? "세션 저장소에 일시적으로 연결할 수 없습니다. 잠시 후 다시 시도해 주세요." : "");
   const [launching, setLaunching] = useState(false);
+
+  const cancelTerminalFallback = useCallback(() => {
+    if (terminalFallbackTimerRef.current === null) return;
+    window.clearTimeout(terminalFallbackTimerRef.current);
+    terminalFallbackTimerRef.current = null;
+  }, []);
+
+  const resetTerminalResult = useCallback(() => {
+    cancelTerminalFallback();
+    resultRef.current = null;
+    resultPriorityRef.current = 0;
+    setResult(null);
+  }, [cancelTerminalFallback]);
+
+  const commitTerminalResult = useCallback((signal: GameResultSignal, priority: number) => {
+    const incoming = normalizeGameResult(signal, resultFallbackFromSnapshot(snapshotRef.current));
+    if (!incoming) return false;
+    const current = resultRef.current;
+    if (current && current.state !== incoming.state && priority <= resultPriorityRef.current) return false;
+    cancelTerminalFallback();
+    const next = current && current.state === incoming.state ? mergeGameResults(current, incoming) : incoming;
+    resultRef.current = next;
+    resultPriorityRef.current = Math.max(priority, resultPriorityRef.current);
+    clearRunRecovery();
+    setUpgradeChoices([]);
+    setResult(next);
+    return true;
+  }, [cancelTerminalFallback]);
+
+  const scheduleTerminalFallback = useCallback((runGeneration: number) => {
+    if (terminalFallbackTimerRef.current !== null || resultRef.current) return;
+    terminalFallbackTimerRef.current = window.setTimeout(() => {
+      terminalFallbackTimerRef.current = null;
+      if (runGeneration !== runGenerationRef.current || resultRef.current) return;
+      commitTerminalResult({ state: "defeat", reason: "최종 결과를 확인하지 못해 원정이 종료되었습니다." }, RESULT_PRIORITY_FALLBACK);
+    }, RESULT_FALLBACK_DELAY_MS);
+  }, [commitTerminalResult]);
 
   useEffect(() => {
     if (!authUnavailable) return;
@@ -101,21 +146,23 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       setSnapshot(nextSnapshot);
     });
     const offUpgrade = gameBridge.on("upgrade", setUpgradeChoices);
-    const offResult = gameBridge.on("result", setResult);
+    const offResult = gameBridge.on("result", (nextResult) => {
+      commitTerminalResult(nextResult, RESULT_PRIORITY_AUTHORITATIVE);
+    });
     const offReady = gameBridge.on("ready", () => colyseusTransport.markRendererReady());
     const offNetwork = colyseusTransport.subscribe((state) => {
       setNetworkStatus(state.phase === "lobby" ? "waiting" : "connected");
       if (state.phase === "ended") {
-        const finalSnapshot = snapshotRef.current;
-        setResult({
-          state: state.resultState === "victory" ? "victory" : "defeat",
+        const committed = commitTerminalResult({
+          state: state.resultState,
           reason: state.resultReason || "원정이 종료되었습니다.",
-          elapsed: state.elapsed || finalSnapshot.elapsed,
+          elapsed: state.elapsed,
           day: state.day,
           level: state.teamLevel,
           teamPower: state.players.reduce((total, player) => total + player.teamPower, 0),
           stats: { ...state.stats },
-        });
+        }, RESULT_PRIORITY_AUTHORITATIVE);
+        if (!committed) scheduleTerminalFallback(runGenerationRef.current);
       }
     });
     const offNetworkEvent = colyseusTransport.subscribeEvents((event) => {
@@ -124,26 +171,27 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       if (event.type === "disconnected") setNetworkStatus("disconnected");
       if (event.type === "message" && event.message) gameBridge.emit("message", event.message);
       if (event.type === "result") {
-        clearRunRecovery();
         const current = snapshotRef.current;
-        setResult({
-          state: event.state === "victory" ? "victory" : "defeat",
+        const committed = commitTerminalResult({
+          state: event.state,
           reason: event.message ?? "원정이 종료되었습니다.",
-          elapsed: current.elapsed,
-          day: current.day,
-          level: current.level,
-          teamPower: current.teamPower,
-          stats: { ...current.stats },
-        });
+          elapsed: event.elapsed ?? current.elapsed,
+          day: event.day ?? current.day,
+          level: event.level ?? current.level,
+          teamPower: event.teamPower ?? current.teamPower,
+          stats: event.stats ?? current.stats,
+        }, RESULT_PRIORITY_MESSAGE);
+        if (!committed) scheduleTerminalFallback(runGenerationRef.current);
       }
     });
     return () => {
       runGenerationRef.current += 1;
+      cancelTerminalFallback();
       if (lobbyLaunchTimerRef.current !== null) window.clearTimeout(lobbyLaunchTimerRef.current);
       offSnapshot(); offUpgrade(); offResult(); offReady(); offNetwork(); offNetworkEvent();
       colyseusTransport.disconnect();
     };
-  }, []);
+  }, [cancelTerminalFallback, commitTerminalResult, scheduleTerminalFallback]);
 
   const beginRun = useCallback(async (options: GameStartOptions, roomId?: string) => {
     const runGeneration = ++runGenerationRef.current;
@@ -151,6 +199,10 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       setSurfaceError("게임 서버에 접속하려면 먼저 로그인해 주세요.");
       return;
     }
+    resetTerminalResult();
+    snapshotRef.current = EMPTY_SNAPSHOT;
+    setSnapshot(EMPTY_SNAPSHOT);
+    setUpgradeChoices([]);
     setNetworkStatus("connecting");
     setSurfaceError("");
     try {
@@ -168,9 +220,6 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       }
       if (runGeneration !== runGenerationRef.current) return;
       setNetworkStatus("connected");
-      setSnapshot(EMPTY_SNAPSHOT);
-      setUpgradeChoices([]);
-      setResult(null);
       setActiveOptions(resolveRuntimeOptions(options, isNetworkActive ? gameServerUrl : null));
       setRunKey((value) => value + 1);
       setScreen("playing");
@@ -181,7 +230,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       setSurfaceError(formatClientError(error, "게임 서버에 연결하지 못했습니다."));
       if (roomId) clearRunRecovery();
     }
-  }, [gameServerUrl, viewer]);
+  }, [gameServerUrl, resetTerminalResult, viewer]);
 
   const launchSelectedRun = useCallback((event: LobbyGameStart) => {
     if (!viewer || lobbyLaunchStartedRef.current) return;
@@ -378,9 +427,9 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     clearRunRecovery();
     colyseusTransport.disconnect();
     lobbyTransport.returnFromGame();
-    setNetworkStatus("disconnected"); setResult(null); setUpgradeChoices([]); snapshotRef.current = EMPTY_SNAPSHOT; setSnapshot(EMPTY_SNAPSHOT); setActiveOptions(null); setLaunching(false);
+    setNetworkStatus("disconnected"); resetTerminalResult(); setUpgradeChoices([]); snapshotRef.current = EMPTY_SNAPSHOT; setSnapshot(EMPTY_SNAPSHOT); setActiveOptions(null); setLaunching(false);
     setScreen(wasEditorPlaytest ? "editor" : viewer && gameServerUrl ? "lobby" : "access");
-  }, [activeOptions?.editorMap, gameServerUrl, viewer]);
+  }, [activeOptions?.editorMap, gameServerUrl, resetTerminalResult, viewer]);
 
   const chooseUpgrade = useCallback((upgradeId: UpgradeChoice["id"]) => {
     gameBridge.command({ type: "choose-upgrade", upgradeId });
@@ -394,7 +443,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     setNetworkStatus("connected");
     setSnapshot(EMPTY_SNAPSHOT);
     setUpgradeChoices([]);
-    setResult(null);
+    resetTerminalResult();
     setActiveOptions({
       heroClass: "swordsman",
       sessionMode: "prototype",
@@ -407,11 +456,11 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     });
     setRunKey((value) => value + 1);
     setScreen("playing");
-  }, [localMapEditorEnabled, viewer?.userId]);
+  }, [localMapEditorEnabled, resetTerminalResult, viewer?.userId]);
 
   if (screen === "playing" && activeOptions) return <main className="play-screen">
     <GameCanvas key={runKey} options={activeOptions} />
-    <GameHud snapshot={snapshot} heroClass={activeOptions.heroClass} onExit={returnToLobby} upgradeChoices={upgradeChoices} onChoose={chooseUpgrade} />
+    <GameHud snapshot={snapshot} heroClass={activeOptions.heroClass} onExit={returnToLobby} upgradeChoices={result ? [] : upgradeChoices} onChoose={chooseUpgrade} terminal={Boolean(result)} />
     <ResultOverlay
       result={result}
       heroClass={activeOptions.heroClass}

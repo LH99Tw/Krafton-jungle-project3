@@ -4,6 +4,7 @@ import {
   PLAYER_VISION_RADIUS,
   PROTOCOL_VERSION,
   clientCommandSchema,
+  combatAttackEventSchema,
   inputFrameSchema,
   lobbyChatSchema,
   lobbyClassSelectSchema,
@@ -41,7 +42,7 @@ test("rejects out-of-range player input", () => {
   assert.equal(result.success, false);
 });
 
-test("resolves protocol v6 room party mode and rejects older versions", () => {
+test("resolves protocol v7 room party mode and rejects older versions", () => {
   const defaults = roomOptionsSchema.parse({
     heroClass: "swordsman",
     protocolVersion: PROTOCOL_VERSION,
@@ -66,7 +67,7 @@ test("resolves protocol v6 room party mode and rejects older versions", () => {
   assert.throws(() => assertOfficialMapRevision("outdated-map"), /MAP_REVISION_MISMATCH/);
 });
 
-test("accepts the v6 interaction, travel, recall, and equipment commands", () => {
+test("accepts the v7 interaction, travel, recall, and equipment commands", () => {
   const base = { v: PROTOCOL_VERSION, seq: 7, clientTime: 12.5 } as const;
   const commands = [
     { ...base, type: "player.interact", payload: { targetId: "gate-zone-1" } },
@@ -76,6 +77,24 @@ test("accepts the v6 interaction, travel, recall, and equipment commands", () =>
   ];
 
   for (const command of commands) assert.equal(clientCommandSchema.safeParse(command).success, true);
+});
+
+test("strictly validates protocol v7 combat attack events", () => {
+  const event = {
+    v: PROTOCOL_VERSION,
+    sequence: 1,
+    attackerId: "player-1",
+    heroClass: "archer",
+    targetId: "invader-1",
+    targetX: 120,
+    targetY: 240,
+    aim: Math.PI / 2,
+    critical: true,
+    firedAt: 12.5,
+  } as const;
+  assert.equal(combatAttackEventSchema.safeParse(event).success, true);
+  assert.equal(combatAttackEventSchema.safeParse({ ...event, targetX: Number.NaN }).success, false);
+  assert.equal(combatAttackEventSchema.safeParse({ ...event, v: 6 }).success, false);
 });
 
 test("strictly validates every command envelope and payload", () => {
@@ -93,7 +112,7 @@ test("strictly validates every command envelope and payload", () => {
   assert.equal(clientCommandSchema.safeParse({ ...valid, payload: { ...valid.payload, unexpected: true } }).success, false);
 });
 
-test("exposes the v6 room state graph through Colyseus schema collections", () => {
+test("exposes the v7 room state graph through Colyseus schema collections", () => {
   const state = new PartyRoomState();
   state.seed = "seed-001";
   state.currentZone = 2;
@@ -107,6 +126,7 @@ test("exposes the v6 room state graph through Colyseus schema collections", () =
   player.alive = true;
   player.attackSequence = 7;
   player.attackTargetId = "enemy-1";
+  player.attackCritical = true;
   player.equipment.weaponId = "mythic-sword";
   player.upgradeDraft.active = true;
   player.upgradeDraft.draftId = "draft-1";
@@ -138,6 +158,7 @@ test("exposes the v6 room state graph through Colyseus schema collections", () =
   assert.equal(state.protocolVersion, PROTOCOL_VERSION);
   assert.equal(state.players.get("user-1")?.equipment.weaponId, "mythic-sword");
   assert.equal(state.players.get("user-1")?.attackSequence, 7);
+  assert.equal(state.players.get("user-1")?.attackCritical, true);
   assert.equal(state.players.get("user-1")?.attackTargetId, "enemy-1");
   assert.equal(state.players.get("user-1")?.upgradeDraft.choices.at(0)?.upgradeId, "power");
   assert.equal(state.rooms.size, 1);
@@ -148,7 +169,7 @@ test("exposes the v6 room state graph through Colyseus schema collections", () =
   assert.equal(state.drops.size, 1);
 });
 
-test("validates v6 input and AOI world frames", () => {
+test("validates v7 input and AOI world frames", () => {
   assert.equal(inputFrameSchema.safeParse({
     v: PROTOCOL_VERSION,
     seq: 4,

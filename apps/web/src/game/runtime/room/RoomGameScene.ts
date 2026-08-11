@@ -39,13 +39,14 @@ import type {
   TeamStats,
   UpgradeId,
 } from "../../domain/types";
-import { PLAYER_VISION_RADIUS, transformFlags, type InputFrame, type WorldFrame } from "@five-days/protocol";
+import { PLAYER_VISION_RADIUS, transformFlags, type CombatAttackEvent, type InputFrame, type WorldFrame } from "@five-days/protocol";
 import { resolveSharedPartyProgress } from "../../domain/sharedPartyProgress";
 import { editorThemeZone, type EditorConnection } from "../../domain/mapEditor";
 import { buildEditorCoreWorld, editorCoreRoomId } from "@/src/features/map-editor/editorCoreWorld";
 import { localCoreSession } from "@/src/features/map-editor/LocalCoreSession";
 import { ProgressionModel } from "../../systems/ProgressionModel";
 import { HERO_SPRITE_FRAME_SIZE, HERO_SPRITE_PATHS, HERO_TOTAL_FRAME_COUNT } from "../../client/render/heroSprites";
+import { BASIC_ATTACK_SPRITES } from "../../client/render/attackEffectSprites";
 import { colyseusTransport } from "../../transport/ColyseusTransport";
 import { areAuthoredBossGatesCleared, predictPlayerTransform, RealtimeTransformBuffer, shouldRenderPartyMember } from "../../netcode/RealtimeBuffer";
 import { aimAngleBetween } from "../../netcode/aim";
@@ -191,6 +192,7 @@ export class RoomGameScene extends Phaser.Scene {
   private worldFrameDisconnect?: () => void;
   private localInputDisconnect?: () => void;
   private messageDisconnect?: () => void;
+  private combatAttackDisconnect?: () => void;
   private localMovementX = 0;
   private localMovementY = 0;
   private enemies: LocalEnemy[] = [];
@@ -243,6 +245,7 @@ export class RoomGameScene extends Phaser.Scene {
   private draftIndex = 0;
   private currentDraftIds = new Set<UpgradeId>();
   private attackCounter = 0;
+  private lastLocalAttackCritical = false;
   private lastLocalTargetId: string | null = null;
   private consecutiveLocalHits = 0;
   private readonly localVulnerableUntil = new Map<string, number>();
@@ -342,6 +345,13 @@ export class RoomGameScene extends Phaser.Scene {
     this.load.image("zone-2-blocked", "/Asset/zone-2-blocked-marsh.png");
     this.load.image("zone-3-blocked", "/Asset/zone-3-blocked-wastes.png");
     this.load.image("enemy-demon-midboss-asset", "/images/demon_midboss.png");
+    for (const sprite of Object.values(BASIC_ATTACK_SPRITES)) {
+      this.load.spritesheet(sprite.textureKey, sprite.path, {
+        frameWidth: sprite.frameWidth,
+        frameHeight: sprite.frameHeight,
+        endFrame: sprite.frameCount * (sprite.rows ?? 1) - 1,
+      });
+    }
     this.load.image("enemy-gate-asset", "/images/rift_gate.png");
     this.load.image("enemy-boss-bull-asset", "/images/boss_bull.png");
     this.load.image("enemy-boss-dragon-asset", "/images/boss_dragon.png");
@@ -390,6 +400,7 @@ export class RoomGameScene extends Phaser.Scene {
       this.networkDisconnect = gameBridge.on("network", (snapshot) => this.syncNetworkState(snapshot));
       this.worldFrameDisconnect = gameBridge.on("worldFrame", (frame) => this.handleWorldFrame(frame));
       this.localInputDisconnect = gameBridge.on("localInput", (frame) => this.applyPredictedInput(frame));
+      this.combatAttackDisconnect = gameBridge.on("combatAttack", (attack) => this.renderNetworkCombatAttack(attack));
       this.messageDisconnect = gameBridge.on("message", (message) => {
         this.message = message;
         this.emitSnapshot();
@@ -651,6 +662,7 @@ export class RoomGameScene extends Phaser.Scene {
       ?? snapshot?.players.find((member) => member.userId === this.options.userId);
     if (!snapshot || !localState) return;
     const now = performance.now();
+    const poseTime = this.time.now;
     if (this.localPrediction) {
       const correctionAge = this.localCorrection ? now - this.localCorrection.startedAt : 100;
       const correctionScale = this.localCorrection ? Math.max(0, 1 - correctionAge / 100) : 0;
@@ -659,7 +671,7 @@ export class RoomGameScene extends Phaser.Scene {
         this.localPrediction.y + (this.localCorrection?.y ?? 0) * correctionScale,
       );
       this.player.setVisible(true).setActive(true);
-      this.roomRenderer.updateHeroPose(this.player, this.localMovementX, this.localMovementY, now);
+      this.roomRenderer.updateHeroPose(this.player, this.localMovementX, this.localMovementY, poseTime);
       if (correctionScale === 0) this.localCorrection = null;
     }
     for (const member of snapshot.players) {
@@ -672,7 +684,7 @@ export class RoomGameScene extends Phaser.Scene {
       const visible = this.sharesNetworkVisionZone(localState.roomId, resolved.roomId)
         && shouldRenderPartyMember({ ...member, x: point.x, y: point.y });
       sprite.setPosition(point.x, point.y).setVisible(visible);
-      this.roomRenderer.updateHeroPose(sprite, transform?.vx ?? 0, transform?.vy ?? 0, now);
+      this.roomRenderer.updateHeroPose(sprite, transform?.vx ?? 0, transform?.vy ?? 0, poseTime);
     }
     for (const enemy of snapshot.enemies) {
       const sprite = this.networkEnemies.get(enemy.id);
@@ -848,7 +860,7 @@ export class RoomGameScene extends Phaser.Scene {
 
   private updateLocalEnemyHpBar(enemy: LocalEnemy): void {
     if (!enemy.hpBar) return;
-    if (!enemy.sprite.active || enemy.hp <= 0) {
+    if (!enemy.sprite.active || enemy.hp <= 0 || enemy.sprite.getData("isEmerging")) {
       enemy.hpBar.clear();
       return;
     }
@@ -916,8 +928,10 @@ export class RoomGameScene extends Phaser.Scene {
       this.consecutiveLocalHits = 1;
     }
     for (const target of selected) {
-      this.roomRenderer.showClassAttack(this.options.heroClass, this.player, target.sprite.x, target.sprite.y);
-      this.damageEnemy(target, this.rollAttackDamage(target));
+      const attack = this.rollAttackDamage(target);
+      this.lastLocalAttackCritical = attack.critical;
+      this.roomRenderer.showClassAttack(this.options.heroClass, this.player, target.sprite.x, target.sprite.y, aim, attack.critical);
+      this.damageEnemy(target, attack.damage);
     }
     this.lastAutoAttackAt = time + interval;
   }
@@ -936,7 +950,7 @@ export class RoomGameScene extends Phaser.Scene {
       .map(({ enemy }) => enemy);
   }
 
-  private rollAttackDamage(target: LocalEnemy): number {
+  private rollAttackDamage(target: LocalEnemy): { damage: number; critical: boolean } {
     let damage = this.effectiveAttack();
     const precision = (this.progression.stacks.get("precision") ?? 0) * 0.03;
     const critical = createSeededRandom(`${this.runSeed}:attack:${this.attackCounter}`).next() < precision;
@@ -953,7 +967,7 @@ export class RoomGameScene extends Phaser.Scene {
     if (this.progression.has("mage-overcharge") && this.attackCounter % 4 === 0) damage *= 1.6;
     if ((this.localVulnerableUntil.get(target.id) ?? 0) > this.time.now) damage *= 1.075;
     if ((this.localMarkedUntil.get(target.id) ?? 0) > this.time.now) damage *= 1.125;
-    return Math.max(1, Math.round(damage));
+    return { damage: Math.max(1, Math.round(damage)), critical };
   }
 
   private updateAutoSkills(time: number): void {
@@ -1812,9 +1826,9 @@ export class RoomGameScene extends Phaser.Scene {
       sprite.setVisible(visible).setActive(member.connected);
       sprite.setAlpha(isLocal ? 1 : 0.82);
       const previousAttackSequence = this.networkPlayerAttackSequence.get(member.userId);
-      if (previousAttackSequence !== undefined && member.attackSequence > previousAttackSequence && visible) {
+      if (!this.options.networked && previousAttackSequence !== undefined && member.attackSequence > previousAttackSequence && visible) {
         const target = snapshot.enemies.find((enemy) => enemy.id === member.attackTargetId);
-        if (target) this.roomRenderer.showClassAttack(member.heroClass, sprite, target.x, target.y);
+        if (target) this.roomRenderer.showClassAttack(member.heroClass, sprite, target.x, target.y, member.aim, member.attackCritical);
       }
       this.networkPlayerAttackSequence.set(member.userId, member.attackSequence);
       const previousSkillSequence = this.networkPlayerSkillSequence.get(member.userId);
@@ -1828,6 +1842,22 @@ export class RoomGameScene extends Phaser.Scene {
       }
       this.networkPlayerSkillSequence.set(member.userId, member.skillSequence ?? 0);
     }
+  }
+
+  private renderNetworkCombatAttack(attack: CombatAttackEvent): void {
+    const member = this.latestNetwork?.players.find((candidate) => candidate.userId === attack.attackerId);
+    if (!member) return;
+    const isLocal = member.isLocal || member.userId === this.options.userId;
+    const sprite = isLocal ? this.player : this.remotePlayers.get(member.userId);
+    if (!sprite?.active || !sprite.visible) return;
+    this.roomRenderer.showClassAttack(
+      attack.heroClass,
+      sprite,
+      attack.targetX,
+      attack.targetY,
+      attack.aim,
+      attack.critical,
+    );
   }
 
   private syncNetworkEnemies(snapshot: NetworkWorldSnapshot, local: PartyMemberSnapshot): void {
@@ -1935,7 +1965,7 @@ export class RoomGameScene extends Phaser.Scene {
     const view = this.cameras.main.worldView;
     for (const enemy of snapshot.enemies) {
       const sprite = this.networkEnemies.get(enemy.id);
-      if (!sprite?.visible || !enemy.alive || enemy.hp <= 0
+      if (!sprite?.visible || sprite.getData("isEmerging") || !enemy.alive || enemy.hp <= 0
         || !this.sharesNetworkVisionZone(local.roomId, enemy.roomId)) continue;
       if (sprite.x < view.left - 80 || sprite.x > view.right + 80
         || sprite.y < view.top - 80 || sprite.y > view.bottom + 80) continue;
@@ -2055,6 +2085,7 @@ export class RoomGameScene extends Phaser.Scene {
         aim: 0,
         attackSequence: this.attackCounter,
         attackTargetId: this.lastLocalTargetId ?? "",
+        attackCritical: this.lastLocalAttackCritical,
         isLocal: true,
         equipment: equipped,
       }],
@@ -2361,11 +2392,13 @@ export class RoomGameScene extends Phaser.Scene {
     this.worldFrameDisconnect?.();
     this.localInputDisconnect?.();
     this.messageDisconnect?.();
+    this.combatAttackDisconnect?.();
     this.commandDisconnect = undefined;
     this.networkDisconnect = undefined;
     this.worldFrameDisconnect = undefined;
     this.localInputDisconnect = undefined;
     this.messageDisconnect = undefined;
+    this.combatAttackDisconnect = undefined;
     this.transformBuffer.clear();
     this.input.removeAllListeners();
     for (const sprite of this.remotePlayers.values()) sprite.destroy();

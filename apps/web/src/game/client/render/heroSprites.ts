@@ -49,6 +49,13 @@ export function heroFacingForMovement(
   return previous;
 }
 
+export function heroFacingForAim(angle: number): HeroFacingDirection {
+  const directions: HeroFacingDirection[] = ["right", "down", "left", "up"];
+  const normalized = ((angle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  const sector = Math.floor((normalized + Math.PI / 4 + Number.EPSILON * 16) / (Math.PI / 2));
+  return directions[sector % directions.length];
+}
+
 /** Rows are ordered IDLE, LEFT FOOT WALK, RIGHT FOOT WALK. */
 export function heroFrameForPose(facing: HeroFacingDirection, moving: boolean, animationElapsedMs: number): number {
   const direction = HERO_DIRECTION_FRAMES[facing];

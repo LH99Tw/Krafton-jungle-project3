@@ -87,18 +87,6 @@ export function createGameTextures(scene: Phaser.Scene): void {
       },
     },
     {
-      key: "projectile",
-      width: 12,
-      height: 6,
-      draw: (g) => g.fillStyle(0xffee9b).fillRect(0, 1, 10, 4).fillStyle(0xffffff).fillRect(8, 0, 4, 6),
-    },
-    {
-      key: "magic-projectile",
-      width: 14,
-      height: 14,
-      draw: (g) => g.fillStyle(0x6a38a0).fillCircle(7, 7, 7).fillStyle(0xe8c8ff).fillCircle(7, 7, 3),
-    },
-    {
       key: "enemy-projectile",
       width: 12,
       height: 12,

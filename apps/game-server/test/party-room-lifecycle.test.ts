@@ -6,6 +6,7 @@ import {
   INPUT_LEASE_MS,
   OperationTimeoutError,
   PartyRoom,
+  createResultMessage,
   runWithTimeoutAndRetry,
 } from "../src/party-room";
 import { PROTOCOL_VERSION, transformFlags, type WorldFrame } from "@five-days/protocol";
@@ -15,6 +16,26 @@ import {
   recordRoomInvaderMetrics,
   removeRoomInvaderMetrics,
 } from "../src/realtime-metrics";
+
+test("terminal result messages contain one complete final report", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "result-report", minimumPlayers: 1 });
+  const player = core.addPlayer({ userId: "player-1", displayName: "Player", heroClass: "swordsman" });
+  player.teamPower = 123;
+  player.damage = 800;
+  player.bossDamage = 500;
+  player.kills = 12;
+  core.finish("victory", "마왕 처치");
+
+  assert.deepEqual(createResultMessage(core), {
+    state: "victory",
+    reason: "마왕 처치",
+    elapsed: 0,
+    day: 1,
+    level: 1,
+    teamPower: 123,
+    stats: { damage: 800, bossDamage: 500, kills: 12, deaths: 0, structuresBuilt: 0, goldSpent: 0, gatesDestroyed: 0 },
+  });
+});
 
 test("bounded persistence retries use the configured backoff and stop after success", async () => {
   const attempts: number[] = [];
@@ -324,7 +345,9 @@ test("party room keeps simulation at 60Hz while schema work is limited to 10Hz",
     invaderCapHitCount: 0,
     retiredInvaderCount: 0,
     invaderSimulationTiers: { hot: 0, warm: 0, cold: 0 },
+    invaderWorkMetrics: { microSpawned: 0, pendingReplans: 0, completedReplans: 0, oldestPendingWaveSeconds: 0, combatAttackEvents: 0, compensatedAttacks: 0 },
     takeNotices: () => [],
+    takeCombatAttackEvents: () => [],
   };
   harness.simulationAccumulatorMs = 0;
   harness.schemaSyncAccumulatorMs = 0;
@@ -376,7 +399,9 @@ test("a delayed room tick compensates skipped combat time without replaying unli
     invaderCapHitCount: 0,
     retiredInvaderCount: 0,
     invaderSimulationTiers: { hot: 0, warm: 0, cold: 0 },
+    invaderWorkMetrics: { microSpawned: 0, pendingReplans: 0, completedReplans: 0, oldestPendingWaveSeconds: 0, combatAttackEvents: 0, compensatedAttacks: 1 },
     takeNotices: () => [],
+    takeCombatAttackEvents: () => [],
   };
   harness.clients = [];
   harness.simulationAccumulatorMs = 0;

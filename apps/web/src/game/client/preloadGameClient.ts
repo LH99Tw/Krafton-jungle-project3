@@ -1,4 +1,5 @@
 import { HERO_SPRITE_PATHS } from "./render/heroSprites";
+import { BASIC_ATTACK_SPRITE_PATHS } from "./render/attackEffectSprites";
 
 const GAMEPLAY_IMAGE_ASSETS = [
   ...Object.values(HERO_SPRITE_PATHS),
@@ -11,6 +12,7 @@ const GAMEPLAY_IMAGE_ASSETS = [
   "/Asset/zone-3-vegetation.png",
   "/Asset/zone-3-room-corridor-atlas.png",
   "/Asset/zone-3-blocked-wastes.png",
+  ...BASIC_ATTACK_SPRITE_PATHS,
 ] as const;
 
 export async function preloadGameClient(): Promise<void> {

@@ -80,8 +80,8 @@ test("gates deployments on verification and repairs required production settings
   assert.match(workflow, /five-days-game-server:\$\{\{ env\.RELEASE_SHA \}\}/);
   assert.match(workflow, /upsert_env \.env\.web GUESTBOOK_ADMIN_DELETE_KEY/);
   assert.match(workflow, /upsert_env \.env\.web PUBLIC_PLAYTEST_ENABLED true/);
-  assert.match(workflow, /upsert_env \.env\.web PROTOCOL_VERSION 6/);
-  assert.match(workflow, /upsert_env \.env\.game PROTOCOL_VERSION 6/);
+  assert.match(workflow, /upsert_env \.env\.web PROTOCOL_VERSION 7/);
+  assert.match(workflow, /upsert_env \.env\.game PROTOCOL_VERSION 7/);
   assert.match(configure, /GUESTBOOK_ADMIN_DELETE_KEY/);
   assert.match(instrumentation, /required\("GUESTBOOK_ADMIN_DELETE_KEY"\)/);
 });
@@ -118,6 +118,12 @@ test("composes the in-game relic HUD from focused components", async () => {
   assert.match(exploration, /웨이포인트 집결/);
   assert.doesNotMatch(exploration, /멀티플레이 건설|build-zone-hint|equipment-strip/);
   assert.doesNotMatch(minimap, /PARTY TRAIL|지나온 길|현재 시야|minimap-status|minimap-zoom-controls/);
+  assert.match(minimap, /event\.button !== 1/);
+  assert.match(minimap, /setPointerCapture\(event\.pointerId\)/);
+  assert.match(minimap, /center\.x - deltaX \/ currentTransform\.scale/);
+  assert.match(minimap, /onDoubleClick=\{resetView\}/);
+  assert.match(minimap, /className="minimap-reset-view"/);
+  assert.match(minimap, /미니맵을 내 위치 중심의 기본 보기로 되돌리기/);
   assert.match(styles, /\/\* Notices sit directly below[\s\S]*?\.hud-message \{[\s\S]*?top:clamp\(108px,9vw,132px\)/);
   assert.match(styles, /\/\* Center the combat-stat ledger[\s\S]*?\.player-stats-panel \{[\s\S]*?padding:76px 34px 48px/);
   assert.doesNotMatch(commandBar, /AUTO|TEAM POWER|SPACE/);
