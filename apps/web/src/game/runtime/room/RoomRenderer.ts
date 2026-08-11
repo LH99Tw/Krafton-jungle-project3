@@ -3,7 +3,13 @@ import { enemyFanPatternAngles, enemyFloorPatternCircles, enemyPatternConfig, ty
 import { CLASS_DEFINITIONS } from "../../content/classes";
 import type { HeroClassId } from "../../domain/types";
 import { createGameTextures } from "../../client/render/createTextures";
-import { HERO_SPRITE_SCALE, heroFrameForPose } from "../../client/render/heroSprites";
+import {
+  DEFAULT_HERO_FACING,
+  HERO_SPRITE_SCALE,
+  heroFacingForMovement,
+  heroFrameForPose,
+  type HeroFacingDirection,
+} from "../../client/render/heroSprites";
 import {
   BUILD_BOUNDS,
   ROOM_VIEW,
@@ -331,13 +337,18 @@ export class RoomRenderer {
 
   createHero(classId: HeroClassId, x: number, y: number, alpha = 1): Phaser.Physics.Arcade.Sprite {
     const hero = this.scene.physics.add.sprite(x, y, `hero-${classId}`);
+    hero.setData("facingDirection", DEFAULT_HERO_FACING);
     hero.setDepth(20).setAlpha(alpha).setScale(HERO_SPRITE_SCALE);
     (hero.body as Phaser.Physics.Arcade.Body).setCircle(11, 3, 7);
     return hero;
   }
 
-  updateHeroPose(hero: Phaser.Physics.Arcade.Sprite, aimAngle: number, moving: boolean, time: number): void {
-    hero.setFrame(heroFrameForPose(aimAngle, moving, time)).setRotation(0);
+  updateHeroPose(hero: Phaser.Physics.Arcade.Sprite, movementX: number, movementY: number, time: number): void {
+    const previous = (hero.getData("facingDirection") as HeroFacingDirection | undefined) ?? DEFAULT_HERO_FACING;
+    const facing = heroFacingForMovement(previous, movementX, movementY);
+    const moving = Math.hypot(movementX, movementY) > 0.001;
+    hero.setData("facingDirection", facing);
+    hero.setFrame(heroFrameForPose(facing, moving, time)).setRotation(0);
     if (time < Number(hero.getData("attackPoseUntil") ?? 0)) return;
     hero.setScale(HERO_SPRITE_SCALE);
   }
