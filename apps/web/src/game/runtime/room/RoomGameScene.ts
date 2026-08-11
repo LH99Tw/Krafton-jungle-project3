@@ -2,6 +2,7 @@ import * as Phaser from "phaser";
 import {
   ACTOR_COLLISION_RADIUS,
   AUGMENT_BY_ID,
+  autoSkillDefinition,
   CLASS_COMBAT_RULES,
   createAugmentDraft,
   createSeededRandom,
@@ -63,7 +64,7 @@ import {
   type RenderZoneWorld,
 } from "./layout";
 import { PlayerVisionFog } from "./PlayerVisionFog";
-import { RoomRenderer, classColor } from "./RoomRenderer";
+import { RoomRenderer } from "./RoomRenderer";
 import type { VisionRevealSource } from "./vision";
 
 type LocalEnemyKind = "static" | "hidden" | "gate" | "invader" | "boss";
@@ -201,6 +202,7 @@ export class RoomGameScene extends Phaser.Scene {
   private lastNetworkHpDrawAt = 0;
   private readonly networkEnemyAttackSequence = new Map<string, number>();
   private readonly networkPlayerAttackSequence = new Map<string, number>();
+  private readonly networkPlayerSkillSequence = new Map<string, number>();
   private readonly networkDrops = new Map<string, Phaser.GameObjects.Container>();
   private readonly networkDropRequests = new Map<string, number>();
   private readonly visitedRooms = new Set<string>();
@@ -476,7 +478,7 @@ export class RoomGameScene extends Phaser.Scene {
           x: Number(this.keys.D?.isDown) - Number(this.keys.A?.isDown),
           y: Number(this.keys.S?.isDown) - Number(this.keys.W?.isDown),
           aim,
-          buttons: Number(this.keys.Q?.isDown) | (Number(this.keys.E?.isDown) << 1) | (Number(this.keys.SPACE?.isDown) << 2),
+          buttons: Number(this.keys.SPACE?.isDown) << 2,
         };
         const localFrame = localCoreSession.tick(safeDeltaMs, input);
         if (localFrame.message) this.message = localFrame.message;
@@ -854,8 +856,7 @@ export class RoomGameScene extends Phaser.Scene {
     const aim = this.aimAngle();
     this.roomRenderer.updateHeroPose(this.player, x, y, time);
 
-    if (Phaser.Input.Keyboard.JustDown(this.keys.Q) && time >= this.qReadyAt) this.useSkill("q", aim);
-    if (Phaser.Input.Keyboard.JustDown(this.keys.E) && time >= this.eReadyAt) this.useSkill("e", aim);
+    this.updateAutoSkills(time);
     if (Phaser.Input.Keyboard.JustDown(this.keys.SPACE) && time >= this.dashReadyAt) this.useDash(aim);
     if (Phaser.Input.Keyboard.JustDown(this.keys.B) && this.localPhase !== "boss") this.requestWaypointAction("recall");
 
@@ -926,46 +927,79 @@ export class RoomGameScene extends Phaser.Scene {
 
   private rollAttackDamage(target: LocalEnemy): number {
     let damage = this.effectiveAttack();
-    const precision = (this.progression.stacks.get("precision") ?? 0) * 0.06;
+    const precision = (this.progression.stacks.get("precision") ?? 0) * 0.03;
     const critical = createSeededRandom(`${this.runSeed}:attack:${this.attackCounter}`).next() < precision;
-    if (critical) damage *= 1.5 + (this.progression.stacks.get("ferocity") ?? 0) * 0.2;
-    if (["hidden", "gate", "boss"].includes(target.kind)) damage *= 1 + (this.progression.stacks.get("boss-hunter") ?? 0) * 0.12;
-    if (this.progression.has("swordsman-execution") && target.hp / target.maxHp <= 0.3) damage *= 1.6;
+    if (critical) damage *= 1.5 + (this.progression.stacks.get("ferocity") ?? 0) * 0.1;
+    if (["hidden", "gate", "boss"].includes(target.kind)) damage *= 1 + (this.progression.stacks.get("boss-hunter") ?? 0) * 0.06;
+    if (this.progression.has("swordsman-execution") && target.hp / target.maxHp <= 0.3) damage *= 1.3;
     if (this.progression.has("archer-sniper")) {
       const distance = Phaser.Math.Distance.Between(this.player.x, this.player.y, target.sprite.x, target.sprite.y);
-      damage *= 1 + Math.min(0.55, Math.max(0, distance - 180) / 510);
+      damage *= 1 + Math.min(0.275, Math.max(0, distance - 180) / 510);
     }
     const momentum = this.progression.stacks.get("momentum") ?? 0;
-    if (momentum > 0) damage *= 1 + Math.min(0.2 * momentum, this.consecutiveLocalHits * 0.04 * momentum);
-    if (this.progression.has("swordsman-combo") && this.attackCounter % 3 === 0) damage *= 2;
-    if (this.progression.has("mage-overcharge") && this.attackCounter % 4 === 0) damage *= 2.2;
-    if ((this.localVulnerableUntil.get(target.id) ?? 0) > this.time.now) damage *= 1.15;
-    if ((this.localMarkedUntil.get(target.id) ?? 0) > this.time.now) damage *= 1.25;
+    if (momentum > 0) damage *= 1 + Math.min(0.1 * momentum, this.consecutiveLocalHits * 0.02 * momentum);
+    if (this.progression.has("swordsman-combo") && this.attackCounter % 3 === 0) damage *= 1.5;
+    if (this.progression.has("mage-overcharge") && this.attackCounter % 4 === 0) damage *= 1.6;
+    if ((this.localVulnerableUntil.get(target.id) ?? 0) > this.time.now) damage *= 1.075;
+    if ((this.localMarkedUntil.get(target.id) ?? 0) > this.time.now) damage *= 1.125;
     return Math.max(1, Math.round(damage));
   }
 
-  private useSkill(skill: "q" | "e", aim: number): void {
-    const definition = this.classDefinition.skills[skill === "q" ? 0 : 1];
-    const cooldownReduction = Math.min(0.6, (this.progression.stacks.get("skill-haste") ?? 0) * 0.06 + (this.progression.has("mage-tempo") ? 0.25 : 0));
-    if (skill === "q") this.qReadyAt = this.time.now + definition.cooldownMs * (1 - cooldownReduction);
-    else this.eReadyAt = this.time.now + definition.cooldownMs * (1 - cooldownReduction);
-    const damage = Math.round(this.effectiveAttack() * (skill === "q" ? 2.1 : 1.65) * this.progression.stats.skillPower);
-    const desiredX = this.player.x + Math.cos(aim) * 125;
-    const desiredY = this.player.y + Math.sin(aim) * 125;
-    const clippedTarget = clipWalkableLine(this.zoneWorld.walkable, this.player.x, this.player.y, desiredX, desiredY);
-    const targetX = clippedTarget.x;
-    const targetY = clippedTarget.y;
-    const radius = 120 * (1 + (this.progression.stacks.get("area-power") ?? 0) * 0.12 + (this.progression.has("mage-nova") ? 0.55 : 0));
-    for (const enemy of this.enemies) {
-      if (!enemy.sprite.active) continue;
-      if (Phaser.Math.Distance.Between(targetX, targetY, enemy.sprite.x, enemy.sprite.y) > radius) continue;
-      if (!this.hasLineOfSight(targetX, targetY, enemy.sprite.x, enemy.sprite.y)) continue;
+  private updateAutoSkills(time: number): void {
+    for (const skill of ["q", "e"] as const) {
+      const readyAt = skill === "q" ? this.qReadyAt : this.eReadyAt;
+      if (time < readyAt) continue;
+      const definition = autoSkillDefinition(this.options.heroClass, skill);
+      const target = this.findAutoSkillTarget(definition);
+      if (!target) continue;
+      this.useSkill(skill, Phaser.Math.Angle.Between(this.player.x, this.player.y, target.sprite.x, target.sprite.y), target);
+    }
+  }
+
+  private findAutoSkillTarget(definition: ReturnType<typeof autoSkillDefinition>): LocalEnemy | null {
+    const candidates = this.enemies.filter((enemy) => enemy.sprite.active
+      && Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.sprite.x, enemy.sprite.y) <= definition.range
+      && this.hasLineOfSight(this.player.x, this.player.y, enemy.sprite.x, enemy.sprite.y));
+    const clusterScore = (anchor: LocalEnemy) => candidates.filter((enemy) => (
+      Phaser.Math.Distance.Between(anchor.sprite.x, anchor.sprite.y, enemy.sprite.x, enemy.sprite.y) <= definition.radius
+    )).length;
+    return candidates.sort((left, right) => {
+      const leftDistance = Phaser.Math.Distance.Between(this.player.x, this.player.y, left.sprite.x, left.sprite.y);
+      const rightDistance = Phaser.Math.Distance.Between(this.player.x, this.player.y, right.sprite.x, right.sprite.y);
+      return definition.targeting === "area"
+        ? clusterScore(right) - clusterScore(left) || leftDistance - rightDistance
+        : leftDistance - rightDistance || left.id.localeCompare(right.id);
+    })[0] ?? null;
+  }
+
+  private useSkill(skill: "q" | "e", aim: number, anchor: LocalEnemy): void {
+    const definition = autoSkillDefinition(this.options.heroClass, skill);
+    const cooldownReduction = Math.min(0.6, (this.progression.stacks.get("skill-haste") ?? 0) * 0.03 + (this.progression.has("mage-tempo") ? 0.125 : 0));
+    if (skill === "q") this.qReadyAt = this.time.now + definition.cooldownSeconds * 1_000 * (1 - cooldownReduction);
+    else this.eReadyAt = this.time.now + definition.cooldownSeconds * 1_000 * (1 - cooldownReduction);
+    const damage = Math.round(this.effectiveAttack() * definition.damageMultiplier * this.progression.stats.skillPower);
+    const areaMultiplier = 1 + (this.progression.stacks.get("area-power") ?? 0) * 0.06 + (this.progression.has("mage-nova") ? 0.275 : 0);
+    const targetX = anchor.sprite.x;
+    const targetY = anchor.sprite.y;
+    const radius = definition.radius * areaMultiplier;
+    if (definition.dashDistance) {
+      const point = clampToWalkable(this.zoneWorld.walkable, this.player.x + Math.cos(aim) * definition.dashDistance, this.player.y + Math.sin(aim) * definition.dashDistance, this.player.x, this.player.y, PLAYER_COLLISION_RADIUS);
+      this.setLocalPlayerPosition(point.x, point.y);
+    }
+    const targets = this.enemies.filter((enemy) => enemy.sprite.active && this.hasLineOfSight(this.player.x, this.player.y, enemy.sprite.x, enemy.sprite.y)).filter((enemy) => {
+      if (definition.targeting === "single") return enemy.id === anchor.id;
+      if (definition.targeting === "area") return Phaser.Math.Distance.Between(targetX, targetY, enemy.sprite.x, enemy.sprite.y) <= radius;
+      const along = (enemy.sprite.x - this.player.x) * Math.cos(aim) + (enemy.sprite.y - this.player.y) * Math.sin(aim);
+      const across = Math.abs((enemy.sprite.x - this.player.x) * Math.sin(aim) - (enemy.sprite.y - this.player.y) * Math.cos(aim));
+      return along >= 0 && along <= definition.range * areaMultiplier && across <= radius;
+    }).slice(0, definition.maxTargets);
+    for (const enemy of targets) {
       this.damageEnemy(enemy, damage);
       if (this.progression.has("swordsman-rupture")) this.localVulnerableUntil.set(enemy.id, this.time.now + 3_000);
       if (this.progression.has("archer-mark")) this.localMarkedUntil.set(enemy.id, this.time.now + 5_000);
-      if (this.progression.has("mage-echo") && enemy.sprite.active) this.damageEnemy(enemy, damage * 0.55);
+      if (this.progression.has("mage-echo") && enemy.sprite.active) this.damageEnemy(enemy, damage * 0.275);
     }
-    this.roomRenderer.showImpact(targetX, targetY, radius, classColor(this.options.heroClass));
+    this.roomRenderer.showAutoSkill(this.options.heroClass, skill, this.player, targetX, targetY, radius);
   }
 
   private useDash(aim: number): void {
@@ -983,6 +1017,7 @@ export class RoomGameScene extends Phaser.Scene {
       start.y,
       PLAYER_COLLISION_RADIUS,
     );
+    this.roomRenderer.showDodge(this.player, point.x, point.y);
     this.setLocalPlayerPosition(point.x, point.y);
     this.player.setAlpha(0.35);
     this.time.delayedCall(220, () => this.player.active && this.player.setAlpha(1));
@@ -1746,6 +1781,7 @@ export class RoomGameScene extends Phaser.Scene {
         sprite.destroy();
         this.remotePlayers.delete(userId);
         this.networkPlayerAttackSequence.delete(userId);
+        this.networkPlayerSkillSequence.delete(userId);
       }
     }
     for (const member of players) {
@@ -1770,6 +1806,16 @@ export class RoomGameScene extends Phaser.Scene {
         if (target) this.roomRenderer.showClassAttack(member.heroClass, sprite, target.x, target.y);
       }
       this.networkPlayerAttackSequence.set(member.userId, member.attackSequence);
+      const previousSkillSequence = this.networkPlayerSkillSequence.get(member.userId);
+      if (previousSkillSequence !== undefined && (member.skillSequence ?? 0) > previousSkillSequence && visible) {
+        const skillId = member.lastSkillId;
+        if (skillId === "dash") {
+          this.roomRenderer.showDodge(sprite, member.skillTargetX ?? member.x, member.skillTargetY ?? member.y);
+        } else if (skillId === "q" || skillId === "e") {
+          this.roomRenderer.showAutoSkill(member.heroClass, skillId, sprite, member.skillTargetX ?? member.x, member.skillTargetY ?? member.y, member.skillRadius ?? 0);
+        }
+      }
+      this.networkPlayerSkillSequence.set(member.userId, member.skillSequence ?? 0);
     }
   }
 

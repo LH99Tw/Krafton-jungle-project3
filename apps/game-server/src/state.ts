@@ -58,6 +58,11 @@ export class PlayerState extends Schema {
   @type("number") moveSpeed = 0;
   @type("number") qCooldown = 0;
   @type("number") eCooldown = 0;
+  @type("number") skillSequence = 0;
+  @type("string") lastSkillId = "";
+  @type("number") skillTargetX = 0;
+  @type("number") skillTargetY = 0;
+  @type("number") skillRadius = 0;
   @type("number") damage = 0;
   @type("number") bossDamage = 0;
   @type("number") kills = 0;

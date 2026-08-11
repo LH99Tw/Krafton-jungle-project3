@@ -50,6 +50,7 @@ import {
   type RuntimeWorld,
   type TravelIntent,
 } from "./v02/simulation";
+import { autoSkillDefinition, type AutoSkillId } from "./v02/skills";
 import {
   bossWorldRect,
   buildWorldFromRooms,
@@ -100,6 +101,7 @@ export type CorePlayer = {
   ready: boolean;
   connected: boolean;
   lastSeq: number;
+  lastInputAt: number;
   lastButtons: number;
   inputX: number;
   inputY: number;
@@ -113,6 +115,11 @@ export type CorePlayer = {
   qCooldown: number;
   eCooldown: number;
   dashCooldown: number;
+  skillSequence: number;
+  lastSkillId: "q" | "e" | "dash" | null;
+  skillTargetX: number;
+  skillTargetY: number;
+  skillRadius: number;
   lastAttackTargetId: string | null;
   consecutiveHits: number;
   damage: number;
@@ -392,6 +399,7 @@ export class GameCore {
       ready: false,
       connected: true,
       lastSeq: -1,
+      lastInputAt: -Infinity,
       lastButtons: 0,
       inputX: 0,
       inputY: 0,
@@ -405,6 +413,11 @@ export class GameCore {
       qCooldown: 0,
       eCooldown: 0,
       dashCooldown: 0,
+      skillSequence: 0,
+      lastSkillId: null,
+      skillTargetX: startCenter.x,
+      skillTargetY: startCenter.y,
+      skillRadius: 0,
       lastAttackTargetId: null,
       consecutiveHits: 0,
       damage: 0,
@@ -469,6 +482,7 @@ export class GameCore {
     const player = this.players.get(userId);
     if (!player || !player.alive || command.seq <= player.lastSeq) return false;
     player.lastSeq = command.seq;
+    player.lastInputAt = this.elapsed;
     const magnitude = Math.hypot(command.payload.x, command.payload.y);
     const scale = magnitude > 1 ? 1 / magnitude : 1;
     player.inputX = command.payload.x * scale;
@@ -500,6 +514,7 @@ export class GameCore {
     }
 
     if (this.phase === "day" || this.phase === "night" || this.phase === "boss") {
+      this.updateAutoSkills();
       for (const player of this.players.values()) {
         if (player.connected && player.alive && player.autoAttackCooldown <= 0) this.performAutoAttack(player.userId);
       }
@@ -543,6 +558,7 @@ export class GameCore {
       player.dashCooldown = Math.max(0, player.dashCooldown - delta);
     }
     if (this.phase !== "day" && this.phase !== "night" && this.phase !== "boss") return 0;
+    this.updateAutoSkills();
     let attacks = 0;
     for (const player of this.players.values()) {
       if (!player.connected || !player.alive || player.autoAttackCooldown > 0) continue;
@@ -557,8 +573,8 @@ export class GameCore {
       return null;
     }
     const rules = CLASS_COMBAT_RULES[player.heroClass];
-    const rangeMultiplier = 1 + (player.upgrades["area-power"] ?? 0) * 0.12
-      + (player.heroClass === "swordsman" ? (player.upgrades.multishot ?? 0) * 0.2 : 0);
+    const rangeMultiplier = 1 + (player.upgrades["area-power"] ?? 0) * 0.06
+      + (player.heroClass === "swordsman" ? (player.upgrades.multishot ?? 0) * 0.1 : 0);
     const bladeRange = player.heroClass === "swordsman" && player.upgrades["swordsman-blade"] ? 240 : 0;
     const range = Math.max(rules.attackRange * rangeMultiplier, bladeRange);
     const cone = rules.coneHalfAngle * (player.heroClass === "swordsman" && player.upgrades["swordsman-whirlwind"] ? 1.45 : 1);
@@ -572,7 +588,7 @@ export class GameCore {
       player.lastAttackTargetId = target.id;
       player.consecutiveHits = 1;
     }
-    const haste = (player.upgrades.haste ?? 0) * 0.12;
+    const haste = (player.upgrades.haste ?? 0) * 0.06;
     const equipmentHaste = equipmentBonuses(player.equipment).attackSpeedBonus / 100;
     player.autoAttackCooldown = Math.max(0.12, rules.attackInterval / (1 + haste + equipmentHaste));
     let additionalTargets = player.heroClass === "swordsman" ? 0 : (player.upgrades.multishot ?? 0);
@@ -586,6 +602,37 @@ export class GameCore {
     return target;
   }
 
+  private updateAutoSkills(): void {
+    for (const player of this.players.values()) {
+      if (!player.connected || !player.alive || (!player.aiRole && player.lastInputAt < 0)) continue;
+      for (const skillId of ["q", "e"] as const) {
+        const cooldown = skillId === "q" ? player.qCooldown : player.eCooldown;
+        if (cooldown > 0) continue;
+        const target = this.autoSkillTarget(player, skillId);
+        if (target) this.castSkill(player.userId, skillId, Math.atan2(target.y - player.y, target.x - player.x));
+      }
+    }
+  }
+
+  private autoSkillTarget(player: CorePlayer, skillId: AutoSkillId): CoreEnemy | null {
+    const definition = autoSkillDefinition(player.heroClass, skillId);
+    return [...this.enemies.values()]
+      .filter((enemy) => enemy.alive && Math.hypot(enemy.x - player.x, enemy.y - player.y) <= definition.range)
+      .filter((enemy) => this.hasPlayerLineOfSight(player, enemy))
+      .sort((left, right) => {
+        const leftDistance = Math.hypot(left.x - player.x, left.y - player.y);
+        const rightDistance = Math.hypot(right.x - player.x, right.y - player.y);
+        return definition.targeting === "area"
+          ? this.skillClusterScore(right, definition) - this.skillClusterScore(left, definition) || leftDistance - rightDistance
+          : leftDistance - rightDistance || left.id.localeCompare(right.id);
+      })[0] ?? null;
+  }
+
+  private skillClusterScore(anchor: CoreEnemy, definition: ReturnType<typeof autoSkillDefinition>): number {
+    return [...this.enemies.values()].filter((enemy) => enemy.alive
+      && Math.hypot(enemy.x - anchor.x, enemy.y - anchor.y) <= definition.radius).length;
+  }
+
   castSkill(userId: string, skillId: "q" | "e" | "dash", aim: number): boolean {
     const player = this.players.get(userId);
     if (!player || !player.alive || this.phase === "lobby" || this.phase === "ended") return false;
@@ -593,21 +640,48 @@ export class GameCore {
     if (skillId === "dash") {
       if (player.dashCooldown > 0) return false;
       player.dashCooldown = 5;
+      player.skillSequence += 1;
+      player.lastSkillId = "dash";
+      player.skillTargetX = player.x + Math.cos(aim) * 145;
+      player.skillTargetY = player.y + Math.sin(aim) * 145;
+      player.skillRadius = 0;
       this.movePlayer(player, Math.cos(aim) * 145, Math.sin(aim) * 145);
       return true;
     }
+    const definition = autoSkillDefinition(player.heroClass, skillId);
     const cooldownKey = skillId === "q" ? "qCooldown" : "eCooldown";
     if (player[cooldownKey] > 0) return false;
-    const cooldownReduction = Math.min(0.6, (player.upgrades["skill-haste"] ?? 0) * 0.06
-      + (player.heroClass === "mage" && player.upgrades["mage-tempo"] ? 0.25 : 0));
-    player[cooldownKey] = (skillId === "q" ? 5 : 7) * (1 - cooldownReduction);
-    const skillPower = 1 + (player.upgrades["skill-power"] ?? 0) * 0.22;
-    const areaMultiplier = 1 + (player.upgrades["area-power"] ?? 0) * 0.12
-      + (player.heroClass === "mage" && player.upgrades["mage-nova"] ? 0.55 : 0);
-    const range = 260 * areaMultiplier;
-    const targets = this.enemiesInAttackCone(player, range, Math.PI * 0.72);
+    const anchor = this.autoSkillTarget(player, skillId);
+    if (!anchor) return false;
+    const cooldownReduction = Math.min(0.6, (player.upgrades["skill-haste"] ?? 0) * 0.03
+      + (player.heroClass === "mage" && player.upgrades["mage-tempo"] ? 0.125 : 0));
+    player[cooldownKey] = definition.cooldownSeconds * (1 - cooldownReduction);
+    const skillPower = 1 + (player.upgrades["skill-power"] ?? 0) * 0.11;
+    const areaMultiplier = 1 + (player.upgrades["area-power"] ?? 0) * 0.06
+      + (player.heroClass === "mage" && player.upgrades["mage-nova"] ? 0.275 : 0);
+    const targetX = anchor.x;
+    const targetY = anchor.y;
+    const range = definition.range * areaMultiplier;
+    const radius = definition.radius * areaMultiplier;
+    const targets = [...this.enemies.values()]
+      .filter((enemy) => enemy.alive && this.hasPlayerLineOfSight(player, enemy))
+      .filter((enemy) => {
+        if (definition.targeting === "single") return enemy.id === anchor.id;
+        if (definition.targeting === "area") return Math.hypot(enemy.x - targetX, enemy.y - targetY) <= radius;
+        const along = (enemy.x - player.x) * Math.cos(aim) + (enemy.y - player.y) * Math.sin(aim);
+        const across = Math.abs((enemy.x - player.x) * Math.sin(aim) - (enemy.y - player.y) * Math.cos(aim));
+        return along >= 0 && along <= range && across <= radius;
+      })
+      .sort((left, right) => Math.hypot(left.x - player.x, left.y - player.y) - Math.hypot(right.x - player.x, right.y - player.y))
+      .slice(0, definition.maxTargets);
+    if (definition.dashDistance) this.movePlayer(player, Math.cos(aim) * definition.dashDistance, Math.sin(aim) * definition.dashDistance);
+    player.skillSequence += 1;
+    player.lastSkillId = skillId;
+    player.skillTargetX = targetX;
+    player.skillTargetY = targetY;
+    player.skillRadius = radius;
     const baseDamage = (CLASS_COMBAT_RULES[player.heroClass].attackDamage + equipmentBonuses(player.equipment).attackBonus + augmentAttackBonus(player.upgrades))
-      * (skillId === "q" ? 2.1 : 1.65) * skillPower;
+      * definition.damageMultiplier * skillPower;
     for (const target of targets) {
       this.damageEnemy(userId, target.id, baseDamage);
       if (player.heroClass === "swordsman" && player.upgrades["swordsman-rupture"]) {
@@ -617,7 +691,7 @@ export class GameCore {
         this.markedEnemies.set(target.id, { playerId: userId, expiresAt: this.elapsed + 5 });
       }
       if (player.heroClass === "mage" && player.upgrades["mage-echo"] && target.alive) {
-        this.damageEnemy(userId, target.id, baseDamage * 0.55);
+        this.damageEnemy(userId, target.id, baseDamage * 0.275);
       }
     }
     return true;
@@ -836,9 +910,9 @@ export class GameCore {
     if (!player) return null;
     const rules = CLASS_COMBAT_RULES[player.heroClass];
     const equipment = equipmentBonuses(player.equipment);
-    const haste = (player.upgrades.haste ?? 0) * 0.12 + equipment.attackSpeedBonus / 100;
-    const rangeMultiplier = 1 + (player.upgrades["area-power"] ?? 0) * 0.12
-      + (player.heroClass === "swordsman" ? (player.upgrades.multishot ?? 0) * 0.2 : 0);
+    const haste = (player.upgrades.haste ?? 0) * 0.06 + equipment.attackSpeedBonus / 100;
+    const rangeMultiplier = 1 + (player.upgrades["area-power"] ?? 0) * 0.06
+      + (player.heroClass === "swordsman" ? (player.upgrades.multishot ?? 0) * 0.1 : 0);
     const bladeRange = player.heroClass === "swordsman" && player.upgrades["swordsman-blade"] ? 240 : 0;
     return {
       attackDamage: rules.attackDamage + equipment.attackBonus + augmentAttackBonus(player.upgrades),
@@ -861,24 +935,24 @@ export class GameCore {
   private calculateAttackDamage(player: CorePlayer, enemy: CoreEnemy): number {
     const rules = CLASS_COMBAT_RULES[player.heroClass];
     let damage = rules.attackDamage + equipmentBonuses(player.equipment).attackBonus + augmentAttackBonus(player.upgrades);
-    const criticalChance = (player.upgrades.precision ?? 0) * 0.06;
+    const criticalChance = (player.upgrades.precision ?? 0) * 0.03;
     if (deterministicCombatRoll(this.options.seed, player.userId, player.attackCount) < criticalChance) {
-      damage *= 1.5 + (player.upgrades.ferocity ?? 0) * 0.2;
+      damage *= 1.5 + (player.upgrades.ferocity ?? 0) * 0.1;
     }
     const momentumStacks = player.upgrades.momentum ?? 0;
-    if (momentumStacks > 0) damage *= 1 + Math.min(0.2 * momentumStacks, player.consecutiveHits * 0.04 * momentumStacks);
-    if (["hidden", "gate", "boss"].includes(enemy.kind)) damage *= 1 + (player.upgrades["boss-hunter"] ?? 0) * 0.12;
+    if (momentumStacks > 0) damage *= 1 + Math.min(0.1 * momentumStacks, player.consecutiveHits * 0.02 * momentumStacks);
+    if (["hidden", "gate", "boss"].includes(enemy.kind)) damage *= 1 + (player.upgrades["boss-hunter"] ?? 0) * 0.06;
     if (player.heroClass === "swordsman" && player.upgrades["swordsman-execution"] && enemy.hp / enemy.maxHp <= 0.3) {
-      damage *= 1.6;
+      damage *= 1.3;
     }
     if (player.heroClass === "archer" && player.upgrades["archer-sniper"]) {
       const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
-      damage *= 1 + Math.min(0.55, Math.max(0, (distance - 180) / 280) * 0.55);
+      damage *= 1 + Math.min(0.275, Math.max(0, (distance - 180) / 280) * 0.275);
     }
-    if (player.heroClass === "swordsman" && player.upgrades["swordsman-combo"] && player.attackCount % 3 === 0) damage *= 2;
-    if (player.heroClass === "mage" && player.upgrades["mage-overcharge"] && player.attackCount % 4 === 0) damage *= 2.2;
-    if (this.vulnerableEnemies.get(enemy.id)?.playerId === player.userId && (this.vulnerableEnemies.get(enemy.id)?.expiresAt ?? 0) > this.elapsed) damage *= 1.15;
-    if (this.markedEnemies.get(enemy.id)?.playerId === player.userId && (this.markedEnemies.get(enemy.id)?.expiresAt ?? 0) > this.elapsed) damage *= 1.25;
+    if (player.heroClass === "swordsman" && player.upgrades["swordsman-combo"] && player.attackCount % 3 === 0) damage *= 1.5;
+    if (player.heroClass === "mage" && player.upgrades["mage-overcharge"] && player.attackCount % 4 === 0) damage *= 1.6;
+    if (this.vulnerableEnemies.get(enemy.id)?.playerId === player.userId && (this.vulnerableEnemies.get(enemy.id)?.expiresAt ?? 0) > this.elapsed) damage *= 1.075;
+    if (this.markedEnemies.get(enemy.id)?.playerId === player.userId && (this.markedEnemies.get(enemy.id)?.expiresAt ?? 0) > this.elapsed) damage *= 1.125;
     return Math.max(1, Math.round(damage));
   }
 

@@ -609,6 +609,50 @@ export class RoomRenderer {
     }
   }
 
+  showAutoSkill(classId: HeroClassId, skillId: "q" | "e", attacker: Phaser.GameObjects.Sprite, targetX: number, targetY: number, radius: number): void {
+    const color = classColor(classId);
+    const angle = Phaser.Math.Angle.Between(attacker.x, attacker.y, targetX, targetY);
+    attacker.setData("attackPoseUntil", this.scene.time.now + 180);
+    this.scene.tweens.add({ targets: attacker, scaleX: attacker.scaleX * 1.12, scaleY: attacker.scaleY * 0.88, duration: 80, yoyo: true });
+    if (classId === "swordsman") {
+      const arc = this.scene.add.arc(attacker.x, attacker.y, skillId === "q" ? radius : 48,
+        Phaser.Math.RadToDeg(angle) - (skillId === "q" ? 120 : 35),
+        Phaser.Math.RadToDeg(angle) + (skillId === "q" ? 120 : 35), false)
+        .setStrokeStyle(skillId === "q" ? 14 : 9, 0xfff4b0, 0.92).setDepth(32);
+      this.scene.tweens.add({ targets: arc, scale: 1.2, alpha: 0, duration: 260, onComplete: () => arc.destroy() });
+      if (skillId === "e") this.showAttack(attacker.x, attacker.y, targetX, targetY, color);
+    } else if (classId === "archer") {
+      if (skillId === "q") {
+        for (const offset of [-0.08, 0, 0.08]) {
+          const arrow = this.scene.add.rectangle(attacker.x, attacker.y, 34, 5, 0xd9ffe2, 1).setRotation(angle + offset).setDepth(32);
+          this.scene.tweens.add({ targets: arrow, x: targetX, y: targetY, duration: 180, ease: "Quad.easeIn", onComplete: () => arrow.destroy() });
+        }
+      } else {
+        const rain = this.scene.add.circle(targetX, targetY, radius, color, 0.1).setStrokeStyle(4, color, 0.85).setDepth(30);
+        this.scene.tweens.add({ targets: rain, scale: 1.12, alpha: 0, duration: 420, onComplete: () => rain.destroy() });
+        for (let index = 0; index < 5; index += 1) {
+          const x = targetX + Math.cos(index * 1.7) * radius * 0.65;
+          const y = targetY + Math.sin(index * 1.7) * radius * 0.65;
+          const arrow = this.scene.add.rectangle(x, y - 70, 4, 24, 0xd9ffe2, 0.88).setDepth(32);
+          this.scene.tweens.add({ targets: arrow, y: y, duration: 180 + index * 24, onComplete: () => { this.showImpact(x, y, 20, color); arrow.destroy(); } });
+        }
+      }
+    } else if (skillId === "q") {
+      const orb = this.scene.add.circle(attacker.x, attacker.y, 16, 0xe6c8ff, 0.95).setStrokeStyle(4, 0xffffff, 0.9).setDepth(32);
+      this.scene.tweens.add({ targets: orb, x: targetX, y: targetY, scale: 1.35, duration: 220, ease: "Sine.easeIn", onComplete: () => { this.showImpact(targetX, targetY, 42, color); orb.destroy(); } });
+    } else {
+      const rune = this.scene.add.circle(targetX, targetY, radius * 0.45, color, 0.1).setStrokeStyle(4, 0xdcc4ff, 0.9).setDepth(30);
+      this.scene.tweens.add({ targets: rune, scale: 2.1, angle: 180, alpha: 0, duration: 460, onComplete: () => rune.destroy() });
+      this.showImpact(targetX, targetY, radius, color);
+    }
+  }
+
+  showDodge(sprite: Phaser.GameObjects.Sprite, targetX: number, targetY: number): void {
+    const trail = this.scene.add.line(0, 0, sprite.x, sprite.y, targetX, targetY, 0xbfffea, 0.8).setLineWidth(8).setDepth(29);
+    const flash = this.scene.add.circle(sprite.x, sprite.y, 26, 0xbfffea, 0.18).setStrokeStyle(3, 0xffffff, 0.9).setDepth(30);
+    this.scene.tweens.add({ targets: [trail, flash], alpha: 0, scale: 1.4, duration: 260, onComplete: () => { trail.destroy(); flash.destroy(); } });
+  }
+
   showImpact(x: number, y: number, radius: number, color: number): void {
     const impact = this.scene.add.circle(x, y, 7, color, 0.28).setStrokeStyle(2, color, 0.9).setDepth(32);
     this.scene.tweens.add({ targets: impact, radius, alpha: 0, duration: 230, onComplete: () => impact.destroy() });

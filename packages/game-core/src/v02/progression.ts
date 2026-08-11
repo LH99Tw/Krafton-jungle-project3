@@ -9,6 +9,13 @@ export const LEVEL_XP_PER_LEVEL = 9;
 export type AugmentRarity = "normal" | "rare" | "epic";
 export type AugmentPool = "general" | "milestone";
 
+/** High-rarity level-up choices are intentionally less frequent. */
+export const AUGMENT_RARITY_WEIGHTS: Readonly<Record<AugmentRarity, number>> = {
+  normal: 1,
+  rare: 0.5,
+  epic: 0.25,
+};
+
 export type AugmentId =
   | "power"
   | "haste"
@@ -74,7 +81,7 @@ export const GENERAL_AUGMENTS: readonly AugmentDefinition[] = [
     pool: "general",
     rarity: "normal",
     maxStacks: 4,
-    effect: { kind: "attack-speed-percent", values: { percent: 12 } },
+    effect: { kind: "attack-speed-percent", values: { percent: 6 } },
   },
   {
     id: "multishot",
@@ -83,7 +90,7 @@ export const GENERAL_AUGMENTS: readonly AugmentDefinition[] = [
     pool: "general",
     rarity: "epic",
     maxStacks: 2,
-    effect: { kind: "class-adaptive-multishot", values: { projectileCount: 1, meleeRangePercent: 20 } },
+    effect: { kind: "class-adaptive-multishot", values: { projectileCount: 1, meleeRangePercent: 10 } },
   },
   {
     id: "skill-power",
@@ -92,7 +99,7 @@ export const GENERAL_AUGMENTS: readonly AugmentDefinition[] = [
     pool: "general",
     rarity: "rare",
     maxStacks: 3,
-    effect: { kind: "skill-power-percent", values: { percent: 22 } },
+    effect: { kind: "skill-power-percent", values: { percent: 11 } },
   },
   {
     id: "precision",
@@ -101,7 +108,7 @@ export const GENERAL_AUGMENTS: readonly AugmentDefinition[] = [
     pool: "general",
     rarity: "normal",
     maxStacks: 4,
-    effect: { kind: "critical-chance-points", values: { points: 6 } },
+    effect: { kind: "critical-chance-points", values: { points: 3 } },
   },
   {
     id: "ferocity",
@@ -110,7 +117,7 @@ export const GENERAL_AUGMENTS: readonly AugmentDefinition[] = [
     pool: "general",
     rarity: "rare",
     maxStacks: 4,
-    effect: { kind: "critical-damage-percent", values: { percent: 20 } },
+    effect: { kind: "critical-damage-percent", values: { percent: 10 } },
   },
   {
     id: "boss-hunter",
@@ -119,7 +126,7 @@ export const GENERAL_AUGMENTS: readonly AugmentDefinition[] = [
     pool: "general",
     rarity: "rare",
     maxStacks: 4,
-    effect: { kind: "major-target-damage-percent", values: { percent: 12 } },
+    effect: { kind: "major-target-damage-percent", values: { percent: 6 } },
   },
   {
     id: "skill-haste",
@@ -128,7 +135,7 @@ export const GENERAL_AUGMENTS: readonly AugmentDefinition[] = [
     pool: "general",
     rarity: "rare",
     maxStacks: 4,
-    effect: { kind: "skill-cooldown-reduction-percent", values: { percent: 6 } },
+    effect: { kind: "skill-cooldown-reduction-percent", values: { percent: 3 } },
   },
   {
     id: "area-power",
@@ -137,16 +144,16 @@ export const GENERAL_AUGMENTS: readonly AugmentDefinition[] = [
     pool: "general",
     rarity: "rare",
     maxStacks: 4,
-    effect: { kind: "attack-area-percent", values: { percent: 12 } },
+    effect: { kind: "attack-area-percent", values: { percent: 6 } },
   },
   {
     id: "momentum",
     name: "끊임없는 공세",
     description: "같은 대상을 연속 타격할 때 타격당 피해 +4%, 최대 +20%",
     pool: "general",
-    rarity: "epic",
+    rarity: "rare",
     maxStacks: 4,
-    effect: { kind: "consecutive-hit-damage", values: { percentPerHit: 4, maxPercent: 20 } },
+    effect: { kind: "consecutive-hit-damage", values: { percentPerHit: 2, maxPercent: 10 } },
   },
 ] as const;
 
@@ -159,17 +166,17 @@ export const MILESTONE_AUGMENTS: readonly AugmentDefinition[] = [
     rarity: "epic",
     maxStacks: 1,
     classId: "swordsman",
-    effect: { kind: "blade-projectile", values: { range: 240, damagePercent: 100 } },
+    effect: { kind: "blade-projectile", values: { range: 240, damagePercent: 50 } },
   },
   {
     id: "swordsman-execution",
     name: "처형자",
     description: "체력 30% 이하 적에게 주는 피해 +60%",
     pool: "milestone",
-    rarity: "epic",
+    rarity: "rare",
     maxStacks: 1,
     classId: "swordsman",
-    effect: { kind: "execute-damage", values: { hpThresholdPercent: 30, damagePercent: 60 } },
+    effect: { kind: "execute-damage", values: { hpThresholdPercent: 30, damagePercent: 30 } },
   },
   {
     id: "swordsman-whirlwind",
@@ -179,27 +186,27 @@ export const MILESTONE_AUGMENTS: readonly AugmentDefinition[] = [
     rarity: "epic",
     maxStacks: 1,
     classId: "swordsman",
-    effect: { kind: "melee-arc-percent", values: { percent: 45 } },
+    effect: { kind: "melee-arc-percent", values: { percent: 22.5 } },
   },
   {
     id: "swordsman-combo",
     name: "삼연참",
     description: "세 번째 자동 공격이 +100% 피해를 줍니다.",
     pool: "milestone",
-    rarity: "epic",
+    rarity: "rare",
     maxStacks: 1,
     classId: "swordsman",
-    effect: { kind: "nth-attack-damage", values: { attackNumber: 3, damagePercent: 100 } },
+    effect: { kind: "nth-attack-damage", values: { attackNumber: 3, damagePercent: 50 } },
   },
   {
     id: "swordsman-rupture",
     name: "갑주 파쇄",
     description: "스킬 적중 시 3초간 대상이 받는 피해 +15%",
     pool: "milestone",
-    rarity: "epic",
+    rarity: "rare",
     maxStacks: 1,
     classId: "swordsman",
-    effect: { kind: "vulnerability-on-skill", values: { durationMs: 3_000, damagePercent: 15 } },
+    effect: { kind: "vulnerability-on-skill", values: { durationMs: 3_000, damagePercent: 7.5 } },
   },
   {
     id: "archer-volley",
@@ -216,10 +223,10 @@ export const MILESTONE_AUGMENTS: readonly AugmentDefinition[] = [
     name: "명사수",
     description: "거리에 따라 피해가 증가해 최대 +55%가 됩니다.",
     pool: "milestone",
-    rarity: "epic",
+    rarity: "rare",
     maxStacks: 1,
     classId: "archer",
-    effect: { kind: "distance-damage", values: { startDistance: 180, maxDistance: 460, maxPercent: 55 } },
+    effect: { kind: "distance-damage", values: { startDistance: 180, maxDistance: 460, maxPercent: 27.5 } },
   },
   {
     id: "archer-piercing",
@@ -239,17 +246,17 @@ export const MILESTONE_AUGMENTS: readonly AugmentDefinition[] = [
     rarity: "epic",
     maxStacks: 1,
     classId: "archer",
-    effect: { kind: "projectile-ricochet", values: { targets: 1, damagePercent: 65 } },
+    effect: { kind: "projectile-ricochet", values: { targets: 1, damagePercent: 32.5 } },
   },
   {
     id: "archer-mark",
     name: "사냥감 표식",
     description: "스킬 적중 시 5초간 자동 공격 피해 +25% 표식을 남깁니다.",
     pool: "milestone",
-    rarity: "epic",
+    rarity: "rare",
     maxStacks: 1,
     classId: "archer",
-    effect: { kind: "mark-on-skill", values: { durationMs: 5_000, autoAttackDamagePercent: 25 } },
+    effect: { kind: "mark-on-skill", values: { durationMs: 5_000, autoAttackDamagePercent: 12.5 } },
   },
   {
     id: "mage-nova",
@@ -259,17 +266,17 @@ export const MILESTONE_AUGMENTS: readonly AugmentDefinition[] = [
     rarity: "epic",
     maxStacks: 1,
     classId: "mage",
-    effect: { kind: "magic-area-percent", values: { percent: 55 } },
+    effect: { kind: "magic-area-percent", values: { percent: 27.5 } },
   },
   {
     id: "mage-tempo",
     name: "시공술사",
     description: "스킬 재사용 대기시간 -25%",
     pool: "milestone",
-    rarity: "epic",
+    rarity: "rare",
     maxStacks: 1,
     classId: "mage",
-    effect: { kind: "skill-cooldown-reduction-percent", values: { percent: 25 } },
+    effect: { kind: "skill-cooldown-reduction-percent", values: { percent: 12.5 } },
   },
   {
     id: "mage-chain",
@@ -279,27 +286,27 @@ export const MILESTONE_AUGMENTS: readonly AugmentDefinition[] = [
     rarity: "epic",
     maxStacks: 1,
     classId: "mage",
-    effect: { kind: "magic-chain", values: { targets: 1, damagePercent: 60 } },
+    effect: { kind: "magic-chain", values: { targets: 1, damagePercent: 30 } },
   },
   {
     id: "mage-overcharge",
     name: "과충전",
     description: "네 번째 자동 공격이 +120% 피해를 줍니다.",
     pool: "milestone",
-    rarity: "epic",
+    rarity: "rare",
     maxStacks: 1,
     classId: "mage",
-    effect: { kind: "nth-attack-damage", values: { attackNumber: 4, damagePercent: 120 } },
+    effect: { kind: "nth-attack-damage", values: { attackNumber: 4, damagePercent: 60 } },
   },
   {
     id: "mage-echo",
     name: "주문 메아리",
     description: "Q/E 스킬이 0.35초 뒤 55% 위력으로 한 번 반복됩니다.",
     pool: "milestone",
-    rarity: "epic",
+    rarity: "rare",
     maxStacks: 1,
     classId: "mage",
-    effect: { kind: "skill-echo", values: { delayMs: 350, damagePercent: 55 } },
+    effect: { kind: "skill-echo", values: { delayMs: 350, damagePercent: 27.5 } },
   },
 ] as const;
 
@@ -389,7 +396,19 @@ export function createAugmentDraft(input: AugmentDraftInput): readonly AugmentDe
   const random = createSeededRandom(
     [input.runSeed, input.playerId, input.heroClass, input.level, input.draftIndex ?? 0, stackSignature].join(":"),
   );
-  return random.shuffle(pool).slice(0, 3);
+  const choices: AugmentDefinition[] = [];
+  const remaining = [...pool];
+  while (choices.length < 3) {
+    const totalWeight = remaining.reduce((sum, definition) => sum + AUGMENT_RARITY_WEIGHTS[definition.rarity], 0);
+    let roll = random.next() * totalWeight;
+    const selectedIndex = remaining.findIndex((definition) => {
+      roll -= AUGMENT_RARITY_WEIGHTS[definition.rarity];
+      return roll < 0;
+    });
+    const index = selectedIndex >= 0 ? selectedIndex : remaining.length - 1;
+    choices.push(remaining.splice(index, 1)[0] as AugmentDefinition);
+  }
+  return choices;
 }
 
 export function addAugmentStack(stacks: AugmentStacks, id: AugmentId): AugmentStacks {
