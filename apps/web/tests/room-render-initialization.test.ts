@@ -13,7 +13,7 @@ test("the first room render happens after renderer and textures are initialized"
   assert.ok(initialRender > textureCreation, "room and corridor textures must render only after their frames exist");
 });
 
-test("runtime preloads 32px hero sheets and selects an aim-direction frame", () => {
+test("runtime preloads four-direction hero sheets and selects a movement-facing frame", () => {
   const scene = readFileSync(new URL("../src/game/runtime/room/RoomGameScene.ts", import.meta.url), "utf8");
   const renderer = readFileSync(new URL("../src/game/runtime/room/RoomRenderer.ts", import.meta.url), "utf8");
   const generatedTextures = readFileSync(new URL("../src/game/client/render/createTextures.ts", import.meta.url), "utf8");
@@ -21,6 +21,7 @@ test("runtime preloads 32px hero sheets and selects an aim-direction frame", () 
   assert.match(scene, /frameWidth: HERO_SPRITE_FRAME_SIZE/);
   assert.match(scene, /endFrame: HERO_TOTAL_FRAME_COUNT - 1/);
   assert.match(renderer, /`hero-\$\{classId\}`/);
-  assert.match(renderer, /setFrame\(heroFrameForPose\(aimAngle, moving, time\)\)/);
+  assert.match(renderer, /heroFacingForMovement\(previous, movementX, movementY\)/);
+  assert.match(renderer, /setFrame\(heroFrameForPose\(facing, moving, time\)\)/);
   assert.doesNotMatch(generatedTextures, /key: "hero-/);
 });

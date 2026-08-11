@@ -21,8 +21,11 @@ export function RoomMiniMap({ minimap, party, embed = false }: {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const positionsRef = useRef(new Map<string, { x: number; y: number }>());
   const partyRef = useRef(party);
-  partyRef.current = party;
   const percent = useMemo(() => minimap ? explorationPercent(minimap.geometry, minimap.explorationMask) : 0, [minimap]);
+
+  useEffect(() => {
+    partyRef.current = party;
+  }, [party]);
 
   useEffect(() => {
     const canvas = canvasRef.current;

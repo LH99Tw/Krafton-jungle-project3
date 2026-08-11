@@ -68,7 +68,6 @@ export class PlayerVisionFog {
   update(
     playerX: number,
     playerY: number,
-    _time: number,
   ): void {
     const sources = selectVisionRevealSources({
       id: PLAYER_SOURCE_ID,

@@ -156,8 +156,8 @@ export class RoomGameScene extends Phaser.Scene {
   private networkDisconnect?: () => void;
   private worldFrameDisconnect?: () => void;
   private localInputDisconnect?: () => void;
-  private localAim = 0;
-  private localMoving = false;
+  private localMovementX = 0;
+  private localMovementY = 0;
   private enemies: LocalEnemy[] = [];
   private lastWalkablePlayerPosition: { x: number; y: number } | null = null;
   private readonly lastWalkableEnemyPositions = new Map<string, { x: number; y: number }>();
@@ -380,7 +380,7 @@ export class RoomGameScene extends Phaser.Scene {
 
   update(time: number, delta: number): void {
     this.roomRenderer.updateCrosshair(this.input.activePointer);
-    this.visionFog.update(this.player.x, this.player.y, time);
+    this.visionFog.update(this.player.x, this.player.y);
     if (this.ended) return;
     const safeDeltaMs = Math.min(100, Math.max(0, delta));
 
@@ -394,15 +394,15 @@ export class RoomGameScene extends Phaser.Scene {
           buttons: Number(this.keys.Q?.isDown) | (Number(this.keys.E?.isDown) << 1) | (Number(this.keys.SPACE?.isDown) << 2),
         };
         const localFrame = localCoreSession.tick(safeDeltaMs, input);
-        this.localAim = localFrame.inputFrame.aim;
-        this.localMoving = Math.hypot(localFrame.inputFrame.x, localFrame.inputFrame.y) > 0.01;
+        this.localMovementX = localFrame.inputFrame.x;
+        this.localMovementY = localFrame.inputFrame.y;
         this.syncNetworkState(localFrame.snapshot);
         this.handleWorldFrame(localFrame.frame);
       }
       this.updateNetworkTransforms();
       const aim = this.aimAngle();
       if (this.options.runtimeMode !== "editor-core") colyseusTransport.setAim(aim);
-      this.roomRenderer.updateHeroPose(this.player, aim, false, time);
+      this.roomRenderer.updateHeroPose(this.player, this.localMovementX, this.localMovementY, time);
       this.snapshotAccumulator += safeDeltaMs;
       if (this.snapshotAccumulator >= 120) {
         this.snapshotAccumulator = 0;
@@ -513,8 +513,8 @@ export class RoomGameScene extends Phaser.Scene {
     const localState = snapshot?.players.find((member) => member.isLocal)
       ?? snapshot?.players.find((member) => member.userId === this.options.userId);
     if (!snapshot || !localState) return;
-    this.localAim = frame.aim;
-    this.localMoving = Math.hypot(frame.x, frame.y) > 0.01;
+    this.localMovementX = frame.x;
+    this.localMovementY = frame.y;
     const current = this.localPrediction ?? { x: localState.x, y: localState.y, roomId: localState.roomId };
     this.localPrediction = predictPlayerTransform({
       ...current,
@@ -539,7 +539,7 @@ export class RoomGameScene extends Phaser.Scene {
         this.localPrediction.y + (this.localCorrection?.y ?? 0) * correctionScale,
       );
       this.player.setVisible(true).setActive(true);
-      this.roomRenderer.updateHeroPose(this.player, this.localAim, this.localMoving, now);
+      this.roomRenderer.updateHeroPose(this.player, this.localMovementX, this.localMovementY, now);
       if (correctionScale === 0) this.localCorrection = null;
     }
     for (const member of snapshot.players) {
@@ -550,12 +550,9 @@ export class RoomGameScene extends Phaser.Scene {
       const resolved = transform ?? member;
       const point = clampToWorld(this.zoneWorld.bounds, resolved.x, resolved.y);
       const visible = this.sharesNetworkVisionZone(localState.roomId, resolved.roomId)
-        && shouldRenderPartyMember(
-          { ...member, x: point.x, y: point.y },
-          this.player,
-        );
+        && shouldRenderPartyMember({ ...member, x: point.x, y: point.y });
       sprite.setPosition(point.x, point.y).setVisible(visible);
-      this.roomRenderer.updateHeroPose(sprite, transform?.aim ?? 0, transform ? Math.hypot(transform.vx, transform.vy) > 1 : false, now);
+      this.roomRenderer.updateHeroPose(sprite, transform?.vx ?? 0, transform?.vy ?? 0, now);
     }
     for (const enemy of snapshot.enemies) {
       const sprite = this.networkEnemies.get(enemy.id);
@@ -742,7 +739,7 @@ export class RoomGameScene extends Phaser.Scene {
     const movement = new Phaser.Math.Vector2(x, y).normalize().scale(this.progression.stats.moveSpeed);
     this.player.setVelocity(movement.x, movement.y);
     const aim = this.aimAngle();
-    this.roomRenderer.updateHeroPose(this.player, aim, movement.lengthSq() > 0, time);
+    this.roomRenderer.updateHeroPose(this.player, x, y, time);
 
     if (Phaser.Input.Keyboard.JustDown(this.keys.Q) && time >= this.qReadyAt) this.useSkill("q", aim);
     if (Phaser.Input.Keyboard.JustDown(this.keys.E) && time >= this.eReadyAt) this.useSkill("e", aim);
@@ -1442,7 +1439,7 @@ export class RoomGameScene extends Phaser.Scene {
       }
       const visible = isLocal || (
         this.sharesNetworkVisionZone(local.roomId, member.roomId)
-        && shouldRenderPartyMember(member, local)
+        && shouldRenderPartyMember(member)
       );
       sprite.setVisible(visible).setActive(member.connected);
       sprite.setAlpha(isLocal ? 1 : 0.82);
