@@ -11,7 +11,8 @@ export const HERO_WALK_PHASE_DURATION_MS = 140;
 export const HERO_SPRITE_PATHS: Record<HeroClassId, string> = {
   swordsman: "/Asset/sprites/WarriorSprite.png",
   archer: "/Asset/sprites/ArcherSprite.png",
-  mage: "/Asset/sprites/MageSprite.png",
+  // Versioned because /Asset responses are cached for a day in production.
+  mage: "/Asset/sprites/MageSprite-v2.png",
 };
 
 export type HeroFacingDirection = "down" | "right" | "up" | "left";
