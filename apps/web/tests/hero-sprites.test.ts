@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import sharp from "sharp";
 import {
   DEFAULT_HERO_FACING,
   HERO_DIRECTION_COUNT,
@@ -52,3 +53,59 @@ test("sprite assets match the expected RGBA 4 by 3 grid", () => {
     assert.equal(png[25], 6, `${spritePath} must use RGBA color data`);
   }
 });
+
+test("mage frames share one ground line and contain no lower-frame debris", async () => {
+  const magePath = HERO_SPRITE_PATHS.mage;
+  assert.match(magePath, /-v2\.png$/, "corrected mage sheets must use a cache-busting filename");
+  const { data, info } = await sharp(readFileSync(new URL(`../public${magePath}`, import.meta.url)))
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  for (let row = 0; row < 3; row += 1) {
+    for (let column = 0; column < HERO_DIRECTION_COUNT; column += 1) {
+      let bottom = -1;
+      const occupied = new Uint8Array(HERO_SPRITE_FRAME_SIZE ** 2);
+      for (let y = 0; y < HERO_SPRITE_FRAME_SIZE; y += 1) {
+        for (let x = 0; x < HERO_SPRITE_FRAME_SIZE; x += 1) {
+          const sourceX = column * HERO_SPRITE_FRAME_SIZE + x;
+          const sourceY = row * HERO_SPRITE_FRAME_SIZE + y;
+          const alpha = data[(sourceY * info.width + sourceX) * info.channels + 3];
+          if (alpha > 8) {
+            occupied[y * HERO_SPRITE_FRAME_SIZE + x] = 1;
+            bottom = y;
+          }
+        }
+      }
+      assert.equal(bottom, 345, `mage row ${row}, column ${column} must use the shared foot baseline`);
+      assert.equal(countComponents(occupied, HERO_SPRITE_FRAME_SIZE), 1, `mage row ${row}, column ${column} contains debris`);
+    }
+  }
+});
+
+function countComponents(occupied: Uint8Array, width: number): number {
+  const visited = new Uint8Array(occupied.length);
+  const queue = new Int32Array(occupied.length);
+  let components = 0;
+
+  for (let start = 0; start < occupied.length; start += 1) {
+    if (!occupied[start] || visited[start]) continue;
+    components += 1;
+    let head = 0;
+    let tail = 0;
+    queue[tail++] = start;
+    visited[start] = 1;
+    while (head < tail) {
+      const index = queue[head++];
+      const x = index % width;
+      const neighbors = [index - width, index + width, x > 0 ? index - 1 : -1, x + 1 < width ? index + 1 : -1];
+      for (const neighbor of neighbors) {
+        if (neighbor >= 0 && neighbor < occupied.length && occupied[neighbor] && !visited[neighbor]) {
+          visited[neighbor] = 1;
+          queue[tail++] = neighbor;
+        }
+      }
+    }
+  }
+  return components;
+}

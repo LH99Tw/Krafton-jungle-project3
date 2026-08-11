@@ -318,6 +318,7 @@ export class RoomGameScene extends Phaser.Scene {
     this.load.image("zone-1-blocked", "/Asset/zone-1-blocked-forest.png");
     this.load.image("zone-2-blocked", "/Asset/zone-2-blocked-marsh.png");
     this.load.image("zone-3-blocked", "/Asset/zone-3-blocked-wastes.png");
+    this.load.image("enemy-demon-midboss-asset", "/images/demon_midboss.png");
 
   }
 
@@ -774,10 +775,11 @@ export class RoomGameScene extends Phaser.Scene {
     if (hp <= 0 || maxHp <= 0) return;
 
     const isBoss = kind === "boss";
-    const isElite = kind === "gate" || kind === "hidden";
-    const width = isBoss ? 56 : isElite ? 38 : 28;
-    const height = isBoss ? 6 : 4;
-    const offsetY = isBoss ? 36 : isElite ? 26 : 20;
+    const isMidboss = kind === "hidden";
+    const isElite = kind === "gate" || isMidboss;
+    const width = isBoss ? 56 : isMidboss ? 52 : isElite ? 38 : 28;
+    const height = isBoss ? 6 : isMidboss ? 5 : 4;
+    const offsetY = isBoss ? 36 : isMidboss ? 92 : isElite ? 26 : 20;
     const barX = -width / 2;
     const barY = -offsetY;
 

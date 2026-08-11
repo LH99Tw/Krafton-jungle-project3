@@ -119,7 +119,7 @@ export function createGameTextures(scene: Phaser.Scene): void {
     },
   ];
 
-  // 8-directional transparent pixel art skeleton with eye sockets facing player
+  // 8-directional transparent pixel art skeleton (Normal Mob)
   const SKELETON_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315] as const;
   SKELETON_ANGLES.forEach((angle) => {
     specs.push({
@@ -167,36 +167,194 @@ export function createGameTextures(scene: Phaser.Scene): void {
         g.fillStyle(0xdddddd).fillRect(11 + dirX * 2, 1 + dirY * 2, 10, 2);
 
         // Face & Eye Sockets facing player direction
-        if (angle !== 270) { // If NOT facing away (270 deg is North/Back)
-          // Glowing crimson eyes glaring directly at player
+        if (angle !== 270) {
           const eyeOffX = dirX * 2;
           const eyeOffY = dirY * 2;
 
-          // Eye Sockets
           g.fillStyle(0x1a0000)
             .fillRect(11 + eyeOffX, 5 + eyeOffY, 4, 4)
             .fillRect(17 + eyeOffX, 5 + eyeOffY, 4, 4);
 
-          // Intense Glowing Crimson Pupils
           g.fillStyle(0xff0033)
             .fillRect(12 + eyeOffX, 6 + eyeOffY, 2, 2)
             .fillRect(18 + eyeOffX, 6 + eyeOffY, 2, 2);
 
-          // White Pupil Core Center
           g.fillStyle(0xffffff)
             .fillRect(13 + eyeOffX, 6 + eyeOffY, 1, 1)
             .fillRect(19 + eyeOffX, 6 + eyeOffY, 1, 1);
 
-          // Skull Teeth Grid
           g.fillStyle(0xdddddd).fillRect(12 + eyeOffX, 10 + eyeOffY, 8, 3);
           g.fillStyle(0x222222)
             .fillRect(13 + eyeOffX, 10 + eyeOffY, 1, 3)
             .fillRect(15 + eyeOffX, 10 + eyeOffY, 1, 3)
             .fillRect(17 + eyeOffX, 10 + eyeOffY, 1, 3);
         } else {
-          // Back of skull (North / 270 deg)
           g.fillStyle(0xd0d0d0).fillRect(11, 3, 10, 8);
           g.fillStyle(0x888888).fillRect(14, 10, 4, 3);
+        }
+      },
+    });
+  });
+
+  // 8-directional high-detail pixel art Demon Lord Mid-Boss (Imposing Winged Demon Overlord - Refined)
+  const DEMON_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315] as const;
+  DEMON_ANGLES.forEach((angle) => {
+    specs.push({
+      key: `enemy-demon-midboss-${angle}`,
+      width: 84,
+      height: 84,
+      draw: (g) => {
+        const rad = (angle * Math.PI) / 180;
+        const dirX = Math.round(Math.cos(rad));
+        const dirY = Math.round(Math.sin(rad));
+
+        // 1. Swirling Dark Fiery Demonic Aura & Soft Ground Shadow
+        g.fillStyle(0x360522, 0.4).fillCircle(42, 46, 36);
+        g.fillStyle(0xd90f38, 0.18).fillCircle(42, 46, 26);
+        g.fillStyle(0x000000, 0.55).fillEllipse(42, 75, 48, 14);
+
+        // 2. High-Detail Bat/Dragon Demon Wings (Curved Ribbed Wings with Webbed Veins)
+        // Left Wing Structural Bones & Membrane
+        g.fillStyle(0x130a1c).fillTriangle(42, 36, 2, 8, 16, 52);
+        g.fillStyle(0x5e0d22).fillTriangle(40, 38, 6, 12, 20, 48);
+        g.fillStyle(0x9e172e).fillTriangle(38, 40, 10, 18, 22, 44);
+        g.fillStyle(0xe62e3d).fillTriangle(36, 42, 14, 24, 24, 40);
+
+        // Left Wing Rib Lines (Veins)
+        g.fillStyle(0x130a1c)
+          .fillTriangle(2, 8, 8, 4, 1, 16)
+          .fillTriangle(2, 8, 18, 16, 10, 26)
+          .fillTriangle(2, 8, 22, 34, 14, 42);
+        g.fillStyle(0xff2b46).fillCircle(2, 8, 2.5); // Wingtip Claw Gem
+
+        // Right Wing Structural Bones & Membrane
+        g.fillStyle(0x130a1c).fillTriangle(42, 36, 82, 8, 68, 52);
+        g.fillStyle(0x5e0d22).fillTriangle(44, 38, 78, 12, 64, 48);
+        g.fillStyle(0x9e172e).fillTriangle(46, 40, 74, 18, 62, 44);
+        g.fillStyle(0xe62e3d).fillTriangle(48, 42, 70, 24, 60, 40);
+
+        // Right Wing Rib Lines (Veins)
+        g.fillStyle(0x130a1c)
+          .fillTriangle(82, 8, 76, 4, 83, 16)
+          .fillTriangle(82, 8, 66, 16, 74, 26)
+          .fillTriangle(82, 8, 62, 34, 70, 42);
+        g.fillStyle(0xff2b46).fillCircle(82, 8, 2.5); // Wingtip Claw Gem
+
+        // 3. Spiked Curved Demon Tail
+        const tailX = 42 + dirX * 10;
+        g.fillStyle(0x180d21).fillTriangle(tailX, 56, tailX + 18, 64, tailX + 10, 74);
+        g.fillStyle(0x87122a).fillTriangle(tailX + 10, 62, tailX + 22, 66, tailX + 16, 74);
+
+        // 4. Muscular Obsidian Legs, Knee Guards & Armor Boots
+        const legShift = Math.round(dirX * 5);
+
+        // Left Leg
+        g.fillStyle(0x130b1a).fillRect(27 - legShift, 46, 11, 24);
+        g.fillStyle(0x2f1c3d).fillRect(26 - legShift, 46, 4, 24); // Metallic Highlight
+        g.fillStyle(0x3b244d).fillRect(26 - legShift, 65, 13, 6); // Boot Base
+        g.fillStyle(0x8a122b).fillRect(29 - legShift, 52, 6, 6); // Knee Rune
+        g.fillStyle(0xff2b46).fillRect(30 - legShift, 53, 4, 4);
+
+        // Right Leg
+        g.fillStyle(0x130b1a).fillRect(46 + legShift, 46, 11, 24);
+        g.fillStyle(0x2f1c3d).fillRect(54 + legShift, 46, 4, 24); // Metallic Highlight
+        g.fillStyle(0x3b244d).fillRect(45 + legShift, 65, 13, 6); // Boot Base
+        g.fillStyle(0x8a122b).fillRect(49 + legShift, 52, 6, 6); // Knee Rune
+        g.fillStyle(0xff2b46).fillRect(50 + legShift, 53, 4, 4);
+
+        // 5. V-Shaped Torso Armor & Glowing Crimson Core
+        g.fillStyle(0x1a0f26).fillTriangle(24, 26, 60, 26, 42, 50); // Torso Base
+        g.fillStyle(0x2d1a40).fillTriangle(26, 27, 58, 27, 42, 48); // Armor Plate
+        g.fillStyle(0x0e0714).fillRect(32, 30, 20, 16); // Inner Core Frame
+
+        // Glowing Core Crystal
+        g.fillStyle(0x610c22).fillCircle(42, 38, 8);
+        g.fillStyle(0xc41438).fillCircle(42, 38, 6);
+        g.fillStyle(0xff3352).fillCircle(42, 38, 4);
+        g.fillStyle(0xffc2cc).fillCircle(42, 37, 1.5);
+
+        // 6. Layered Spiked Pauldrons (Shoulders)
+        // Left Shoulder
+        g.fillStyle(0x341d47).fillTriangle(14, 30, 28, 20, 28, 42);
+        g.fillStyle(0x563175).fillTriangle(16, 30, 27, 22, 27, 40);
+        g.fillStyle(0x87122a).fillTriangle(10, 30, 17, 26, 17, 34);
+        g.fillStyle(0xff2a48).fillCircle(12, 30, 2);
+
+        // Right Shoulder
+        g.fillStyle(0x341d47).fillTriangle(70, 30, 56, 20, 56, 42);
+        g.fillStyle(0x563175).fillTriangle(68, 30, 57, 22, 57, 40);
+        g.fillStyle(0x87122a).fillTriangle(74, 30, 67, 26, 67, 34);
+        g.fillStyle(0xff2a48).fillCircle(72, 30, 2);
+
+        // 7. Refined Jagged Demon Greatsword with Fiery Energy Core
+        const bladeX = 59 + dirX * 5;
+        const bladeY = 14 + dirY * 4;
+
+        // Sword Guard & Pommel
+        g.fillStyle(0x11091a).fillRect(bladeX - 7, bladeY + 36, 18, 5);
+        g.fillStyle(0x8a122a).fillCircle(bladeX + 2, bladeY + 38, 3.5);
+        g.fillStyle(0xff2a48).fillCircle(bladeX + 2, bladeY + 38, 1.5);
+
+        // Jagged Blade (Tapered Shape)
+        g.fillStyle(0x130b1a).fillTriangle(bladeX - 4, bladeY + 36, bladeX + 8, bladeY + 36, bladeX + 2, bladeY - 8);
+        g.fillStyle(0x2c1a3d).fillTriangle(bladeX - 2, bladeY + 34, bladeX + 6, bladeY + 34, bladeX + 2, bladeY - 6);
+
+        // Glowing Crimson Energy Channel & Core Spike
+        g.fillStyle(0x8a122b).fillRect(bladeX, bladeY, 4, 32);
+        g.fillStyle(0xff2647).fillRect(bladeX + 1, bladeY + 2, 2, 28);
+        g.fillStyle(0xffe6eb).fillRect(bladeX + 1, bladeY + 6, 2, 14);
+
+        // 8. Evil Menacing Demon Helmet, Slanted Vicious Eyes & Graceful Curved Horns
+        const headX = 28 + dirX * 3;
+        const headY = 8 + dirY * 3;
+
+        // Helmet Base
+        g.fillStyle(0x11091a).fillRect(headX, headY, 28, 20);
+        g.fillStyle(0x2f1c3d).fillRect(headX + 2, headY - 1, 24, 5);
+
+        // Sweeping Curved Horns (Archdemon Horn Silhouette)
+        const hornOffX = dirX * 3;
+        const hornOffY = dirY * 3;
+
+        // Left Horn
+        g.fillStyle(0x11091a).fillTriangle(headX - 4 + hornOffX, headY + 12 + hornOffY, headX + 4 + hornOffX, headY + 4 + hornOffY, headX - 12 + hornOffX, headY - 10 + hornOffY);
+        g.fillStyle(0x6e1228).fillTriangle(headX - 3 + hornOffX, headY + 10 + hornOffY, headX + 3 + hornOffX, headY + 4 + hornOffY, headX - 11 + hornOffX, headY - 8 + hornOffY);
+        g.fillStyle(0xff2b46).fillTriangle(headX - 6 + hornOffX, headY - 2 + hornOffY, headX - 2 + hornOffX, headY + 3 + hornOffY, headX - 11 + hornOffX, headY - 8 + hornOffY);
+
+        // Right Horn
+        g.fillStyle(0x11091a).fillTriangle(headX + 32 + hornOffX, headY + 12 + hornOffY, headX + 24 + hornOffX, headY + 4 + hornOffY, headX + 40 + hornOffX, headY - 10 + hornOffY);
+        g.fillStyle(0x6e1228).fillTriangle(headX + 31 + hornOffX, headY + 10 + hornOffY, headX + 25 + hornOffX, headY + 4 + hornOffY, headX + 39 + hornOffX, headY - 8 + hornOffY);
+        g.fillStyle(0xff2b46).fillTriangle(headX + 34 + hornOffX, headY - 2 + hornOffY, headX + 30 + hornOffX, headY + 3 + hornOffY, headX + 39 + hornOffX, headY - 8 + hornOffY);
+
+        // Vicious Angry Eyes (Slanted Evil Brow) facing direction
+        if (angle !== 270) {
+          const eyeOffX = dirX * 4;
+          const eyeOffY = dirY * 3;
+
+          // Dark Eye Sockets
+          g.fillStyle(0x0a0003).fillRect(headX + 3 + eyeOffX, headY + 7 + eyeOffY, 9, 6).fillRect(headX + 16 + eyeOffX, headY + 7 + eyeOffY, 9, 6);
+
+          // Slanted Angry Brow (Overhanging dark brow shadow for evil expression)
+          g.fillStyle(0x11091a)
+            .fillTriangle(headX + 3 + eyeOffX, headY + 7 + eyeOffY, headX + 12 + eyeOffX, headY + 7 + eyeOffY, headX + 12 + eyeOffX, headY + 10 + eyeOffY)
+            .fillTriangle(headX + 25 + eyeOffX, headY + 7 + eyeOffY, headX + 16 + eyeOffX, headY + 7 + eyeOffY, headX + 16 + eyeOffX, headY + 10 + eyeOffY);
+
+          // Slanted Fierce Crimson Eyes (Sharp Angled Glow)
+          g.fillStyle(0xff0038)
+            .fillTriangle(headX + 4 + eyeOffX, headY + 11 + eyeOffY, headX + 11 + eyeOffX, headY + 8 + eyeOffY, headX + 11 + eyeOffX, headY + 12 + eyeOffY)
+            .fillTriangle(headX + 24 + eyeOffX, headY + 11 + eyeOffY, headX + 17 + eyeOffX, headY + 8 + eyeOffY, headX + 17 + eyeOffX, headY + 12 + eyeOffY);
+
+          // Bright Glowing Pupil Dots
+          g.fillStyle(0xffe600)
+            .fillRect(headX + 9 + eyeOffX, headY + 9 + eyeOffY, 2, 2)
+            .fillRect(headX + 17 + eyeOffX, headY + 9 + eyeOffY, 2, 2);
+
+          // Dark Evil Visor Grille / Chin Guard (No goofy white teeth!)
+          g.fillStyle(0x290a14).fillRect(headX + 7 + eyeOffX, headY + 14 + eyeOffY, 14, 4);
+          g.fillStyle(0x800c22).fillRect(headX + 9 + eyeOffX, headY + 15 + eyeOffY, 10, 2);
+        } else {
+          // Back of Head
+          g.fillStyle(0x1a0f26).fillRect(headX + 3, headY + 3, 22, 14);
         }
       },
     });
