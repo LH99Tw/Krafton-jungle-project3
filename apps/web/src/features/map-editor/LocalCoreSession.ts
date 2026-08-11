@@ -1,14 +1,18 @@
 import {
   GameCore,
+  MINIMAP_VISION_RADIUS,
+  boundarySegments,
   boundsOf,
   createExplorationMask,
   createCoreViewSnapshot,
   createMiniMapGrid,
+  createWallSpatialIndex,
   equipmentPower,
   rectToMiniMapSurface,
   revealAround,
   type CorePlayer,
   type CoreWorldDefinition,
+  type WallSpatialIndex,
 } from "@five-days/game-core";
 import { PROTOCOL_VERSION, type InputFrame, type WorldFrame } from "@five-days/protocol";
 import type {
@@ -35,6 +39,9 @@ export class LocalCoreSession {
   private serverTick = 0;
   private accumulatorMs = 0;
   private minimap: MiniMapSnapshot | null = null;
+  private minimapAccumulatorMs = 0;
+  private readonly lastRevealPositions = new Map<string, { x: number; y: number }>();
+  private minimapWallIndex: WallSpatialIndex | null = null;
 
   start(world: CoreWorldDefinition, localUserId: string): NetworkWorldSnapshot {
     this.stop();
@@ -54,6 +61,7 @@ export class LocalCoreSession {
     for (const player of players) this.core.addPlayer(player);
     for (const player of players) this.core.setReady(player.userId, true);
     this.minimap = createEditorMinimap(world);
+    this.minimapWallIndex = createWallSpatialIndex(this.minimap.geometry.wallSegments);
     return this.snapshot();
   }
 
@@ -65,6 +73,9 @@ export class LocalCoreSession {
     this.serverTick = 0;
     this.accumulatorMs = 0;
     this.minimap = null;
+    this.minimapAccumulatorMs = 0;
+    this.lastRevealPositions.clear();
+    this.minimapWallIndex = null;
   }
 
   tick(deltaMs: number, input: LocalCoreInput): { snapshot: NetworkWorldSnapshot; frame: WorldFrame; inputFrame: InputFrame } {
@@ -90,7 +101,11 @@ export class LocalCoreSession {
       this.serverTick += 1;
       steps += 1;
     }
-    this.revealPartyExploration();
+    this.minimapAccumulatorMs += Math.min(100, Math.max(0, deltaMs));
+    if (this.minimapAccumulatorMs >= 100) {
+      this.minimapAccumulatorMs %= 100;
+      this.revealPartyExploration();
+    }
     return { snapshot: this.snapshot(), frame: this.worldFrame(inputFrame.seq), inputFrame };
   }
 
@@ -242,12 +257,16 @@ export class LocalCoreSession {
 
   private revealPartyExploration(): void {
     if (!this.minimap) return;
-    const before = this.minimap.explorationMask.reduce((sum, value) => sum + Number(value !== 0), 0);
+    const wallIndex = this.minimapWallIndex ?? createWallSpatialIndex(this.minimap.geometry.wallSegments);
+    let changed = false;
     for (const player of this.requireCore().players.values()) {
-      if (player.alive) revealAround(this.minimap.geometry, this.minimap.explorationMask, player.x, player.y);
+      if (!player.alive) continue;
+      const previous = this.lastRevealPositions.get(player.userId);
+      if (previous && Math.hypot(player.x - previous.x, player.y - previous.y) < 4) continue;
+      this.lastRevealPositions.set(player.userId, { x: player.x, y: player.y });
+      if (revealAround(this.minimap.geometry, this.minimap.explorationMask, player.x, player.y, MINIMAP_VISION_RADIUS, wallIndex).length > 0) changed = true;
     }
-    const after = this.minimap.explorationMask.reduce((sum, value) => sum + Number(value !== 0), 0);
-    if (after > before) this.minimap.revision += 1;
+    if (changed) this.minimap.revision += 1;
   }
 
   private requireCore(): GameCore {
@@ -283,12 +302,15 @@ function playerSnapshot(core: GameCore, player: CorePlayer, isLocal: boolean): P
 function createEditorMinimap(world: CoreWorldDefinition): MiniMapSnapshot {
   const bounds = boundsOf(world.walkable);
   const grid = createMiniMapGrid(bounds);
+  const wallSegments = boundarySegments(world.walkable);
   const geometry = {
     mapRevision: `${world.id}:v1`,
     areaId: "editor",
     bounds,
     ...grid,
     surfaces: world.walkable.map((rect, index) => rectToMiniMapSurface(rect, `editor:surface:${index}`)),
+    wallSegments,
+    visionRadius: MINIMAP_VISION_RADIUS,
     markers: world.rooms.flatMap((room) => {
       const kind: "gate" | "boss" | "waypoint" | null = room.kind === "gate"
         ? "gate"

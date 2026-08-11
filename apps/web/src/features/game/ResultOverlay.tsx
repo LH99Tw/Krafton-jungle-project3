@@ -12,10 +12,12 @@ export function ResultOverlay({
   result,
   heroClass,
   onLobby,
+  returnLabel = "게임 로비로 나가기",
 }: {
   result: GameResult | null;
   heroClass: HeroClassId;
   onLobby: () => void;
+  returnLabel?: string;
 }) {
   if (!result) return null;
   const victory = result.state === "victory";
@@ -39,7 +41,7 @@ export function ResultOverlay({
           <div><dt>시설 기여</dt><dd>{result.stats.structuresBuilt}</dd></div>
         </dl>
         <div className="result-actions">
-          <button type="button" className="primary-action" onClick={onLobby}>같은 파티 방으로 복귀</button>
+          <button type="button" className="primary-action" onClick={onLobby}>{returnLabel}</button>
         </div>
       </section>
     </div>

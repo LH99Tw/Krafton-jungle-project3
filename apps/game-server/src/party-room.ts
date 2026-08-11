@@ -2,7 +2,7 @@ import { Client, matchMaker, Room, ServerError, type AuthContext } from "@colyse
 import { StateView } from "@colyseus/schema";
 import { type GameTicketClaims } from "@five-days/auth";
 import { createMatch, finalizeMatch } from "@five-days/db/repositories";
-import { BOSS_ROOM_ID, GameCore, createCoreViewSnapshot, type CoreRoomId } from "@five-days/game-core";
+import { BOSS_ROOM_ID, GameCore, OFFICIAL_WORLD, createCoreViewSnapshot, type CoreRoomId } from "@five-days/game-core";
 import {
   PARTY_ROOM,
   PROTOCOL_VERSION,
@@ -194,6 +194,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       difficulty: options.difficulty,
       seed: crypto.randomUUID(),
       minimumPlayers: options.partyMode === "solo" ? 1 : 3,
+      world: OFFICIAL_WORLD,
     });
     this.exploration = new PartyExploration(this.core);
     this.state.seed = this.core.options.seed;
@@ -307,14 +308,16 @@ export class PartyRoom extends Room<PartyRoomState> {
       this.syncState(true);
       return;
     }
-    this.core.setConnected(userId, false);
-    this.syncState();
     if (consented) {
       unregisterConnection("party", userId, client);
       this.clearClientTracking(client.sessionId);
       this.clearUserInput(userId);
+      if (!this.core.takeOverPlayerWithAi(userId)) this.core.setConnected(userId, false);
+      this.syncState(true);
       return;
     }
+    this.core.setConnected(userId, false);
+    this.syncState();
     try {
       const reconnected = await this.allowReconnection(client, 60);
       reconnected.userData = { userId };
@@ -335,7 +338,9 @@ export class PartyRoom extends Room<PartyRoomState> {
       this.sendFastLaneOffer(reconnected, userId);
     } catch {
       unregisterConnection("party", userId, client);
-      this.core.setConnected(userId, this.hasActiveClient(userId, client));
+      const active = this.hasActiveClient(userId, client);
+      if (active) this.core.setConnected(userId, true);
+      else if (!this.core.takeOverPlayerWithAi(userId)) this.core.setConnected(userId, false);
       this.clearClientTracking(client.sessionId);
     }
     this.syncState(true);
@@ -799,8 +804,10 @@ export class PartyRoom extends Room<PartyRoomState> {
   ): boolean {
     const viewerRoom = this.core.rooms.get(viewer.roomId as CoreRoomId);
     const candidateRoom = this.core.rooms.get(candidate.roomId as CoreRoomId);
-    if (!viewerRoom || !candidateRoom || viewerRoom.zone !== candidateRoom.zone) return false;
-    if (viewer.roomId === BOSS_ROOM_ID || candidate.roomId === BOSS_ROOM_ID) return viewer.roomId === candidate.roomId;
+    if (!viewerRoom || !candidateRoom) return false;
+    const authoredWorld = this.core.options?.world;
+    if (!authoredWorld && viewerRoom.zone !== candidateRoom.zone) return false;
+    if (!authoredWorld && (viewer.roomId === BOSS_ROOM_ID || candidate.roomId === BOSS_ROOM_ID)) return viewer.roomId === candidate.roomId;
     if (candidate.roomId === viewer.roomId) return true;
     const visited = new Set<string>([viewer.roomId]);
     let frontier = [viewer.roomId];

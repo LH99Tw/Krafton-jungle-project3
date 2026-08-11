@@ -199,7 +199,7 @@ export type NetworkWorldSnapshot = {
 };
 
 export type GameSnapshot = {
-  worldMode: "procedural" | "editor";
+  worldMode: "procedural" | "editor" | "official";
   running: boolean;
   phase: Phase;
   phaseLabel: string;

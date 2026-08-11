@@ -2,11 +2,13 @@ import * as Phaser from "phaser";
 import { PLAYER_VISION_RADIUS } from "@five-days/protocol";
 import {
   computeVisibilityRays,
+  createWallSpatialIndex,
   selectVisionRevealSources,
   visibilityPolygonFromRays,
   type VisionRevealSource,
   type VisibilityRay,
   type VisionWallSegment,
+  type WallSpatialIndex,
 } from "./vision";
 
 const PLAYER_SOURCE_ID = "player";
@@ -20,7 +22,6 @@ type FogLayer = {
   aperture: Phaser.GameObjects.Graphics;
   mask: Phaser.Display.Masks.GeometryMask;
   radiusScale: number;
-  phase: number;
 };
 
 /**
@@ -32,8 +33,10 @@ export class PlayerVisionFog {
   private readonly installedSources = new Map<string, VisionRevealSource>();
   private readonly rayCache = new Map<string, { x: number; y: number; radius: number; revision: string; rays: VisibilityRay[] }>();
   private wallSegments: readonly VisionWallSegment[] = [];
+  private wallIndex: WallSpatialIndex = createWallSpatialIndex([]);
   private wallRevision = "empty";
   private layers: FogLayer[] = [];
+  private lastDrawSignature = "";
 
   constructor(private readonly scene: Phaser.Scene) {
     this.createLayers();
@@ -56,14 +59,16 @@ export class PlayerVisionFog {
   setWorld(wallSegments: readonly VisionWallSegment[], revision: string): void {
     if (revision === this.wallRevision) return;
     this.wallSegments = wallSegments;
+    this.wallIndex = createWallSpatialIndex(wallSegments);
     this.wallRevision = revision;
     this.rayCache.clear();
+    this.lastDrawSignature = "";
   }
 
   update(
     playerX: number,
     playerY: number,
-    time: number,
+    _time: number,
   ): void {
     const sources = selectVisionRevealSources({
       id: PLAYER_SOURCE_ID,
@@ -72,13 +77,14 @@ export class PlayerVisionFog {
       radius: PLAYER_VISION_RADIUS,
     }, this.installedSources.values());
 
+    const signature = sources.map((source) => `${source.id}:${Math.round(source.x / 4)}:${Math.round(source.y / 4)}:${source.radius}`).join("|");
+    if (signature === this.lastDrawSignature) return;
+    this.lastDrawSignature = signature;
+
     for (const layer of this.layers) {
       layer.aperture.clear().fillStyle(0xffffff, 1);
-      for (let index = 0; index < sources.length; index += 1) {
-        const source = sources[index];
-        const drift = time * 0.00022 + layer.phase + index * 1.83;
-        const breathing = 1 + Math.sin(drift * 0.73) * 0.018;
-        const radius = source.radius * layer.radiusScale * breathing;
+      for (const source of sources) {
+        const radius = source.radius * layer.radiusScale;
         const cached = this.cachedRays(source);
         const points = visibilityPolygonFromRays(source, cached, radius);
         if (points.length >= 3) layer.aperture.fillPoints(points, true);
@@ -99,7 +105,7 @@ export class PlayerVisionFog {
   }
 
   private createLayers(): void {
-    const layerCount = 18;
+    const layerCount = 3;
     this.layers = Array.from({ length: layerCount }, (_, index) => {
       const progress = index / (layerCount - 1);
       // Keep the playable area clear, then stack the fog layers across a
@@ -110,7 +116,7 @@ export class PlayerVisionFog {
         progress,
       );
       const color = index % 3 === 0 ? 0x0a1712 : 0x030806;
-      const alpha = Phaser.Math.Linear(0.135, 0.075, progress);
+      const alpha = Phaser.Math.Linear(0.65, 0.45, progress);
       const overlay = this.scene.add.rectangle(
         0,
         0,
@@ -128,7 +134,6 @@ export class PlayerVisionFog {
         aperture,
         mask,
         radiusScale,
-        phase: index * 0.67,
       };
     });
   }
@@ -138,7 +143,7 @@ export class PlayerVisionFog {
     if (cached && cached.revision === this.wallRevision && cached.radius === source.radius && Math.hypot(source.x - cached.x, source.y - cached.y) < 4) {
       return cached.rays;
     }
-    const rays = computeVisibilityRays(source, source.radius * FOG_EDGE_OUTER_SCALE * 1.02, this.wallSegments);
+    const rays = computeVisibilityRays(source, source.radius * FOG_EDGE_OUTER_SCALE * 1.02, this.wallIndex);
     this.rayCache.set(source.id, { x: source.x, y: source.y, radius: source.radius, revision: this.wallRevision, rays });
     return rays;
   }

@@ -18,6 +18,15 @@ import {
 } from "@/src/game/domain/mapEditor";
 import { buildEditorGeometry, editorRoomPorts } from "@/src/game/domain/editorGeometry";
 import {
+  createStoredEditorMap,
+  deleteStoredEditorMap,
+  EDITOR_MAP_LIBRARY_STORAGE_KEY,
+  parseEditorMapLibrary,
+  upsertStoredEditorMap,
+  type StoredEditorMap,
+} from "@/src/game/domain/localMapLibrary";
+import { buildEditorCoreWorld } from "./editorCoreWorld";
+import {
   editorViewBox,
   fitEditorViewport,
   panEditorViewport,
@@ -47,21 +56,43 @@ type PortEdit = { connectionId: string; endpoint: "from" | "to" };
 type RoomDrag = { id: string; offsetX: number; offsetY: number };
 type CameraDrag = { pointerId: number; clientX: number; clientY: number };
 
-function loadInitialMap(): EditorMapDefinition {
-  if (typeof window === "undefined") return cloneEditorMap(DEFAULT_EDITOR_MAP);
+type InitialEditorState = {
+  map: EditorMapDefinition;
+  activeMapId: string;
+  savedMaps: StoredEditorMap[];
+};
+
+function loadInitialEditorState(): InitialEditorState {
+  const fallbackId = "local-map-default";
+  const fallbackMap = cloneEditorMap(DEFAULT_EDITOR_MAP);
+  if (typeof window === "undefined") {
+    return { map: fallbackMap, activeMapId: fallbackId, savedMaps: [createStoredEditorMap(fallbackId, fallbackMap, 0)] };
+  }
+  const library = parseEditorMapLibrary(window.localStorage.getItem(EDITOR_MAP_LIBRARY_STORAGE_KEY));
+  if (library) {
+    const active = library.maps.find((record) => record.id === library.activeMapId) ?? library.maps[0]!;
+    return { map: cloneEditorMap(active.map), activeMapId: active.id, savedMaps: library.maps };
+  }
   try {
     const stored = window.localStorage.getItem(EDITOR_MAP_STORAGE_KEY);
-    if (!stored) return cloneEditorMap(DEFAULT_EDITOR_MAP);
-    const parsed = JSON.parse(stored) as EditorMapDefinition;
-    if (parsed.version === 1 && Array.isArray(parsed.rooms) && Array.isArray(parsed.connections)) return parsed;
+    if (stored) {
+      const parsed = JSON.parse(stored) as EditorMapDefinition;
+      if (parsed.version === 1 && Array.isArray(parsed.rooms) && Array.isArray(parsed.connections)) {
+        const migrated = createStoredEditorMap(fallbackId, parsed);
+        return { map: cloneEditorMap(parsed), activeMapId: fallbackId, savedMaps: [migrated] };
+      }
+    }
   } catch {
     // Corrupt local drafts fall back to the bundled starter map.
   }
-  return cloneEditorMap(DEFAULT_EDITOR_MAP);
+  return { map: fallbackMap, activeMapId: fallbackId, savedMaps: [createStoredEditorMap(fallbackId, fallbackMap)] };
 }
 
 export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay: (map: EditorMapDefinition) => void }) {
-  const [map, setMap] = useState(loadInitialMap);
+  const [initialState] = useState(loadInitialEditorState);
+  const [map, setMap] = useState(initialState.map);
+  const [activeMapId, setActiveMapId] = useState(initialState.activeMapId);
+  const [savedMaps, setSavedMaps] = useState(initialState.savedMaps);
   const [tool, setTool] = useState<Tool>("select");
   const [placementType, setPlacementType] = useState<EditorRoomType>("empty");
   const [selectedId, setSelectedId] = useState<string>(() => map.rooms[0]?.id ?? "");
@@ -81,6 +112,10 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
   const spacePressedRef = useRef(false);
 
   const failures = useMemo(() => validateEditorMap(map), [map]);
+  const isDirty = useMemo(() => {
+    const saved = savedMaps.find((record) => record.id === activeMapId);
+    return !saved || JSON.stringify(saved.map) !== JSON.stringify(map);
+  }, [activeMapId, map, savedMaps]);
   const selected = map.rooms.find((room) => room.id === selectedId) ?? null;
   const selectedConnection = map.connections.find((connection) => connection.id === selectedConnectionId) ?? null;
   const geometry = useMemo(() => buildEditorGeometry(map, editorScale()), [map]);
@@ -102,8 +137,15 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
   const previewInvalid = Boolean(connectionStart && hoveredPort && connectionStart.roomId !== hoveredPort.roomId && !previewRoute);
 
   useEffect(() => {
-    window.localStorage.setItem(EDITOR_MAP_STORAGE_KEY, JSON.stringify(map));
-  }, [map]);
+    const timer = window.setTimeout(() => {
+      setSavedMaps((current) => {
+        const updated = upsertStoredEditorMap(current, activeMapId, map);
+        persistMapLibrary(updated, activeMapId, map);
+        return updated;
+      });
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [activeMapId, map]);
 
   useEffect(() => {
     const element = workspaceRef.current;
@@ -246,6 +288,99 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
     current.zoom * factor,
   ));
 
+  const exportOfficialMap = async () => {
+    const validationFailures = validateEditorMap(map);
+    if (validationFailures.length > 0) {
+      setRouteError(validationFailures.join(" "));
+      return;
+    }
+    const normalizedMap = cloneEditorMap(map);
+    const bytes = new TextEncoder().encode(JSON.stringify(normalizedMap));
+    const digest = await window.crypto.subtle.digest("SHA-256", bytes);
+    const mapRevision = [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+    const manifest = {
+      schemaVersion: 1 as const,
+      mapRevision,
+      map: normalizedMap,
+      world: { ...buildEditorCoreWorld(normalizedMap), id: "official-map" },
+    };
+    const blob = new Blob([`${JSON.stringify(manifest, null, 2)}\n`], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "official-map.json";
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const resetEditorSelection = (nextMap: EditorMapDefinition) => {
+    setSelectedId(nextMap.rooms[0]?.id ?? "");
+    setSelectedConnectionId(null);
+    setConnectionStart(null);
+    setHoveredPort(null);
+    setPortEdit(null);
+    setRouteError("");
+    setTool("select");
+    setViewport(focusStartViewport(nextMap));
+  };
+
+  const saveCurrentMap = () => {
+    const updated = upsertStoredEditorMap(savedMaps, activeMapId, map);
+    setSavedMaps(updated);
+    persistMapLibrary(updated, activeMapId, map);
+  };
+
+  const openSavedMap = (id: string) => {
+    if (id === activeMapId) return;
+    const withCurrentSaved = upsertStoredEditorMap(savedMaps, activeMapId, map);
+    const target = withCurrentSaved.find((record) => record.id === id);
+    if (!target) return;
+    const nextMap = cloneEditorMap(target.map);
+    setSavedMaps(withCurrentSaved);
+    setActiveMapId(id);
+    setMap(nextMap);
+    persistMapLibrary(withCurrentSaved, id, nextMap);
+    resetEditorSelection(nextMap);
+  };
+
+  const createNewMap = () => {
+    const withCurrentSaved = upsertStoredEditorMap(savedMaps, activeMapId, map);
+    const nextMap = cloneEditorMap(DEFAULT_EDITOR_MAP);
+    nextMap.title = nextUntitledMapName(withCurrentSaved);
+    const id = createLocalMapId();
+    const updated = [createStoredEditorMap(id, nextMap), ...withCurrentSaved];
+    setSavedMaps(updated);
+    setActiveMapId(id);
+    setMap(nextMap);
+    persistMapLibrary(updated, id, nextMap);
+    resetEditorSelection(nextMap);
+  };
+
+  const removeSavedMap = (id: string) => {
+    const target = savedMaps.find((record) => record.id === id);
+    if (!target || !window.confirm(`“${target.map.title}” 맵을 삭제할까요? 이 작업은 되돌릴 수 없습니다.`)) return;
+    const withCurrentSaved = upsertStoredEditorMap(savedMaps, activeMapId, map);
+    let updated = deleteStoredEditorMap(withCurrentSaved, id);
+    if (id !== activeMapId) {
+      setSavedMaps(updated);
+      persistMapLibrary(updated, activeMapId, map);
+      return;
+    }
+    if (updated.length === 0) {
+      const nextMap = cloneEditorMap(DEFAULT_EDITOR_MAP);
+      nextMap.title = "새 로컬 맵";
+      const nextId = createLocalMapId();
+      updated = [createStoredEditorMap(nextId, nextMap)];
+    }
+    const next = updated[0]!;
+    const nextMap = cloneEditorMap(next.map);
+    setSavedMaps(updated);
+    setActiveMapId(next.id);
+    setMap(nextMap);
+    persistMapLibrary(updated, next.id, nextMap);
+    resetEditorSelection(nextMap);
+  };
+
   return (
     <main className="map-editor-screen">
       <header className="map-editor-header">
@@ -254,9 +389,35 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
           <span>LOCAL WORLD FORGE</span>
           <input aria-label="맵 이름" value={map.title} maxLength={40} onChange={(event) => setMap({ ...map, title: event.target.value })} />
         </div>
-        <div className="editor-save-state"><i /> 브라우저에 자동 저장됨</div>
+        <div className={`editor-save-state ${isDirty ? "saving" : "saved"}`}><i /> {isDirty ? "변경사항 저장 중" : "브라우저에 저장됨"}</div>
+        <button type="button" className="editor-play editor-export" disabled={failures.length > 0} onClick={() => void exportOfficialMap()}>공식 맵 JSON 내보내기</button>
         <button type="button" className="editor-play" disabled={failures.length > 0} onClick={() => onPlay(cloneEditorMap(map))}>임시 적용 · 플레이 <b>▶</b></button>
       </header>
+
+      <section className="map-library-bar" aria-label="저장된 맵 관리">
+        <div className="map-library-heading">
+          <span>LOCAL ARCHIVE</span>
+          <strong>저장된 맵</strong>
+        </div>
+        <div className="map-library-actions">
+          <button type="button" onClick={createNewMap}>＋ 새 맵</button>
+          <button type="button" onClick={saveCurrentMap}>저장</button>
+        </div>
+        <div className="map-library-list" role="list" aria-label="저장된 로컬 맵">
+          {savedMaps.map((record) => {
+            const isActive = record.id === activeMapId;
+            const displayedMap = isActive ? map : record.map;
+            return <div key={record.id} className={isActive ? "active" : ""} role="listitem">
+              <button type="button" className="map-library-open" aria-current={isActive ? "page" : undefined} onClick={() => openSavedMap(record.id)}>
+                <strong>{displayedMap.title || "이름 없는 맵"}</strong>
+                <span>{displayedMap.rooms.length} ROOMS · {formatSavedTime(record.updatedAt)}</span>
+              </button>
+              <button type="button" className="map-library-delete" aria-label={`${displayedMap.title || "이름 없는 맵"} 삭제`} onClick={() => removeSavedMap(record.id)}>×</button>
+            </div>;
+          })}
+        </div>
+        <span className="map-library-count">{savedMaps.length.toString().padStart(2, "0")} MAPS</span>
+      </section>
 
       <div className="map-editor-layout">
         <aside className="editor-tools" aria-label="맵 제작 도구">
@@ -528,4 +689,41 @@ function nextAvailableId(prefix: string, ids: readonly string[]): string {
   let sequence = used.size + 1;
   while (used.has(`${prefix}-${sequence}`)) sequence += 1;
   return `${prefix}-${sequence}`;
+}
+
+function createLocalMapId(): string {
+  return typeof window !== "undefined" && typeof window.crypto?.randomUUID === "function"
+    ? `local-map-${window.crypto.randomUUID()}`
+    : `local-map-${Date.now().toString(36)}`;
+}
+
+function nextUntitledMapName(maps: readonly StoredEditorMap[]): string {
+  const titles = new Set(maps.map((record) => record.map.title));
+  let sequence = maps.length + 1;
+  while (titles.has(`새 로컬 맵 ${sequence}`)) sequence += 1;
+  return `새 로컬 맵 ${sequence}`;
+}
+
+function formatSavedTime(timestamp: number): string {
+  if (timestamp <= 0) return "LOCAL";
+  return new Intl.DateTimeFormat("ko-KR", {
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(timestamp);
+}
+
+function persistMapLibrary(
+  maps: readonly StoredEditorMap[],
+  activeMapId: string,
+  activeMap: EditorMapDefinition,
+): void {
+  window.localStorage.setItem(EDITOR_MAP_LIBRARY_STORAGE_KEY, JSON.stringify({
+    version: 1,
+    activeMapId,
+    maps,
+  }));
+  // Keep the previous single-draft key in sync for backwards compatibility.
+  window.localStorage.setItem(EDITOR_MAP_STORAGE_KEY, JSON.stringify(activeMap));
 }

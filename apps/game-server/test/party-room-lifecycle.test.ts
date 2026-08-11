@@ -121,6 +121,44 @@ test("a fresh active session wins a race against an older reserved reconnect", a
   assert.equal(syncCount, 2);
 });
 
+test("a consented departure hands the existing character to server AI", async () => {
+  const takeoverCalls: string[] = [];
+  const disconnectedStates: boolean[] = [];
+  let syncCount = 0;
+  const client = {
+    sessionId: "leaving-session",
+    userData: { userId: "user-1" },
+  } as unknown as Client;
+  const player = { userId: "user-1", inputX: 1, inputY: -1 };
+  const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
+  harness.clients = [];
+  harness.core = {
+    players: new Map([[player.userId, player]]),
+    takeOverPlayerWithAi: (userId: string) => {
+      takeoverCalls.push(userId);
+      return true;
+    },
+    setConnected: (_userId: string, connected: boolean) => disconnectedStates.push(connected),
+  };
+  harness.messageWindows = new Map();
+  harness.inputMessageWindows = new Map();
+  harness.reliableCommandSequences = new Map();
+  harness.visibleEnemies = new Map();
+  harness.visibleDrops = new Map();
+  harness.visiblePlayerTransforms = new Map();
+  harness.inputSequences = new Map([[player.userId, 4]]);
+  harness.lastInputAt = new Map([[player.userId, Date.now()]]);
+  harness.syncState = () => { syncCount += 1; };
+
+  await PartyRoom.prototype.onLeave.call(harness as unknown as PartyRoom, client, true);
+
+  assert.deepEqual(takeoverCalls, [player.userId]);
+  assert.deepEqual(disconnectedStates, []);
+  assert.equal(player.inputX, 0);
+  assert.equal(player.inputY, 0);
+  assert.equal(syncCount, 1);
+});
+
 test("ended-room shutdown disconnects even when result persistence fails", async (t) => {
   t.mock.method(console, "error", () => undefined);
   let disconnectCalls = 0;
@@ -202,7 +240,7 @@ test("unreliable input sequence does not reject a reliable command", () => {
   assert.equal(ready, true);
 });
 
-test("player AOI follows the shared vision radius across rooms in the same zone", () => {
+test("player AOI follows graph distance and crosses theme zones only in authored worlds", () => {
   const roomA = {
     id: "forest:0",
     zone: 1,
@@ -279,4 +317,12 @@ test("player AOI follows the shared vision radius across rooms in the same zone"
     x: 700,
     y: 360,
   }), false);
+
+  roomA.connections.push(roomC.id);
+  (harness.core as { options?: unknown }).options = { world: { id: "official-map" } };
+  assert.equal(isPlayerInAoi.call(harness as unknown as PartyRoom, viewer, {
+    roomId: roomC.id,
+    x: 700,
+    y: 360,
+  }), true);
 });

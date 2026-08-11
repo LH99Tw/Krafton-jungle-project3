@@ -325,8 +325,8 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     colyseusTransport.disconnect();
     lobbyTransport.returnFromGame();
     setNetworkStatus("disconnected"); setResult(null); setUpgradeChoices([]); snapshotRef.current = EMPTY_SNAPSHOT; setSnapshot(EMPTY_SNAPSHOT); setActiveOptions(null); setLaunching(false);
-    setScreen(wasEditorPlaytest ? "editor" : lobby ? "lobby" : "access");
-  }, [activeOptions?.editorMap, lobby]);
+    setScreen(wasEditorPlaytest ? "editor" : viewer && gameServerUrl ? "lobby" : "access");
+  }, [activeOptions?.editorMap, gameServerUrl, viewer]);
 
   const chooseUpgrade = useCallback((upgradeId: UpgradeChoice["id"]) => {
     gameBridge.command({ type: "choose-upgrade", upgradeId });
@@ -359,7 +359,12 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     <div className="network-status" role="status">{activeOptions.editorMap ? "로컬 맵 테스트" : `게임 서버 · ${networkStatus === "connected" ? "연결됨" : networkStatus}`}</div>
     <GameCanvas key={runKey} options={activeOptions} />
     <GameHud snapshot={snapshot} heroClass={activeOptions.heroClass} onExit={returnToLobby} upgradeChoices={upgradeChoices} onChoose={chooseUpgrade} />
-    <ResultOverlay result={result} heroClass={activeOptions.heroClass} onLobby={returnToLobby} />
+    <ResultOverlay
+      result={result}
+      heroClass={activeOptions.heroClass}
+      onLobby={returnToLobby}
+      returnLabel={activeOptions.editorMap ? "맵 에디터로 돌아가기" : "게임 로비로 나가기"}
+    />
   </main>;
 
   if (screen === "selecting" && lobby && viewer) return <CharacterSelectScreen snapshot={lobby} viewerId={viewer.userId} launching={launching} onSelect={(heroClass) => lobbyTransport.selectClass(heroClass)} />;

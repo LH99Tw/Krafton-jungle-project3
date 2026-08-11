@@ -276,6 +276,63 @@ test("defender AI does not block travel while follower AI travels with the playe
   assert.equal(defender.roomId, core.maps.zones[0].startRoomId);
 });
 
+test("a defeated player immediately respawns at the base with full health and no stale movement", () => {
+  const core = startedCore("player-respawn");
+  const player = core.players.get("p1")!;
+  core.movePlayerToRoom(player.userId, core.maps.zones[0].gateRoomId);
+  player.inputX = 1;
+  player.inputY = -1;
+  player.lastButtons = 7;
+
+  const damagePlayer = (core as unknown as {
+    damagePlayer(target: typeof player, damage: number): void;
+  }).damagePlayer.bind(core);
+  damagePlayer(player, player.maxHp * 10);
+
+  const baseRoom = core.rooms.get(core.maps.zones[0].startRoomId)!;
+  const baseCenter = roomWorldCenter({ x: baseRoom.gridX, y: baseRoom.gridY });
+  assert.equal(player.hp, player.maxHp);
+  assert.equal(player.alive, true);
+  assert.equal(player.roomId, baseRoom.id);
+  assert.deepEqual({ x: player.x, y: player.y }, baseCenter);
+  assert.equal(player.inputX, 0);
+  assert.equal(player.inputY, 0);
+  assert.equal(player.lastButtons, 0);
+  assert.equal(player.deaths, 1);
+  assert.notEqual(core.phase, "ended");
+});
+
+test("AI takeover preserves the departing character and reconnecting restores human control", () => {
+  const core = startedCore("player-ai-takeover");
+  const player = core.players.get("p1")!;
+  player.teamPower = 321;
+  player.damage = 456;
+  (player.upgrades as Record<string, number>)["swordsman-blade"] = 3;
+  const equipment = player.equipment;
+
+  assert.equal(core.takeOverPlayerWithAi(player.userId), true);
+  assert.equal(core.players.get(player.userId), player);
+  assert.equal(player.connected, true);
+  assert.ok(player.aiRole);
+  assert.equal(player.teamPower, 321);
+  assert.equal(player.damage, 456);
+  assert.equal(player.upgrades["swordsman-blade"], 3);
+  assert.equal(player.equipment, equipment);
+  const target = [...core.enemies.values()].find((candidate) => candidate.alive)!;
+  target.roomId = player.roomId;
+  target.x = player.x + 20;
+  target.y = player.y;
+  const targetHp = target.hp;
+  core.update(0.01);
+  assert.ok(target.hp < targetHp, "the takeover AI should immediately participate in combat");
+
+  const reclaimed = core.addPlayer({ userId: player.userId, displayName: player.displayName, heroClass: player.heroClass });
+  assert.equal(reclaimed, player);
+  assert.equal(reclaimed.aiRole, undefined);
+  assert.equal(reclaimed.connected, true);
+  assert.equal(reclaimed.teamPower, 321);
+});
+
 test("invaders physically traverse connected corridors and damage the base only after arrival", () => {
   const core = startedCore("invader-path");
   core.setConnected("p1", false);

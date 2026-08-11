@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  PLAYER_VISION_RADIUS,
   PROTOCOL_VERSION,
   clientCommandSchema,
   inputFrameSchema,
@@ -39,7 +40,7 @@ test("rejects out-of-range player input", () => {
   assert.equal(result.success, false);
 });
 
-test("resolves protocol v4 room party mode and rejects older versions", () => {
+test("resolves protocol v5 room party mode and rejects older versions", () => {
   const defaults = roomOptionsSchema.parse({
     heroClass: "swordsman",
     protocolVersion: PROTOCOL_VERSION,
@@ -59,7 +60,7 @@ test("resolves protocol v4 room party mode and rejects older versions", () => {
   assert.equal(roomOptionsSchema.safeParse({ ...solo, protocolVersion: 1 }).success, false);
 });
 
-test("accepts the v4 interaction, travel, recall, and equipment commands", () => {
+test("accepts the v5 interaction, travel, recall, and equipment commands", () => {
   const base = { v: PROTOCOL_VERSION, seq: 7, clientTime: 12.5 } as const;
   const commands = [
     { ...base, type: "player.interact", payload: { targetId: "gate-zone-1" } },
@@ -86,7 +87,7 @@ test("strictly validates every command envelope and payload", () => {
   assert.equal(clientCommandSchema.safeParse({ ...valid, payload: { ...valid.payload, unexpected: true } }).success, false);
 });
 
-test("exposes the v4 room state graph through Colyseus schema collections", () => {
+test("exposes the v5 room state graph through Colyseus schema collections", () => {
   const state = new PartyRoomState();
   state.seed = "seed-001";
   state.currentZone = 2;
@@ -137,7 +138,7 @@ test("exposes the v4 room state graph through Colyseus schema collections", () =
   assert.equal(state.drops.size, 1);
 });
 
-test("validates v4 input and AOI world frames", () => {
+test("validates v5 input and AOI world frames", () => {
   assert.equal(inputFrameSchema.safeParse({
     v: PROTOCOL_VERSION,
     seq: 4,
@@ -171,6 +172,13 @@ test("bounds minimap geometry, masks, and delta ranges", () => {
     mapRevision: "map-1", areaId: "zone-1", bounds: { x: 0, y: 0, width: 1280, height: 720 },
     cellSize: 64, columns: 20, rows: 12,
     surfaces: [{ id: "room", points: [{ x: 0, y: 0 }, { x: 1280, y: 0 }, { x: 1280, y: 720 }, { x: 0, y: 720 }] }],
+    wallSegments: [
+      { x1: 0, y1: 0, x2: 1280, y2: 0 },
+      { x1: 1280, y1: 0, x2: 1280, y2: 720 },
+      { x1: 1280, y1: 720, x2: 0, y2: 720 },
+      { x1: 0, y1: 720, x2: 0, y2: 0 },
+    ],
+    visionRadius: PLAYER_VISION_RADIUS,
     markers: [{ id: "gate", kind: "gate", label: "구역 게이트", x: 1100, y: 360, areaId: "zone-1" }],
   } as const;
   assert.equal(minimapInitSchema.safeParse({ v: PROTOCOL_VERSION, geometry, revision: 0, explorationMask: "AAAA" }).success, true);

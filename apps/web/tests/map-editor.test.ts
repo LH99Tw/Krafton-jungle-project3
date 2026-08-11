@@ -8,9 +8,34 @@ import { GameCore } from "@five-days/game-core";
 import { PROTOCOL_VERSION } from "@five-days/protocol";
 import { LocalCoreSession } from "../src/features/map-editor/LocalCoreSession";
 import { buildEditorCoreWorld } from "../src/features/map-editor/editorCoreWorld";
+import {
+  createStoredEditorMap,
+  deleteStoredEditorMap,
+  parseEditorMapLibrary,
+  upsertStoredEditorMap,
+} from "../src/game/domain/localMapLibrary";
 
 test("the bundled editor map is connected and playable", () => {
   assert.deepEqual(validateEditorMap(DEFAULT_EDITOR_MAP), []);
+});
+
+test("local map library creates, updates, lists, and deletes independent maps", () => {
+  const first = createStoredEditorMap("first", DEFAULT_EDITOR_MAP, 100);
+  const secondMap = cloneEditorMap(DEFAULT_EDITOR_MAP);
+  secondMap.title = "두 번째 맵";
+  let maps = upsertStoredEditorMap([first], "second", secondMap, 200);
+  assert.deepEqual(maps.map((record) => record.id), ["second", "first"]);
+
+  secondMap.title = "수정된 맵";
+  maps = upsertStoredEditorMap(maps, "second", secondMap, 300);
+  assert.equal(maps[0]?.map.title, "수정된 맵");
+  assert.equal(maps[0]?.createdAt, 200);
+  assert.equal(maps[0]?.updatedAt, 300);
+
+  const library = parseEditorMapLibrary(JSON.stringify({ version: 1, activeMapId: "second", maps }));
+  assert.equal(library?.activeMapId, "second");
+  assert.equal(library?.maps.length, 2);
+  assert.deepEqual(deleteStoredEditorMap(maps, "second").map((record) => record.id), ["first"]);
 });
 
 test("editor playtest starts the authoritative three-class party", () => {

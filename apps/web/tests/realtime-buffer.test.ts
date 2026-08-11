@@ -6,6 +6,7 @@ import {
   predictPlayerTransform,
   shouldRenderPartyMember,
 } from "../src/game/netcode/RealtimeBuffer";
+import { minimapAreaIdForRoom } from "../src/game/transport/ColyseusTransport";
 
 function sample(overrides: Partial<TransformSample> = {}): TransformSample {
   return {
@@ -99,4 +100,10 @@ test("remote party visibility is independent of fog radius and follows connectio
   assert.equal(shouldRenderPartyMember({ connected: true, x: 800, y: 0 }, viewer), true);
   assert.equal(shouldRenderPartyMember({ connected: false, x: 100, y: 0 }, viewer), false);
   assert.equal(shouldRenderPartyMember({ connected: true, x: 8_001, y: 0 }, viewer), true);
+});
+
+test("official authored rooms resolve the shared official minimap area", () => {
+  assert.equal(minimapAreaIdForRoom("editor:room-base"), "official-map");
+  assert.equal(minimapAreaIdForRoom("zone-2:1,1"), "zone-2");
+  assert.equal(minimapAreaIdForRoom("unknown"), null);
 });

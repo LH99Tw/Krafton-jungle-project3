@@ -1,9 +1,11 @@
-import type { MiniMapBounds, MiniMapGeometry, MiniMapSurface } from "@five-days/protocol";
+import { PLAYER_VISION_RADIUS, type MiniMapBounds, type MiniMapGeometry, type MiniMapSurface } from "@five-days/protocol";
 import type { WorldRect } from "./world";
+import { computeVisibilityPolygon, createWallSpatialIndex, pointInVisibilityPolygon, type WallSpatialIndex } from "./visibility";
 
-export const MINIMAP_DEFAULT_CELL_SIZE = 64;
+export const MINIMAP_DEFAULT_CELL_SIZE = 32;
 export const MINIMAP_MAX_AXIS_CELLS = 256;
-export const MINIMAP_VISION_RADIUS = 330;
+export const MINIMAP_VISION_RADIUS: typeof PLAYER_VISION_RADIUS = PLAYER_VISION_RADIUS;
+const walkableCellCache = new WeakMap<object, readonly number[]>();
 
 export function rectToMiniMapSurface(rect: WorldRect, id: string): MiniMapSurface {
   return { id, points: [
@@ -66,7 +68,24 @@ export function revealAround(
   mask: Uint8Array,
   x: number,
   y: number,
-  radius = MINIMAP_VISION_RADIUS,
+  radius: number = MINIMAP_VISION_RADIUS,
+  wallIndex?: WallSpatialIndex,
+): number[] {
+  const polygon = computeVisibilityPolygon(
+    { x, y },
+    radius,
+    wallIndex ?? createWallSpatialIndex(geometry.wallSegments),
+  );
+  return revealVisibilityPolygon(geometry, mask, polygon, x, y, radius);
+}
+
+export function revealVisibilityPolygon(
+  geometry: MiniMapGeometry,
+  mask: Uint8Array,
+  polygon: readonly Readonly<{ x: number; y: number }>[],
+  x: number,
+  y: number,
+  radius: number = geometry.visionRadius,
 ): number[] {
   const minColumn = Math.max(0, Math.floor((x - radius - geometry.bounds.x) / geometry.cellSize));
   const maxColumn = Math.min(geometry.columns - 1, Math.floor((x + radius - geometry.bounds.x) / geometry.cellSize));
@@ -77,8 +96,17 @@ export function revealAround(
     for (let column = minColumn; column <= maxColumn; column += 1) {
       const index = row * geometry.columns + column;
       const center = cellCenter(geometry, index);
-      if (Math.hypot(center.x - x, center.y - y) > radius + geometry.cellSize * 0.5) continue;
-      if (!pointInMiniMapSurfaces(geometry.surfaces, center.x, center.y)) continue;
+      if (Math.hypot(center.x - x, center.y - y) > radius) continue;
+      const half = geometry.cellSize * 0.48;
+      const samples = [
+        center,
+        { x: center.x - half, y: center.y - half },
+        { x: center.x + half, y: center.y - half },
+        { x: center.x + half, y: center.y + half },
+        { x: center.x - half, y: center.y + half },
+      ];
+      if (!samples.every((sample) => pointInVisibilityPolygon(polygon, sample.x, sample.y))) continue;
+      if (!samples.every((sample) => pointInMiniMapSurfaces(geometry.surfaces, sample.x, sample.y))) continue;
       if (revealCell(mask, index)) revealed.push(index);
     }
   }
@@ -120,15 +148,24 @@ export function applyCellRanges(mask: Uint8Array, ranges: readonly (readonly [nu
 }
 
 export function explorationPercent(geometry: MiniMapGeometry, mask: Uint8Array): number {
-  let walkable = 0;
   let explored = 0;
-  for (let index = 0; index < geometry.columns * geometry.rows; index += 1) {
-    const center = cellCenter(geometry, index);
-    if (!pointInMiniMapSurfaces(geometry.surfaces, center.x, center.y)) continue;
-    walkable += 1;
+  const walkable = walkableCellIndices(geometry);
+  for (const index of walkable) {
     if (isExplored(mask, index)) explored += 1;
   }
-  return walkable === 0 ? 0 : Math.min(100, explored / walkable * 100);
+  return walkable.length === 0 ? 0 : Math.min(100, explored / walkable.length * 100);
+}
+
+export function walkableCellIndices(geometry: MiniMapGeometry): readonly number[] {
+  const cached = walkableCellCache.get(geometry);
+  if (cached) return cached;
+  const result: number[] = [];
+  for (let index = 0; index < geometry.columns * geometry.rows; index += 1) {
+    const center = cellCenter(geometry, index);
+    if (pointInMiniMapSurfaces(geometry.surfaces, center.x, center.y)) result.push(index);
+  }
+  walkableCellCache.set(geometry, result);
+  return result;
 }
 
 function pointInPolygon(points: readonly { x: number; y: number }[], x: number, y: number): boolean {

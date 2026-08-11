@@ -703,8 +703,8 @@ export class ColyseusTransport {
   }
 
   private minimapForRoom(roomId: string): MiniMapSnapshot | null {
-    const match = /^zone-(\d+)/u.exec(roomId);
-    return match ? this.minimaps.get(`zone-${match[1]}`) ?? null : roomId === "boss:arena" ? this.minimaps.get("zone-3") ?? null : null;
+    const areaId = minimapAreaIdForRoom(roomId);
+    return areaId ? this.minimaps.get(areaId) ?? null : null;
   }
 
   private publishMinimap(): void {
@@ -719,6 +719,12 @@ export class ColyseusTransport {
   private emitEvent(event: { type: string; message?: string; code?: string; state?: string }): void {
     this.eventListeners.forEach((listener) => listener(event));
   }
+}
+
+export function minimapAreaIdForRoom(roomId: string): string | null {
+  if (roomId.startsWith("editor:")) return "official-map";
+  if (roomId === "boss:arena") return "zone-3";
+  return /^zone-(\d+)/u.exec(roomId)?.[0] ?? null;
 }
 
 function collectionValues<T>(collection: SchemaCollection<T> | T[] | undefined): T[] {

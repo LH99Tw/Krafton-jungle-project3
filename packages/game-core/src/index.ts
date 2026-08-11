@@ -55,6 +55,7 @@ import {
   bossWorldRect,
   buildWorldFromRooms,
   corridorRectBetween,
+  findWalkableDiscPath,
   isWalkableLine,
   resolveWalkablePoint,
   roomContainingPoint,
@@ -171,6 +172,11 @@ const INVADER_SPAWN_SLOTS = 24;
 const INVADER_ATTACKERS_PER_PLAYER = 6;
 const INVADER_CORRIDOR_LANE_OFFSET = 20;
 const AI_FOLLOWER_GAP = 180;
+const AI_PATHFIND_DISTANCE = 560;
+const AI_PATH_REPLAN_SECONDS = 0.75;
+const AI_PATH_TARGET_DRIFT = 96;
+const AI_PATH_WAYPOINT_RADIUS = 32;
+const authoredWalkableWithoutBossCache = new WeakMap<CoreWorldDefinition, readonly WorldRect[]>();
 
 type InvaderNavigation = {
   replanSequence: number;
@@ -183,6 +189,14 @@ type InvaderNavigation = {
   stallY: number;
   blockedEdge: string | null;
   blockedUntil: number;
+};
+
+type AiFollowNavigation = {
+  targetX: number;
+  targetY: number;
+  path: readonly Readonly<{ x: number; y: number }>[];
+  waypointIndex: number;
+  replanAt: number;
 };
 
 export class GameCore {
@@ -220,7 +234,9 @@ export class GameCore {
   private readonly markedEnemies = new Map<string, { playerId: string; expiresAt: number }>();
   private readonly invaderNavigation = new Map<string, InvaderNavigation>();
   private readonly partyNavigation = new Map<string, { from: CoreRoomId; to: CoreRoomId; waypointIndex: number }>();
+  private readonly aiFollowNavigation = new Map<string, AiFollowNavigation>();
   private readonly zoneWorlds = new Map<ZoneId, ReturnType<typeof buildWorldFromRooms>>();
+  private authoredWalkableCache: { bossAccessible: boolean; rects: readonly WorldRect[] } | null = null;
 
   constructor(readonly options: GameCoreOptions) {
     this.minimumPlayers = options.minimumPlayers ?? 3;
@@ -260,6 +276,7 @@ export class GameCore {
     const existing = this.players.get(input.userId);
     if (existing) {
       existing.connected = true;
+      if (!input.userId.startsWith("ai:")) existing.aiRole = undefined;
       return existing;
     }
 
@@ -323,6 +340,21 @@ export class GameCore {
       player.inputX = 0;
       player.inputY = 0;
     }
+  }
+
+  takeOverPlayerWithAi(userId: string): boolean {
+    if (this.phase === "lobby" || this.phase === "ended") return false;
+    const player = this.players.get(userId);
+    if (!player) return false;
+    const hasDefender = [...this.players.values()].some((candidate) => (
+      candidate.userId !== userId && candidate.aiRole === "defender"
+    ));
+    player.connected = true;
+    player.aiRole = hasDefender ? "follower" : "defender";
+    player.inputX = 0;
+    player.inputY = 0;
+    player.lastButtons = 0;
+    return true;
   }
 
   setReady(userId: string, ready: boolean): boolean {
@@ -1074,13 +1106,21 @@ export class GameCore {
     const defense = equipmentBonuses(player.equipment).defenseBonus;
     player.hp = Math.max(0, player.hp - Math.max(1, Math.round(rawDamage - defense)));
     if (player.hp > 0) return;
-    player.alive = false;
+    const startRoomId = this.startRoomId();
+    const startCenter = this.roomWorldCenterOf(startRoomId);
+    player.hp = player.maxHp;
+    player.alive = true;
+    player.roomId = startRoomId;
+    player.x = startCenter.x;
+    player.y = startCenter.y;
+    player.aim = 0;
     player.inputX = 0;
     player.inputY = 0;
+    player.lastButtons = 0;
+    player.lastAttackTargetId = null;
+    player.consecutiveHits = 0;
     player.deaths += 1;
-    if (![...this.players.values()].some((candidate) => candidate.alive)) {
-      this.finish("defeat", "용사 파티가 전멸했습니다.");
-    }
+    this.discoverRoom(startRoomId);
   }
 
   private updateInvaders(delta: number): void {
@@ -1554,12 +1594,23 @@ export class GameCore {
 
   private authoredWalkable(): readonly WorldRect[] {
     if (!this.authoredWorld) return [];
-    if (this.day >= 3 && !this.hasLivingAuthoredGate()) return this.authoredWorld.walkable;
+    const bossAccessible = this.day >= 3 && !this.hasLivingAuthoredGate();
+    if (this.authoredWalkableCache?.bossAccessible === bossAccessible) return this.authoredWalkableCache.rects;
+    if (bossAccessible) {
+      this.authoredWalkableCache = { bossAccessible, rects: this.authoredWorld.walkable };
+      return this.authoredWorld.walkable;
+    }
     const bossId = this.authoredWorld.bossRoomId;
-    return [
-      ...this.authoredWorld.rooms.filter((room) => room.id !== bossId).map((room) => room.rect),
-      ...this.authoredWorld.connections.filter((connection) => connection.from !== bossId && connection.to !== bossId).flatMap((connection) => connection.floorRects),
-    ];
+    let rects = authoredWalkableWithoutBossCache.get(this.authoredWorld);
+    if (!rects) {
+      rects = [
+        ...this.authoredWorld.rooms.filter((room) => room.id !== bossId).map((room) => room.rect),
+        ...this.authoredWorld.connections.filter((connection) => connection.from !== bossId && connection.to !== bossId).flatMap((connection) => connection.floorRects),
+      ];
+      authoredWalkableWithoutBossCache.set(this.authoredWorld, rects);
+    }
+    this.authoredWalkableCache = { bossAccessible, rects };
+    return rects;
   }
 
   private movePlayer(player: CorePlayer, deltaX: number, deltaY: number): boolean {
@@ -1632,7 +1683,7 @@ export class GameCore {
   private updateAiPlayers(): void {
     for (const player of this.players.values()) {
       if (!player.aiRole || !player.alive) {
-        if (player.aiRole) { player.inputX = 0; player.inputY = 0; }
+        if (player.aiRole) { player.inputX = 0; player.inputY = 0; this.aiFollowNavigation.delete(player.userId); }
         continue;
       }
       if (this.phase === "lobby" || this.phase === "ended") { player.inputX = 0; player.inputY = 0; continue; }
@@ -1641,7 +1692,12 @@ export class GameCore {
         ? this.rooms.get(this.startRoomId())
         : leader ? this.rooms.get(leader.roomId) : null;
       if (!targetRoom) { player.inputX = 0; player.inputY = 0; continue; }
-      if (player.roomId === targetRoom.id) {
+      const recoveryAnchor = player.aiRole === "follower" && leader
+        ? this.distantAiFollowAnchor(player, leader)
+        : null;
+      if (recoveryAnchor) {
+        this.aiApproach(player, recoveryAnchor.x, recoveryAnchor.y, 12);
+      } else if (player.roomId === targetRoom.id) {
         const anchor = player.aiRole === "follower" && leader
           ? { x: leader.x, y: leader.y }
           : this.roomWorldCenterOf(targetRoom.id);
@@ -1729,6 +1785,53 @@ export class GameCore {
       if (distance < bestDistance) { best = candidate; bestDistance = distance; }
     }
     return best ?? [...this.players.values()].find((candidate) => candidate.userId !== ai.userId && candidate.alive) ?? null;
+  }
+
+  private distantAiFollowAnchor(player: CorePlayer, leader: CorePlayer): Readonly<{ x: number; y: number }> | null {
+    const distance = Math.hypot(leader.x - player.x, leader.y - player.y);
+    if (distance < AI_PATHFIND_DISTANCE) {
+      this.aiFollowNavigation.delete(player.userId);
+      return null;
+    }
+    const playerRoom = this.rooms.get(player.roomId);
+    const leaderRoom = this.rooms.get(leader.roomId);
+    const rects = this.authoredWorld
+      ? this.authoredWalkable()
+      : playerRoom?.zone === leaderRoom?.zone ? this.zoneWorlds.get(playerRoom?.zone ?? 1)?.rects : null;
+    if (!rects) return null;
+
+    let navigation = this.aiFollowNavigation.get(player.userId);
+    const targetDrift = navigation
+      ? Math.hypot(leader.x - navigation.targetX, leader.y - navigation.targetY)
+      : Number.POSITIVE_INFINITY;
+    if (!navigation || this.elapsed >= navigation.replanAt || targetDrift >= AI_PATH_TARGET_DRIFT) {
+      const path = findWalkableDiscPath(
+        rects,
+        { x: player.x, y: player.y },
+        { x: leader.x, y: leader.y },
+        ACTOR_COLLISION_RADIUS,
+      );
+      if (!path || path.length === 0) {
+        this.aiFollowNavigation.delete(player.userId);
+        return null;
+      }
+      navigation = {
+        targetX: leader.x,
+        targetY: leader.y,
+        path,
+        waypointIndex: 0,
+        replanAt: this.elapsed + AI_PATH_REPLAN_SECONDS,
+      };
+      this.aiFollowNavigation.set(player.userId, navigation);
+    }
+
+    while (navigation.waypointIndex < navigation.path.length) {
+      const waypoint = navigation.path[navigation.waypointIndex]!;
+      if (Math.hypot(waypoint.x - player.x, waypoint.y - player.y) > AI_PATH_WAYPOINT_RADIUS) return waypoint;
+      navigation.waypointIndex += 1;
+    }
+    this.aiFollowNavigation.delete(player.userId);
+    return null;
   }
 
   private aiApproach(player: CorePlayer, x: number, y: number, desiredGap: number): void {

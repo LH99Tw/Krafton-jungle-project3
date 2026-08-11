@@ -32,7 +32,7 @@ pnpm build
 - 비운영 환경 또는 production 환경 flag로 여는 공개 guest session
 - PostgreSQL 기반 사용자·세션·방명록·매치 저장소
 - 90초 RS256 game-ticket과 Colyseus `party_room` 접속
-- protocol v4 60Hz 입력, WebTransport 우선/WSS 폴백, 30Hz 좌표 보간, 파티 공유 탐색 마스크, 채널별 seq와 재접속
+- protocol v5 60Hz 입력, WebTransport 우선/WSS 폴백, 30Hz 좌표 보간, 벽 차폐형 파티 공유 탐색 마스크, 채널별 seq와 재접속
 - 실행 scene인 `RoomGameScene`의 network/local mode 분리
 - network mode에서 로컬 session·이동·전투·AI·경제 tick을 실행하지 않는 snapshot-only 갱신
 - server room/door, 같은 방 player/enemy, phase·base·gold·팀 성장·teamPower·실시간 통계의 장면·HUD 반영

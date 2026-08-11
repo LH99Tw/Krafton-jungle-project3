@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 export const PLAYER_VISION_RADIUS = 800;
 export const PARTY_ROOM = "party_room";
 export const LOBBY_ROOM = "lobby_room";
@@ -111,6 +111,12 @@ export const transportModeSchema = z.enum(["webtransport", "websocket-fallback"]
 
 const minimapCoordinate = z.number().finite().min(-1_000_000).max(1_000_000);
 export const minimapPointSchema = z.object({ x: minimapCoordinate, y: minimapCoordinate }).strict();
+export const minimapWallSegmentSchema = z.object({
+  x1: minimapCoordinate,
+  y1: minimapCoordinate,
+  x2: minimapCoordinate,
+  y2: minimapCoordinate,
+}).strict().refine((value) => value.x1 !== value.x2 || value.y1 !== value.y2, "minimap wall segment must have length");
 export const minimapBoundsSchema = z.object({
   x: minimapCoordinate,
   y: minimapCoordinate,
@@ -137,6 +143,8 @@ export const minimapGeometrySchema = z.object({
   columns: z.number().int().min(1).max(256),
   rows: z.number().int().min(1).max(256),
   surfaces: z.array(minimapSurfaceSchema).min(1).max(512),
+  wallSegments: z.array(minimapWallSegmentSchema).max(4_096),
+  visionRadius: z.literal(PLAYER_VISION_RADIUS),
   markers: z.array(minimapMarkerSchema).max(128),
 }).strict().refine((value) => value.columns * value.rows <= 65_536, "minimap grid is too large");
 export const minimapInitSchema = z.object({
@@ -252,6 +260,7 @@ export type WorldFrame = z.infer<typeof worldFrameSchema>;
 export type FastLaneOffer = z.infer<typeof fastLaneOfferSchema>;
 export type TransportMode = z.infer<typeof transportModeSchema>;
 export type MiniMapPoint = z.infer<typeof minimapPointSchema>;
+export type MiniMapWallSegment = z.infer<typeof minimapWallSegmentSchema>;
 export type MiniMapBounds = z.infer<typeof minimapBoundsSchema>;
 export type MiniMapSurface = z.infer<typeof minimapSurfaceSchema>;
 export type MiniMapMarker = z.infer<typeof minimapMarkerSchema>;

@@ -18,6 +18,52 @@ const WORLD_ROOM_GAP = 240;
 const WORLD_CORRIDOR_WIDTH = 160;
 
 export type WorldRect = Readonly<{ x: number; y: number; width: number; height: number }>;
+export type WorldWallSegment = Readonly<{ x1: number; y1: number; x2: number; y2: number }>;
+
+type NavigationNode = Readonly<{ x: number; y: number; column: number; row: number }>;
+const discNavigationGridCache = new WeakMap<readonly WorldRect[], Map<string, ReadonlyMap<string, NavigationNode>>>();
+
+/** Returns the outside boundary of the union of axis-aligned walkable rectangles. */
+export function boundarySegments(rects: readonly WorldRect[]): WorldWallSegment[] {
+  const segments: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+  for (const rect of rects) {
+    const candidates = [
+      { axis: "h", fixed: rect.y, start: rect.x, end: rect.x + rect.width, outsideX: 0, outsideY: -0.1 },
+      { axis: "h", fixed: rect.y + rect.height, start: rect.x, end: rect.x + rect.width, outsideX: 0, outsideY: 0.1 },
+      { axis: "v", fixed: rect.x, start: rect.y, end: rect.y + rect.height, outsideX: -0.1, outsideY: 0 },
+      { axis: "v", fixed: rect.x + rect.width, start: rect.y, end: rect.y + rect.height, outsideX: 0.1, outsideY: 0 },
+    ] as const;
+    for (const edge of candidates) {
+      const cuts = new Set([edge.start, edge.end]);
+      for (const other of rects) {
+        cuts.add(edge.axis === "h" ? other.x : other.y);
+        cuts.add(edge.axis === "h" ? other.x + other.width : other.y + other.height);
+      }
+      const ordered = [...cuts].filter((value) => value >= edge.start && value <= edge.end).sort((a, b) => a - b);
+      for (let index = 1; index < ordered.length; index += 1) {
+        const start = ordered[index - 1]!;
+        const end = ordered[index]!;
+        if (end - start < 0.01) continue;
+        const midpoint = (start + end) / 2;
+        const x = edge.axis === "h" ? midpoint + edge.outsideX : edge.fixed + edge.outsideX;
+        const y = edge.axis === "h" ? edge.fixed + edge.outsideY : midpoint + edge.outsideY;
+        if (rects.some((other) => pointInRect(x, y, other))) continue;
+        segments.push(edge.axis === "h"
+          ? { x1: start, y1: edge.fixed, x2: end, y2: edge.fixed }
+          : { x1: edge.fixed, y1: start, x2: edge.fixed, y2: end });
+      }
+    }
+  }
+  const sorted = segments.sort((left, right) => left.y1 - right.y1 || left.x1 - right.x1 || left.y2 - right.y2 || left.x2 - right.x2);
+  const merged: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
+  for (const segment of sorted) {
+    const previous = merged.at(-1);
+    if (previous && previous.y1 === previous.y2 && segment.y1 === segment.y2 && previous.y1 === segment.y1 && Math.abs(previous.x2 - segment.x1) < 0.01) previous.x2 = segment.x2;
+    else if (previous && previous.x1 === previous.x2 && segment.x1 === segment.x2 && previous.x1 === segment.x1 && Math.abs(previous.y2 - segment.y1) < 0.01) previous.y2 = segment.y2;
+    else merged.push({ ...segment });
+  }
+  return merged;
+}
 
 /** World rectangle occupied by the grid room at `position`. */
 export function roomWorldRect(position: GridPosition): WorldRect {
@@ -82,6 +128,186 @@ function pointInRect(x: number, y: number, rect: WorldRect): boolean {
 function isWalkablePoint(rects: readonly WorldRect[], x: number, y: number): boolean {
   for (const rect of rects) if (pointInRect(x, y, rect)) return true;
   return false;
+}
+
+/** True when a circular actor can stand at the world point without touching a wall. */
+export function isWalkableDiscPoint(
+  rects: readonly WorldRect[],
+  x: number,
+  y: number,
+  radius: number,
+): boolean {
+  if (!isWalkablePoint(rects, x, y)) return false;
+  const samples = Math.max(8, Math.ceil(radius * Math.PI / 6));
+  for (let index = 0; index < samples; index += 1) {
+    const angle = index * Math.PI * 2 / samples;
+    if (!isWalkablePoint(rects, x + Math.cos(angle) * radius, y + Math.sin(angle) * radius)) return false;
+  }
+  return true;
+}
+
+function isWalkableDiscLine(
+  rects: readonly WorldRect[],
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+  radius: number,
+): boolean {
+  const distance = Math.hypot(toX - fromX, toY - fromY);
+  const steps = Math.max(1, Math.ceil(distance / 8));
+  for (let step = 0; step <= steps; step += 1) {
+    const progress = step / steps;
+    if (!isWalkableDiscPoint(
+      rects,
+      fromX + (toX - fromX) * progress,
+      fromY + (toY - fromY) * progress,
+      radius,
+    )) return false;
+  }
+  return true;
+}
+
+/**
+ * Finds a collision-safe waypoint path across the union of walkable rectangles.
+ * A coarse A* grid keeps recovery planning cheap; line-of-sight smoothing keeps
+ * the resulting follower movement from looking grid-bound.
+ */
+export function findWalkableDiscPath(
+  rects: readonly WorldRect[],
+  from: Readonly<{ x: number; y: number }>,
+  to: Readonly<{ x: number; y: number }>,
+  radius: number,
+  cellSize = 48,
+  maxVisited = 6_000,
+): readonly Readonly<{ x: number; y: number }>[] | null {
+  if (rects.length === 0
+    || !isWalkableDiscPoint(rects, from.x, from.y, radius)
+    || !isWalkableDiscPoint(rects, to.x, to.y, radius)) return null;
+  if (isWalkableDiscLine(rects, from.x, from.y, to.x, to.y, radius)) return [{ ...to }];
+
+  const keyOf = (column: number, row: number) => `${column}:${row}`;
+  const variantKey = `${radius}:${cellSize}`;
+  let variants = discNavigationGridCache.get(rects);
+  let nodes = variants?.get(variantKey);
+  if (!nodes) {
+    const minX = Math.min(...rects.map((rect) => rect.x)) + radius + 1;
+    const minY = Math.min(...rects.map((rect) => rect.y)) + radius + 1;
+    const maxX = Math.max(...rects.map((rect) => rect.x + rect.width)) - radius - 1;
+    const maxY = Math.max(...rects.map((rect) => rect.y + rect.height)) - radius - 1;
+    const columns = Math.max(1, Math.floor((maxX - minX) / cellSize) + 1);
+    const rows = Math.max(1, Math.floor((maxY - minY) / cellSize) + 1);
+    const built = new Map<string, NavigationNode>();
+    for (let row = 0; row < rows; row += 1) {
+      for (let column = 0; column < columns; column += 1) {
+        const point = { x: minX + column * cellSize, y: minY + row * cellSize };
+        if (isWalkableDiscPoint(rects, point.x, point.y, radius)) {
+          built.set(keyOf(column, row), { ...point, column, row });
+        }
+      }
+    }
+    nodes = built;
+    variants ??= new Map();
+    variants.set(variantKey, nodes);
+    discNavigationGridCache.set(rects, variants);
+  }
+
+  const starts = [...nodes.entries()]
+    .map(([key, point]) => ({ key, point, distance: Math.hypot(point.x - from.x, point.y - from.y) }))
+    .sort((left, right) => left.distance - right.distance)
+    .slice(0, 24)
+    .filter(({ point }) => isWalkableDiscLine(rects, from.x, from.y, point.x, point.y, radius));
+  if (starts.length === 0) return null;
+
+  const queue: Array<{ key: string; score: number }> = [];
+  const enqueue = (entry: { key: string; score: number }) => {
+    queue.push(entry);
+    let index = queue.length - 1;
+    while (index > 0) {
+      const parent = Math.floor((index - 1) / 2);
+      if (queue[parent]!.score <= entry.score) break;
+      queue[index] = queue[parent]!;
+      index = parent;
+    }
+    queue[index] = entry;
+  };
+  const dequeue = (): { key: string; score: number } | undefined => {
+    const first = queue[0];
+    const tail = queue.pop();
+    if (!first || !tail || queue.length === 0) return first;
+    let index = 0;
+    while (true) {
+      const left = index * 2 + 1;
+      const right = left + 1;
+      if (left >= queue.length) break;
+      const child = right < queue.length && queue[right]!.score < queue[left]!.score ? right : left;
+      if (queue[child]!.score >= tail.score) break;
+      queue[index] = queue[child]!;
+      index = child;
+    }
+    queue[index] = tail;
+    return first;
+  };
+  const cameFrom = new Map<string, string>();
+  const costs = new Map<string, number>();
+  for (const start of starts) {
+    costs.set(start.key, start.distance);
+    enqueue({ key: start.key, score: start.distance + Math.hypot(to.x - start.point.x, to.y - start.point.y) });
+  }
+  const directions = [-1, 0, 1].flatMap((row) => [-1, 0, 1]
+    .filter((column) => column !== 0 || row !== 0)
+    .map((column) => ({ column, row })));
+  let goalKey: string | null = null;
+  let visited = 0;
+  const closed = new Set<string>();
+
+  while (queue.length > 0 && visited < maxVisited) {
+    const currentKey = dequeue()?.key;
+    if (!currentKey || closed.has(currentKey)) continue;
+    closed.add(currentKey);
+    visited += 1;
+    const current = nodes.get(currentKey)!;
+    if (isWalkableDiscLine(rects, current.x, current.y, to.x, to.y, radius)) {
+      goalKey = currentKey;
+      break;
+    }
+    for (const direction of directions) {
+      const nextKey = keyOf(current.column + direction.column, current.row + direction.row);
+      const next = nodes.get(nextKey);
+      if (!next || !isWalkableDiscLine(rects, current.x, current.y, next.x, next.y, radius)) continue;
+      const candidate = (costs.get(currentKey) ?? 0) + Math.hypot(next.x - current.x, next.y - current.y);
+      if (candidate >= (costs.get(nextKey) ?? Number.POSITIVE_INFINITY)) continue;
+      cameFrom.set(nextKey, currentKey);
+      costs.set(nextKey, candidate);
+      enqueue({ key: nextKey, score: candidate + Math.hypot(to.x - next.x, to.y - next.y) });
+    }
+  }
+  if (!goalKey) return null;
+
+  const gridPath: Readonly<{ x: number; y: number }>[] = [];
+  let cursor: string | undefined = goalKey;
+  while (cursor) {
+    const point = nodes.get(cursor)!;
+    gridPath.push({ x: point.x, y: point.y });
+    cursor = cameFrom.get(cursor);
+  }
+  gridPath.reverse();
+  const candidates = [...gridPath, { ...to }];
+  const smoothed: Readonly<{ x: number; y: number }>[] = [];
+  let anchor = from;
+  for (let index = 0; index < candidates.length;) {
+    let furthest = index;
+    for (let candidate = index; candidate < candidates.length; candidate += 1) {
+      const point = candidates[candidate]!;
+      if (isWalkableDiscLine(rects, anchor.x, anchor.y, point.x, point.y, radius)) furthest = candidate;
+      else break;
+    }
+    const waypoint = candidates[furthest]!;
+    smoothed.push(waypoint);
+    anchor = waypoint;
+    index = furthest + 1;
+  }
+  return smoothed;
 }
 
 /** True when the straight segment remains inside rooms or their corridors. */
@@ -157,15 +383,7 @@ export function resolveWalkableDiscPoint(
   previousY: number,
   radius: number,
 ): Readonly<{ x: number; y: number }> {
-  const walkable = (x: number, y: number): boolean => {
-    const samples = Math.max(8, Math.ceil(radius * Math.PI / 6));
-    if (!isWalkablePoint(rects, x, y)) return false;
-    for (let index = 0; index < samples; index += 1) {
-      const angle = index * Math.PI * 2 / samples;
-      if (!isWalkablePoint(rects, x + Math.cos(angle) * radius, y + Math.sin(angle) * radius)) return false;
-    }
-    return true;
-  };
+  const walkable = (x: number, y: number): boolean => isWalkableDiscPoint(rects, x, y, radius);
   const deltaX = desiredX - previousX;
   const deltaY = desiredY - previousY;
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(deltaX), Math.abs(deltaY)) / 8));

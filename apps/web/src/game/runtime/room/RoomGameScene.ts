@@ -8,6 +8,7 @@ import {
   enemyFloorPatternCircles,
   enemyPatternConfig,
   generateThreeZoneMap,
+  OFFICIAL_MAP_MANIFEST,
   createExplorationMask,
   createMiniMapGrid,
   explorationPercent as calculateExplorationPercent,
@@ -36,9 +37,9 @@ import type {
   TeamStats,
   UpgradeId,
 } from "../../domain/types";
-import type { InputFrame, WorldFrame } from "@five-days/protocol";
+import { PLAYER_VISION_RADIUS, type InputFrame, type WorldFrame } from "@five-days/protocol";
 import { resolveSharedPartyProgress } from "../../domain/sharedPartyProgress";
-import { editorThemeZone } from "../../domain/mapEditor";
+import { editorThemeZone, type EditorConnection } from "../../domain/mapEditor";
 import { buildEditorCoreWorld, editorCoreRoomId } from "@/src/features/map-editor/editorCoreWorld";
 import { localCoreSession } from "@/src/features/map-editor/LocalCoreSession";
 import { ProgressionModel } from "../../systems/ProgressionModel";
@@ -145,6 +146,7 @@ export class RoomGameScene extends Phaser.Scene {
   private readonly runSeed: string;
   private readonly worldMap: ThreeZoneMap;
   private readonly editorRooms: readonly LocalMapRoom[];
+  private readonly authoredConnections: readonly EditorConnection[];
   private readonly progression: ProgressionModel;
   private roomRenderer!: RoomRenderer;
   private player!: Phaser.Physics.Arcade.Sprite;
@@ -229,19 +231,26 @@ export class RoomGameScene extends Phaser.Scene {
     this.runSeed = `v02:${options.userId ?? "local"}:${options.heroClass}:${options.difficulty}`;
     this.worldMap = generateThreeZoneMap(this.runSeed);
     const editorCore = options.runtimeMode === "editor-core";
-    this.editorRooms = options.editorMap ? options.editorMap.rooms.map((room): LocalMapRoom => ({
-      id: editorCore ? editorCoreRoomId(room.id) : room.id,
+    const authoredMap = options.editorMap ?? (options.networked ? OFFICIAL_MAP_MANIFEST.map : null);
+    const prefixAuthoredIds = editorCore || Boolean(options.networked);
+    this.authoredConnections = authoredMap ? authoredMap.connections.map((connection) => ({
+      ...connection,
+      fromPort: connection.fromPort ? { ...connection.fromPort } : undefined,
+      toPort: connection.toPort ? { ...connection.toPort } : undefined,
+    })) : [];
+    this.editorRooms = authoredMap ? authoredMap.rooms.map((room): LocalMapRoom => ({
+      id: prefixAuthoredIds ? editorCoreRoomId(room.id) : room.id,
       zone: editorThemeZone(room.asset),
       x: room.x,
       y: room.y,
       width: room.width,
       height: room.height,
       type: room.type,
-      connections: options.editorMap!.connections
+      connections: authoredMap.connections
         .filter((connection) => connection.from === room.id || connection.to === room.id)
         .map((connection) => {
           const connectedId = connection.from === room.id ? connection.to : connection.from;
-          return editorCore ? editorCoreRoomId(connectedId) : connectedId;
+          return prefixAuthoredIds ? editorCoreRoomId(connectedId) : connectedId;
         }),
       depthScore: room.x + room.y,
     })) : [];
@@ -335,7 +344,7 @@ export class RoomGameScene extends Phaser.Scene {
         type: room.type,
         connections: [...room.connections],
       }));
-      const sourceConnections = this.options.editorMap?.connections.map((connection) => this.options.runtimeMode === "editor-core"
+      const sourceConnections = this.authoredConnections.map((connection) => this.options.runtimeMode === "editor-core" || this.options.networked
         ? { ...connection, from: editorCoreRoomId(connection.from), to: editorCoreRoomId(connection.to) }
         : connection);
       this.zoneWorld = buildEditorRenderWorld(rooms, sourceConnections);
@@ -1348,7 +1357,11 @@ export class RoomGameScene extends Phaser.Scene {
     this.time.delayedCall(65, () => this.player.active && this.player.clearTint());
     if (this.progression.stats.hp <= 0) {
       this.stats.deaths += 1;
-      this.finishGame("defeat", "용사가 쓰러져 원정이 끝났습니다.");
+      this.progression.stats.hp = this.progression.stats.maxHp;
+      this.currentZone = 1;
+      this.enterLocalRoom(this.startRoomId(), null);
+      this.player.setVelocity(0);
+      this.message = "쓰러진 용사가 베이스에서 완전한 체력으로 부활했습니다.";
     }
   }
 
@@ -1401,6 +1414,9 @@ export class RoomGameScene extends Phaser.Scene {
 
   private sharesNetworkVisionZone(viewerRoomId: string, candidateRoomId: string): boolean {
     if (viewerRoomId === candidateRoomId) return true;
+    // The official authored world is one continuous render/LOS area even when
+    // room themes advance the gameplay zone counter.
+    if (viewerRoomId.startsWith("editor:") && candidateRoomId.startsWith("editor:")) return true;
     const viewerZone = this.latestNetwork?.rooms.find((room) => room.id === viewerRoomId)?.zone;
     const candidateZone = this.latestNetwork?.rooms.find((room) => room.id === candidateRoomId)?.zone;
     return viewerZone !== undefined && viewerZone === candidateZone;
@@ -1665,7 +1681,7 @@ export class RoomGameScene extends Phaser.Scene {
       rooms: roomMap,
     });
     return {
-      worldMode: this.options.runtimeMode === "editor-core" ? "editor" : "procedural",
+      worldMode: this.options.runtimeMode === "editor-core" ? "editor" : "official",
       running: phase !== "ended",
       phase,
       phaseLabel: PHASE_LABELS[phase],
@@ -1735,7 +1751,16 @@ export class RoomGameScene extends Phaser.Scene {
           x: entry.center.x, y: entry.center.y, areaId,
         }] : [];
       });
-      const geometry = { mapRevision, areaId, bounds, ...grid, surfaces, markers } as MiniMapSnapshot["geometry"];
+      const geometry = {
+        mapRevision,
+        areaId,
+        bounds,
+        ...grid,
+        surfaces,
+        wallSegments: this.zoneWorld.wallSegments,
+        visionRadius: PLAYER_VISION_RADIUS,
+        markers,
+      } as MiniMapSnapshot["geometry"];
       snapshot = { geometry, explorationMask: createExplorationMask(geometry), revision: 0 };
       this.localMiniMaps.set(areaId, snapshot);
     }

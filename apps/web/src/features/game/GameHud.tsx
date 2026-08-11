@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CLASS_DEFINITIONS } from "@/src/game/content/classes";
 import { BUILDINGS } from "@/src/game/content/balance";
 import type { EquipmentSummary, GameSnapshot, HeroClassId, PartyMemberSnapshot } from "@/src/game/domain/types";
@@ -32,6 +32,7 @@ export function GameHud({
   onChoose?: (id: UpgradeId) => void;
 }) {
   const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const definition = CLASS_DEFINITIONS[heroClass];
   const phaseWarning = snapshot.phase === "night" || snapshot.phase === "boss";
   const editorWorld = snapshot.worldMode === "editor";
@@ -58,6 +59,16 @@ export function GameHud({
       isLocal: true,
       equipment: snapshot.equipment,
     }];
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || event.repeat) return;
+      event.preventDefault();
+      setSettingsOpen((open) => !open);
+    };
+    window.addEventListener("keydown", handleEscape);
+    return () => window.removeEventListener("keydown", handleEscape);
+  }, []);
 
   return (
     <div className="hud-root">
@@ -93,7 +104,7 @@ export function GameHud({
       )}
 
       <section className="party-panel hud-panel" aria-label="파티 상태">
-        <div className="hud-panel-title"><span>EXPEDITION PARTY</span><button type="button" onClick={onExit}>나가기</button></div>
+        <div className="hud-panel-title"><span>EXPEDITION PARTY</span><button type="button" onClick={() => setSettingsOpen(true)}>ESC 메뉴</button></div>
         {party.map((partyMember) => {
           const member = CLASS_DEFINITIONS[partyMember.heroClass];
           return (
@@ -182,6 +193,17 @@ export function GameHud({
         </div>
         <div className="power-score"><span>TEAM POWER</span><strong>{snapshot.teamPower}</strong></div>
       </div>
+
+      {settingsOpen && (
+        <div className="modal-backdrop game-settings-backdrop" role="dialog" aria-modal="true" aria-labelledby="game-settings-title">
+          <section className="game-settings-modal">
+            <span>EXPEDITION MENU · ESC</span>
+            <h2 id="game-settings-title">원정 설정</h2>
+            <p>전투는 계속 진행됩니다. 퇴장하면 현재 캐릭터의 장비와 능력치를 이어받은 AI가 원정에 참전합니다.</p>
+            <button type="button" onClick={onExit}>게임 로비로 나가기</button>
+          </section>
+        </div>
+      )}
 
       <UpgradeDraft choices={upgradeChoices} onChoose={onChoose} />
     </div>

@@ -1,26 +1,28 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GameCore, cellIndexAt, decodeMask, isExplored, roomWorldCenter } from "@five-days/game-core";
+import {
+  GameCore,
+  OFFICIAL_WORLD,
+  cellIndexAt,
+  decodeMask,
+  isExplored,
+} from "@five-days/game-core";
+import { PLAYER_VISION_RADIUS, minimapInitSchema } from "@five-days/protocol";
 import { PartyExploration } from "../src/minimap";
 
-test("server exploration merges connected living party members and survives re-init", () => {
-  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "minimap-party-test", minimumPlayers: 3 });
-  const rooms = [...core.rooms.values()].filter((room) => room.zone === 1).slice(0, 3);
-  rooms.forEach((room, index) => {
-    const player = core.addPlayer({ userId: `player-${index}`, displayName: `용사 ${index}`, heroClass: "swordsman" });
-    const center = roomWorldCenter({ x: room.gridX, y: room.gridY });
-    player.roomId = room.id;
-    player.x = center.x;
-    player.y = center.y;
-    player.connected = true;
-    player.alive = true;
-  });
+test("official party exploration publishes one wall-aware shared area", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "official-minimap", minimumPlayers: 1, world: OFFICIAL_WORLD });
+  const player = core.addPlayer({ userId: "player", displayName: "Player", heroClass: "swordsman" });
   const exploration = new PartyExploration(core);
   exploration.update();
-  const first = exploration.init("zone-1");
-  assert.ok(first);
-  const mask = decodeMask(first.explorationMask, Math.ceil(first.geometry.columns * first.geometry.rows / 8));
-  for (const player of core.players.values()) assert.equal(isExplored(mask, cellIndexAt(first.geometry, player.x, player.y)), true);
-  const restored = exploration.init("zone-1");
-  assert.equal(restored?.explorationMask, first.explorationMask);
+  const init = exploration.allInit()[0]!;
+  assert.equal(minimapInitSchema.safeParse(init).success, true);
+  assert.equal(init.geometry.areaId, "official-map");
+  assert.equal(init.geometry.visionRadius, PLAYER_VISION_RADIUS);
+  assert.ok(init.geometry.wallSegments.length > 0);
+  assert.ok(init.geometry.cellSize <= 32);
+  const mask = decodeMask(init.explorationMask, Math.ceil(init.geometry.columns * init.geometry.rows / 8));
+  assert.equal(isExplored(mask, cellIndexAt(init.geometry, player.x, player.y)), true);
+  const boss = OFFICIAL_WORLD.rooms.find((room) => room.id === OFFICIAL_WORLD.bossRoomId)!;
+  assert.equal(isExplored(mask, cellIndexAt(init.geometry, boss.rect.x + boss.rect.width / 2, boss.rect.y + boss.rect.height / 2)), false);
 });
