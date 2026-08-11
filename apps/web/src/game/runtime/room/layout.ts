@@ -5,6 +5,7 @@ import {
   resolveWalkablePoint,
   roomWorldCenter,
   roomWorldRect,
+  ZONE_GRID_SIZE,
   type WorldRect,
 } from "@five-days/game-core";
 
@@ -45,6 +46,7 @@ export type RenderWorldRoom = {
 export type RenderZoneWorld = {
   rooms: RenderWorldRoom[];
   corridors: WorldRect[];
+  blockedCells: WorldRect[];
   walkable: WorldRect[];
   bounds: WorldRect;
   bossRect: WorldRect;
@@ -71,9 +73,17 @@ export function buildRenderWorld(rooms: readonly RenderableRoom[], includeBoss: 
     const rect = roomWorldRect({ x: room.x, y: room.y });
     return { room, rect, center: roomWorldCenter({ x: room.x, y: room.y }) };
   });
+  const occupied = new Set(rooms.map((room) => `${room.x},${room.y}`));
+  const blockedCells: WorldRect[] = [];
+  for (let y = 0; y < ZONE_GRID_SIZE; y += 1) {
+    for (let x = 0; x < ZONE_GRID_SIZE; x += 1) {
+      if (!occupied.has(`${x},${y}`)) blockedCells.push(roomWorldRect({ x, y }));
+    }
+  }
   return {
     rooms: worldRooms,
     corridors: corridorRectsBetween(like),
+    blockedCells,
     walkable: built.rects,
     bounds: boundsOf(built.rects),
     bossRect: built.bossRect,

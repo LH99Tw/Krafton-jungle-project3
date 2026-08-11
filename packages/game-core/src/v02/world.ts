@@ -94,16 +94,25 @@ export function resolveWalkablePoint(
   previousX: number,
   previousY: number,
 ): Readonly<{ x: number; y: number }> {
-  const candidates = [
-    { x: desiredX, y: desiredY },
-    { x: desiredX, y: previousY },
-    { x: previousX, y: desiredY },
-    { x: previousX, y: previousY },
-  ];
-  for (const candidate of candidates) {
-    if (isWalkablePoint(rects, candidate.x, candidate.y)) return candidate;
+  const deltaX = desiredX - previousX;
+  const deltaY = desiredY - previousY;
+  const steps = Math.max(1, Math.ceil(Math.max(Math.abs(deltaX), Math.abs(deltaY)) / 16));
+  const stepX = deltaX / steps;
+  const stepY = deltaY / steps;
+  let resolvedX = previousX;
+  let resolvedY = previousY;
+  for (let step = 0; step < steps; step += 1) {
+    const candidates = [
+      { x: resolvedX + stepX, y: resolvedY + stepY },
+      { x: resolvedX + stepX, y: resolvedY },
+      { x: resolvedX, y: resolvedY + stepY },
+    ];
+    const candidate = candidates.find((point) => isWalkablePoint(rects, point.x, point.y));
+    if (!candidate) break;
+    resolvedX = candidate.x;
+    resolvedY = candidate.y;
   }
-  return { x: previousX, y: previousY };
+  return { x: resolvedX, y: resolvedY };
 }
 
 /** Corridor rectangles joining every orthogonally connected room pair. */

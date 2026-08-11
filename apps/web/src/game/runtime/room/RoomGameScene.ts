@@ -188,6 +188,15 @@ export class RoomGameScene extends Phaser.Scene {
     });
   }
 
+  preload(): void {
+    for (const zone of [1, 2, 3] as const) {
+      this.load.image(`zone-${zone}-vegetation`, `/Asset/zone-${zone}-vegetation.png`);
+    }
+    this.load.image("zone-1-blocked", "/Asset/zone-1-blocked-forest.png");
+    this.load.image("zone-2-blocked", "/Asset/zone-2-blocked-marsh.png");
+    this.load.image("zone-3-blocked", "/Asset/zone-3-blocked-wastes.png");
+  }
+
   create(): void {
     this.renderZoneWorld(this.currentZone);
     this.physics.world.setBounds(0, 0, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
@@ -240,6 +249,7 @@ export class RoomGameScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
     this.cameras.main?.setBounds(0, 0, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
     this.roomRenderer?.renderWorld(this.zoneWorld, {
+      decorSeed: this.runSeed,
       showBuildGrid: zone === 1,
       waypointRooms: waypointRoomId ? new Set([waypointRoomId]) : new Set(),
     });
@@ -846,7 +856,7 @@ export class RoomGameScene extends Phaser.Scene {
     this.zoneWorld = buildRenderWorld([bossRoom], false);
     this.physics.world.setBounds(0, 0, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
     this.cameras.main.setBounds(0, 0, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
-    this.roomRenderer.renderWorld(this.zoneWorld, { showBuildGrid: false, waypointRooms: new Set() });
+    this.roomRenderer.renderWorld(this.zoneWorld, { decorSeed: this.runSeed, showBuildGrid: false, waypointRooms: new Set() });
     this.player.setPosition(640, 580);
     this.spawnEnemy("boss", 640, 300, 3);
     this.message = "마왕전 개시 · 조준점 방향으로 공격을 집중하세요.";

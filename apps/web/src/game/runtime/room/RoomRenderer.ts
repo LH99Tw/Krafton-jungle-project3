@@ -1,5 +1,4 @@
 import * as Phaser from "phaser";
-import { createSeededRandom, type RandomSource } from "@five-days/game-core";
 import { CLASS_DEFINITIONS } from "../../content/classes";
 import type { HeroClassId } from "../../domain/types";
 import { createGameTextures } from "../../client/render/createTextures";
@@ -10,6 +9,7 @@ import {
   type RenderWorldRoom,
   type RenderZoneWorld,
 } from "./layout";
+import { selectRoomDecorTemplate } from "./roomDecorTemplates";
 
 const ZONE_COLORS = {
   1: { floor: 0x20372d, tile: 0x2d4a39, wall: 0x456653, accent: 0x9ed6a9 },
@@ -46,6 +46,7 @@ export class RoomRenderer {
 
   create(): void {
     createGameTextures(this.scene);
+    this.createVegetationFrames();
     this.createCrosshairTexture();
     this.crosshair = this.scene.add.image(640, 360, "medieval-crosshair").setDepth(200).setScrollFactor(0);
     this.scene.game.canvas.style.cursor = "none";
@@ -56,7 +57,7 @@ export class RoomRenderer {
    * connected rooms are joined by paved walkway corridors (통로). Non-walkable
    * gaps render as walls, so the world reads as a seamless, connected map.
    */
-  renderWorld(world: RenderZoneWorld, options: { showBuildGrid: boolean; waypointRooms: ReadonlySet<string> }): void {
+  renderWorld(world: RenderZoneWorld, options: { decorSeed: string; showBuildGrid: boolean; waypointRooms: ReadonlySet<string> }): void {
     this.clearRoom();
     const palette = ZONE_COLORS[world.rooms[0]?.room.zone as keyof typeof ZONE_COLORS] ?? ZONE_COLORS[1];
     const graphics = this.track(this.scene.add.graphics().setDepth(-20));
@@ -70,6 +71,8 @@ export class RoomRenderer {
     );
     graphics.fillStyle(palette.wall, 0.9).fillRect(world.bounds.x, world.bounds.y, world.bounds.width, world.bounds.height);
 
+    this.drawBlockedCells(world, world.rooms[0]?.room.zone ?? 1, palette.accent);
+
     // Paved corridors connecting rooms.
     for (const corridor of world.corridors) this.drawWalkway(graphics, corridor, palette.accent);
 
@@ -79,7 +82,7 @@ export class RoomRenderer {
     }
 
     // Procedural terrain decor (bushes/rocks) for map-template variety.
-    this.drawWorldDecor(graphics, world);
+    this.drawWorldDecor(world, options.decorSeed);
   }
 
   /**
@@ -87,39 +90,55 @@ export class RoomRenderer {
    * rocks scattered along walls and room perimeters. Real bush/rock image
    * assets can replace these primitives later; placement stays seeded.
    */
-  private drawWorldDecor(graphics: Phaser.GameObjects.Graphics, world: RenderZoneWorld): void {
-    const seed = world.rooms[0]?.room.zone ?? 1;
-    const random = createSeededRandom(`world-decor:${seed}:${world.rooms.length}`);
+  private drawWorldDecor(world: RenderZoneWorld, decorSeed: string): void {
     for (const entry of world.rooms) {
-      const { rect } = entry;
-      const inset = 30;
-      // Scatter decor along the room walls (non-walkable area sits outside the rect).
-      for (let index = 0; index < 6; index += 1) {
-        const side = random.integer(4);
-        const t = 0.08 + random.next() * 0.84;
-        const isBush = random.next() > 0.45;
-        const size = 10 + random.next() * 22;
-        let x = rect.x;
-        let y = rect.y;
-        if (side === 0) { x = rect.x + rect.width * t; y = rect.y - inset * (0.5 + random.next()); }
-        else if (side === 1) { x = rect.x + rect.width * t; y = rect.y + rect.height + inset * (0.5 + random.next()); }
-        else if (side === 2) { x = rect.x - inset * (0.5 + random.next()); y = rect.y + rect.height * t; }
-        else { x = rect.x + rect.width + inset * (0.5 + random.next()); y = rect.y + rect.height * t; }
-        this.drawDecorProp(graphics, x, y, size, isBush, random);
+      const template = selectRoomDecorTemplate(decorSeed, entry.room);
+      const texture = `zone-${entry.room.zone}-vegetation`;
+      for (const placement of template.placements) {
+        this.track(this.scene.add.image(
+          entry.rect.x + entry.rect.width * placement.x,
+          entry.rect.y + entry.rect.height * placement.y,
+          texture,
+          `prop-${placement.frame}`,
+        ).setScale(placement.scale)
+          .setAngle(placement.angle)
+          .setFlipX(placement.flipX)
+          .setAlpha(placement.alpha)
+          .setDepth(1));
       }
     }
   }
 
-  private drawDecorProp(graphics: Phaser.GameObjects.Graphics, x: number, y: number, size: number, isBush: boolean, random: RandomSource): void {
-    if (isBush) {
-      graphics.fillStyle(0x2f5d3a, 0.95).fillCircle(x, y, size);
-      graphics.fillStyle(0x417c49, 0.9).fillCircle(x - size * 0.25, y - size * 0.2, size * 0.62);
-      graphics.fillStyle(0x55995a, 0.7).fillCircle(x - size * 0.3, y - size * 0.3, size * 0.4);
-    } else {
-      const rx = size;
-      const ry = size * (0.7 + random.next() * 0.3);
-      graphics.fillStyle(0x3a4047, 0.95).fillRoundedRect(x - rx, y - ry / 2, rx * 2, ry, 6);
-      graphics.fillStyle(0x535b63, 0.85).fillRoundedRect(x - rx + 3, y - ry / 2 + 2, rx * 2 - 6, ry - 4, 5);
+  private drawBlockedCells(world: RenderZoneWorld, zone: number, accent: number): void {
+    const barrier = this.track(this.scene.add.graphics().setDepth(-18));
+    for (const rect of world.blockedCells) {
+      this.track(this.scene.add.tileSprite(
+        rect.x + rect.width / 2,
+        rect.y + rect.height / 2,
+        rect.width,
+        rect.height,
+        `zone-${zone}-blocked`,
+      ).setAlpha(0.72).setDepth(-19));
+      barrier.fillStyle(0x050706, 0.28).fillRect(rect.x, rect.y, rect.width, rect.height);
+      barrier.lineStyle(18, 0x111713, 0.98).strokeRect(rect.x + 9, rect.y + 9, rect.width - 18, rect.height - 18);
+      barrier.lineStyle(4, accent, 0.3).strokeRect(rect.x + 22, rect.y + 22, rect.width - 44, rect.height - 44);
+    }
+  }
+
+  private createVegetationFrames(): void {
+    for (const zone of [1, 2, 3] as const) {
+      const key = `zone-${zone}-vegetation`;
+      const texture = this.scene.textures.get(key);
+      const source = texture.getSourceImage() as HTMLImageElement;
+      for (let row = 0; row < 4; row += 1) {
+        for (let column = 0; column < 4; column += 1) {
+          const left = Math.floor(column * source.width / 4);
+          const top = Math.floor(row * source.height / 4);
+          const right = Math.floor((column + 1) * source.width / 4);
+          const bottom = Math.floor((row + 1) * source.height / 4);
+          texture.add(`prop-${row * 4 + column}`, 0, left, top, right - left, bottom - top);
+        }
+      }
     }
   }
 
