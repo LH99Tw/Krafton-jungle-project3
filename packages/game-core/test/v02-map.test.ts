@@ -11,6 +11,7 @@ import {
   validateZoneMap,
   type RoomType,
 } from "../src/v02/map";
+import { buildWorldFromRooms, resolveWalkablePoint, roomWorldCenter } from "../src/v02/world";
 
 const EXPECTED_COUNTS: Readonly<Record<RoomType, number>> = {
   start: 1,
@@ -84,6 +85,19 @@ test("property: 1,000 run seeds satisfy every 0.2 map invariant", () => {
     }
   }
   assert.ok(layoutDiversity.size > 100, `expected procedural diversity, received ${layoutDiversity.size} layouts`);
+});
+
+test("movement cannot tunnel across a non-walkable empty grid cell", () => {
+  const rooms = [
+    { id: "left", gridX: 0, gridY: 0, connections: [] },
+    { id: "right", gridX: 2, gridY: 0, connections: [] },
+  ];
+  const world = buildWorldFromRooms(rooms, false);
+  const start = roomWorldCenter({ x: 0, y: 0 });
+  const target = roomWorldCenter({ x: 2, y: 0 });
+  const resolved = resolveWalkablePoint(world.rects, target.x, target.y, start.x, start.y);
+  assert.ok(resolved.x < 1_280, `expected the player to remain in the first room, received x=${resolved.x}`);
+  assert.equal(resolved.y, start.y);
 });
 
 function layoutSignature(zone: ReturnType<typeof generateZoneMap>): string {
