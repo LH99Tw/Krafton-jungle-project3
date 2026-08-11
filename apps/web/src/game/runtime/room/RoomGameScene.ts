@@ -40,6 +40,7 @@ import type { InputFrame, WorldFrame } from "@five-days/protocol";
 import { resolveSharedPartyProgress } from "../../domain/sharedPartyProgress";
 import { editorThemeZone } from "../../domain/mapEditor";
 import { ProgressionModel } from "../../systems/ProgressionModel";
+import { HERO_SPRITE_FRAME_SIZE, HERO_SPRITE_PATHS } from "../../client/render/heroSprites";
 import { colyseusTransport } from "../../transport/ColyseusTransport";
 import { predictPlayerTransform, RealtimeTransformBuffer, shouldRenderPartyMember } from "../../netcode/RealtimeBuffer";
 import { gameBridge, type GameCommand } from "../GameBridge";
@@ -237,6 +238,13 @@ export class RoomGameScene extends Phaser.Scene {
   }
 
   preload(): void {
+    for (const [classId, path] of Object.entries(HERO_SPRITE_PATHS)) {
+      this.load.spritesheet(`hero-${classId}`, path, {
+        frameWidth: HERO_SPRITE_FRAME_SIZE,
+        frameHeight: HERO_SPRITE_FRAME_SIZE,
+        endFrame: 7,
+      });
+    }
     for (const zone of [1, 2, 3] as const) {
       this.load.image(`zone-${zone}-vegetation`, `/Asset/zone-${zone}-vegetation.png`);
       this.load.image(`zone-${zone}-room-corridor`, `/Asset/zone-${zone}-room-corridor-atlas.png`);

@@ -13,10 +13,13 @@ test("the first room render happens after renderer and textures are initialized"
   assert.ok(initialRender > textureCreation, "room and corridor textures must render only after their frames exist");
 });
 
-test("runtime uses procedural hero geometry instead of removed 8-direction bitmap sheets", () => {
+test("runtime preloads 32px hero sheets and selects an aim-direction frame", () => {
   const scene = readFileSync(new URL("../src/game/runtime/room/RoomGameScene.ts", import.meta.url), "utf8");
   const renderer = readFileSync(new URL("../src/game/runtime/room/RoomRenderer.ts", import.meta.url), "utf8");
-  assert.doesNotMatch(scene, /hero-\$\{classId\}-8dir/);
+  const generatedTextures = readFileSync(new URL("../src/game/client/render/createTextures.ts", import.meta.url), "utf8");
+  assert.match(scene, /this\.load\.spritesheet\(`hero-\$\{classId\}`/);
+  assert.match(scene, /frameWidth: HERO_SPRITE_FRAME_SIZE/);
   assert.match(renderer, /`hero-\$\{classId\}`/);
-  assert.match(renderer, /octant \* Math\.PI \/ 4/);
+  assert.match(renderer, /setFrame\(heroFrameForAimAngle\(aimAngle\)\)/);
+  assert.doesNotMatch(generatedTextures, /key: "hero-/);
 });

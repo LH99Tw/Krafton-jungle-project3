@@ -3,6 +3,7 @@ import { enemyFanPatternAngles, enemyFloorPatternCircles, enemyPatternConfig, ty
 import { CLASS_DEFINITIONS } from "../../content/classes";
 import type { HeroClassId } from "../../domain/types";
 import { createGameTextures } from "../../client/render/createTextures";
+import { HERO_SPRITE_SCALE, heroFrameForAimAngle } from "../../client/render/heroSprites";
 import {
   BUILD_BOUNDS,
   ROOM_VIEW,
@@ -296,18 +297,16 @@ export class RoomRenderer {
 
   createHero(classId: HeroClassId, x: number, y: number, alpha = 1): Phaser.Physics.Arcade.Sprite {
     const hero = this.scene.physics.add.sprite(x, y, `hero-${classId}`);
-    hero.setDepth(20).setAlpha(alpha).setScale(1.35);
+    hero.setDepth(20).setAlpha(alpha).setScale(HERO_SPRITE_SCALE);
     (hero.body as Phaser.Physics.Arcade.Body).setCircle(11, 3, 7);
     return hero;
   }
 
   updateHeroPose(hero: Phaser.Physics.Arcade.Sprite, aimAngle: number, moving: boolean, time: number): void {
-    const animationTime = time;
-    const octant = ((Math.round(aimAngle / (Math.PI / 4)) % 8) + 8) % 8;
-    hero.setRotation(octant * Math.PI / 4);
-    if (animationTime < Number(hero.getData("attackPoseUntil") ?? 0)) return;
-    const stride = moving ? Math.sin(animationTime / 85) * 0.06 : 0;
-    hero.setScale(1.35 + stride, 1.35 - stride);
+    hero.setFrame(heroFrameForAimAngle(aimAngle)).setRotation(0);
+    if (time < Number(hero.getData("attackPoseUntil") ?? 0)) return;
+    const stride = moving ? Math.sin(time / 85) * 0.05 : 0;
+    hero.setScale(HERO_SPRITE_SCALE + stride, HERO_SPRITE_SCALE - stride);
   }
 
   createEnemy(kind: EnemyKind, x: number, y: number): Phaser.Physics.Arcade.Sprite {
