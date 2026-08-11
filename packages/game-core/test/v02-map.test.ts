@@ -11,7 +11,7 @@ import {
   validateZoneMap,
   type RoomType,
 } from "../src/v02/map";
-import { buildWorldFromRooms, resolveWalkablePoint, roomWorldCenter } from "../src/v02/world";
+import { buildWorldFromRooms, corridorRectBetween, resolveWalkablePoint, roomWorldCenter } from "../src/v02/world";
 
 const EXPECTED_COUNTS: Readonly<Record<RoomType, number>> = {
   start: 1,
@@ -98,6 +98,13 @@ test("movement cannot tunnel across a non-walkable empty grid cell", () => {
   const resolved = resolveWalkablePoint(world.rects, target.x, target.y, start.x, start.y);
   assert.ok(resolved.x < 1_280, `expected the player to remain in the first room, received x=${resolved.x}`);
   assert.equal(resolved.y, start.y);
+});
+
+test("connected rooms use centered 160px corridors instead of full-width openings", () => {
+  const horizontal = corridorRectBetween({ x: 0, y: 0 }, { x: 1, y: 0 });
+  const vertical = corridorRectBetween({ x: 0, y: 0 }, { x: 0, y: 1 });
+  assert.deepEqual(horizontal, { x: 1_280, y: 280, width: 240, height: 160 });
+  assert.deepEqual(vertical, { x: 560, y: 720, width: 160, height: 240 });
 });
 
 function layoutSignature(zone: ReturnType<typeof generateZoneMap>): string {

@@ -35,6 +35,8 @@ export type CoreRoomId = RoomId | typeof BOSS_ROOM_ID;
 export type CoreRoomKind = RoomType | "boss";
 export type CoreEnemyKind = "static" | "hidden" | "gate" | "invader" | "boss";
 export type CoreEnemyBehavior = "static" | "gate" | "invader" | "boss";
+export type EnemyPatternKind = "fan" | "floor";
+export type EnemyPatternPhase = "idle" | "telegraph";
 export type CoreWaypointKind = "start" | "central" | "gate" | "boss";
 
 export type CoreRoom = {
@@ -85,6 +87,10 @@ export type CoreEnemy = {
   coarseProgress: number;
   /** Remaining deterministic simulation seconds before a normal static respawn. */
   respawnRemaining: number | null;
+  patternKind: EnemyPatternKind;
+  patternPhase: EnemyPatternPhase;
+  patternRemaining: number;
+  patternIndex: number;
 };
 
 export type CoreWaypoint = {
@@ -308,6 +314,10 @@ export function createBossEnemy(seed: string | number, difficulty: "easy" | "nor
     pathIndex: 0,
     coarseProgress: 0,
     respawnRemaining: null,
+    patternKind: "fan",
+    patternPhase: "idle",
+    patternRemaining: 0,
+    patternIndex: 0,
   };
 }
 
@@ -349,6 +359,10 @@ export function createInvaderEnemy(
     pathIndex: 0,
     coarseProgress: 0,
     respawnRemaining: null,
+    patternKind: "fan",
+    patternPhase: "idle",
+    patternRemaining: 0,
+    patternIndex: 0,
   };
 }
 
@@ -587,7 +601,28 @@ function createSeededRoomEnemy(
     pathIndex: 0,
     coarseProgress: 0,
     respawnRemaining: null,
+    patternKind: "fan",
+    patternPhase: "idle",
+    patternRemaining: 0,
+    patternIndex: 0,
   };
+}
+
+export const ENEMY_PATTERN_RANGE = 520;
+export const ENEMY_PATTERN_TELEGRAPH_SECONDS = 0.85;
+
+export function enemyFanPatternAngles(patternIndex: number): readonly number[] {
+  const rotation = patternIndex * Math.PI / 24;
+  return Array.from({ length: 12 }, (_, index) => rotation + index * Math.PI / 6);
+}
+
+export function enemyFloorPatternCircles(x: number, y: number, patternIndex: number): readonly { x: number; y: number; radius: number }[] {
+  const rotation = patternIndex * Math.PI / 7;
+  return Array.from({ length: 7 }, (_, index) => {
+    const angle = rotation + index * Math.PI * 2 / 7;
+    const distance = index % 2 === 0 ? 155 : 265;
+    return { x: x + Math.cos(angle) * distance, y: y + Math.sin(angle) * distance, radius: 64 };
+  });
 }
 
 function enemyKindForRoom(type: RoomType): "static" | "hidden" | "gate" | null {

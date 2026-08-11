@@ -12,16 +12,18 @@ import type { GridPosition } from "./map";
 
 const WORLD_ROOM_WIDTH = 1_280;
 const WORLD_ROOM_HEIGHT = 720;
-/** Gap between adjacent room cells; this becomes the corridor thickness. */
-const WORLD_CORRIDOR = 360;
+/** Physical gap between adjacent rooms. */
+const WORLD_ROOM_GAP = 240;
+/** Walkable passage width. Keeping this narrow makes the connection read as a corridor. */
+const WORLD_CORRIDOR_WIDTH = 160;
 
 export type WorldRect = Readonly<{ x: number; y: number; width: number; height: number }>;
 
 /** World rectangle occupied by the grid room at `position`. */
 export function roomWorldRect(position: GridPosition): WorldRect {
   return {
-    x: position.x * (WORLD_ROOM_WIDTH + WORLD_CORRIDOR),
-    y: position.y * (WORLD_ROOM_HEIGHT + WORLD_CORRIDOR),
+    x: position.x * (WORLD_ROOM_WIDTH + WORLD_ROOM_GAP),
+    y: position.y * (WORLD_ROOM_HEIGHT + WORLD_ROOM_GAP),
     width: WORLD_ROOM_WIDTH,
     height: WORLD_ROOM_HEIGHT,
   };
@@ -35,30 +37,29 @@ export function roomWorldCenter(position: GridPosition): Readonly<{ x: number; y
 
 /** Dedicated world rectangle for the final boss arena. */
 export function bossWorldRect(): WorldRect {
-  return { x: 5 * (WORLD_ROOM_WIDTH + WORLD_CORRIDOR), y: 0, width: WORLD_ROOM_WIDTH, height: WORLD_ROOM_HEIGHT };
+  return { x: 5 * (WORLD_ROOM_WIDTH + WORLD_ROOM_GAP), y: 0, width: WORLD_ROOM_WIDTH, height: WORLD_ROOM_HEIGHT };
 }
 
 /**
  * Corridor rectangle joining two orthogonally connected grid rooms.
- * Same-row rooms open vertically across the full room height; same-column
- * rooms open horizontally across the full room width.
+ * Passages are centered on the shared room edge and remain deliberately narrow.
  */
 export function corridorRectBetween(left: GridPosition, right: GridPosition): WorldRect | null {
   const leftRect = roomWorldRect(left);
   const rightRect = roomWorldRect(right);
   // left is north of right (y grows downward).
   if (left.x === right.x && left.y + 1 === right.y) {
-    return { x: leftRect.x, y: leftRect.y + WORLD_ROOM_HEIGHT, width: WORLD_ROOM_WIDTH, height: WORLD_CORRIDOR };
+    return { x: leftRect.x + (WORLD_ROOM_WIDTH - WORLD_CORRIDOR_WIDTH) / 2, y: leftRect.y + WORLD_ROOM_HEIGHT, width: WORLD_CORRIDOR_WIDTH, height: WORLD_ROOM_GAP };
   }
   if (left.x === right.x && left.y - 1 === right.y) {
-    return { x: rightRect.x, y: rightRect.y + WORLD_ROOM_HEIGHT, width: WORLD_ROOM_WIDTH, height: WORLD_CORRIDOR };
+    return { x: rightRect.x + (WORLD_ROOM_WIDTH - WORLD_CORRIDOR_WIDTH) / 2, y: rightRect.y + WORLD_ROOM_HEIGHT, width: WORLD_CORRIDOR_WIDTH, height: WORLD_ROOM_GAP };
   }
   // left is west of right.
   if (left.x + 1 === right.x && left.y === right.y) {
-    return { x: leftRect.x + WORLD_ROOM_WIDTH, y: leftRect.y, width: WORLD_CORRIDOR, height: WORLD_ROOM_HEIGHT };
+    return { x: leftRect.x + WORLD_ROOM_WIDTH, y: leftRect.y + (WORLD_ROOM_HEIGHT - WORLD_CORRIDOR_WIDTH) / 2, width: WORLD_ROOM_GAP, height: WORLD_CORRIDOR_WIDTH };
   }
   if (left.x - 1 === right.x && left.y === right.y) {
-    return { x: rightRect.x + WORLD_ROOM_WIDTH, y: rightRect.y, width: WORLD_CORRIDOR, height: WORLD_ROOM_HEIGHT };
+    return { x: rightRect.x + WORLD_ROOM_WIDTH, y: rightRect.y + (WORLD_ROOM_HEIGHT - WORLD_CORRIDOR_WIDTH) / 2, width: WORLD_ROOM_GAP, height: WORLD_CORRIDOR_WIDTH };
   }
   return null;
 }

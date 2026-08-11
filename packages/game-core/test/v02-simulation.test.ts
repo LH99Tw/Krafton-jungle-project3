@@ -77,7 +77,7 @@ test("server auto attack picks the nearest enemy inside the cursor cone", () => 
   assert.equal(outsideCone.hp, outsideCone.maxHp);
 });
 
-test("static enemies stay idle until hit and never leave their spawn room", () => {
+test("static enemies proactively telegraph patterns without leaving their spawn room", () => {
   const core = startedCore("static-behavior");
   const player = core.players.get("p1")!;
   player.aim = Math.PI;
@@ -87,16 +87,16 @@ test("static enemies stay idle until hit and never leave their spawn room", () =
   const originalX = staticEnemy.x;
   core.update(0.1);
   assert.equal(staticEnemy.x, originalX);
-  assert.equal(staticEnemy.aggroed, false);
-
-  assert.equal(core.damageEnemy(player.userId, staticEnemy.id, 1), true);
-  core.update(0.1);
-  assert.ok(staticEnemy.x < originalX);
+  assert.equal(staticEnemy.aggroed, true);
+  assert.equal(staticEnemy.patternPhase, "telegraph");
+  assert.equal(staticEnemy.patternKind, "fan");
   const spawnRoomId = staticEnemy.spawnRoomId;
   const destination = core.rooms.get(player.roomId)!.connections[0]!;
   core.movePlayerToRoom(player.userId, destination);
   for (let index = 0; index < 20; index += 1) core.update(0.1);
   assert.equal(staticEnemy.roomId, spawnRoomId);
+  assert.equal(staticEnemy.x, originalX);
+  assert.equal(staticEnemy.patternPhase, "idle");
 });
 
 test("team XP creates personal deterministic drafts through milestone level 10", () => {
@@ -387,5 +387,9 @@ function enemy(id: string, roomId: CoreEnemy["roomId"], x: number, y: number): C
     pathIndex: 0,
     coarseProgress: 0,
     respawnRemaining: null,
+    patternKind: "fan",
+    patternPhase: "idle",
+    patternRemaining: 0,
+    patternIndex: 0,
   };
 }

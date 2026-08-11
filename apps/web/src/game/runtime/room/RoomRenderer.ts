@@ -1,4 +1,5 @@
 import * as Phaser from "phaser";
+import { ENEMY_PATTERN_RANGE, enemyFanPatternAngles, enemyFloorPatternCircles } from "@five-days/game-core";
 import { CLASS_DEFINITIONS } from "../../content/classes";
 import type { HeroClassId } from "../../domain/types";
 import { createGameTextures } from "../../client/render/createTextures";
@@ -40,6 +41,7 @@ const ROOM_NAMES: Record<RenderableRoom["type"], string> = {
 
 export class RoomRenderer {
   private roomObjects: Phaser.GameObjects.GameObject[] = [];
+  private readonly enemyPatternObjects = new Map<string, { key: string; graphics: Phaser.GameObjects.Graphics }>();
   private crosshair!: Phaser.GameObjects.Image;
 
   constructor(private readonly scene: Phaser.Scene) {}
@@ -47,6 +49,8 @@ export class RoomRenderer {
   create(): void {
     createGameTextures(this.scene);
     this.createVegetationFrames();
+    this.createEnvironmentFrames();
+    this.createHeroDirectionFrames();
     this.createCrosshairTexture();
     this.crosshair = this.scene.add.image(640, 360, "medieval-crosshair").setDepth(200).setScrollFactor(0);
     this.scene.game.canvas.style.cursor = "none";
@@ -60,7 +64,8 @@ export class RoomRenderer {
   renderWorld(world: RenderZoneWorld, options: { decorSeed: string; showBuildGrid: boolean; waypointRooms: ReadonlySet<string> }): void {
     this.clearRoom();
     const palette = ZONE_COLORS[world.rooms[0]?.room.zone as keyof typeof ZONE_COLORS] ?? ZONE_COLORS[1];
-    const graphics = this.track(this.scene.add.graphics().setDepth(-20));
+    const graphics = this.track(this.scene.add.graphics().setDepth(-18));
+    const zone = world.rooms[0]?.room.zone ?? 1;
 
     // Outer void + wall backdrop covering the whole world bounds.
     graphics.fillStyle(0x0a0d0b, 1).fillRect(
@@ -69,16 +74,23 @@ export class RoomRenderer {
       world.bounds.width + 120,
       world.bounds.height + 120,
     );
-    graphics.fillStyle(palette.wall, 0.9).fillRect(world.bounds.x, world.bounds.y, world.bounds.width, world.bounds.height);
+    this.track(this.scene.add.tileSprite(
+      world.bounds.x + world.bounds.width / 2,
+      world.bounds.y + world.bounds.height / 2,
+      world.bounds.width,
+      world.bounds.height,
+      `zone-${zone}-blocked`,
+    ).setAlpha(0.86).setDepth(-30));
+    graphics.fillStyle(palette.wall, 0.22).fillRect(world.bounds.x, world.bounds.y, world.bounds.width, world.bounds.height);
 
-    this.drawBlockedCells(world, world.rooms[0]?.room.zone ?? 1, palette.accent);
+    this.drawBlockedCells(world, palette.accent);
 
     // Paved corridors connecting rooms.
-    for (const corridor of world.corridors) this.drawWalkway(graphics, corridor, palette.accent);
+    for (const corridor of world.corridors) this.drawWalkway(graphics, corridor, zone, palette.accent);
 
     // Rooms.
     for (const entry of world.rooms) {
-      this.drawWorldRoom(graphics, entry, palette, options);
+      this.drawWorldRoom(graphics, entry, palette, options, options.decorSeed);
     }
 
     // Procedural terrain decor (bushes/rocks) for map-template variety.
@@ -109,16 +121,9 @@ export class RoomRenderer {
     }
   }
 
-  private drawBlockedCells(world: RenderZoneWorld, zone: number, accent: number): void {
+  private drawBlockedCells(world: RenderZoneWorld, accent: number): void {
     const barrier = this.track(this.scene.add.graphics().setDepth(-18));
     for (const rect of world.blockedCells) {
-      this.track(this.scene.add.tileSprite(
-        rect.x + rect.width / 2,
-        rect.y + rect.height / 2,
-        rect.width,
-        rect.height,
-        `zone-${zone}-blocked`,
-      ).setAlpha(0.72).setDepth(-19));
       barrier.fillStyle(0x050706, 0.28).fillRect(rect.x, rect.y, rect.width, rect.height);
       barrier.lineStyle(18, 0x111713, 0.98).strokeRect(rect.x + 9, rect.y + 9, rect.width - 18, rect.height - 18);
       barrier.lineStyle(4, accent, 0.3).strokeRect(rect.x + 22, rect.y + 22, rect.width - 44, rect.height - 44);
@@ -142,28 +147,51 @@ export class RoomRenderer {
     }
   }
 
-  private drawWalkway(graphics: Phaser.GameObjects.Graphics, corridor: { x: number; y: number; width: number; height: number }, accent: number): void {
-    const horizontal = corridor.width > corridor.height;
-    const thickness = Math.min(corridor.width, corridor.height);
-    const base = Math.max(24, thickness / 2 - 6);
-    const edge = horizontal ? base : base;
-    graphics.fillStyle(0x2a2f38, 0.95).fillRect(corridor.x - 2, corridor.y - 2, corridor.width + 4, corridor.height + 4);
-    graphics.fillStyle(0x6f7988, 0.98).fillRect(corridor.x + 2, corridor.y + 2, corridor.width - 4, corridor.height - 4);
-    graphics.lineStyle(1, 0x9aa5b6, 0.35);
-    const step = 46;
-    if (horizontal) {
-      for (let x = corridor.x; x < corridor.x + corridor.width; x += step) {
-        for (let y = corridor.y + (edge - 34); y < corridor.y + corridor.height - (edge - 34); y += step) {
-          graphics.strokeRect(x + 2, y + 2, 36, 36);
-        }
-      }
-    } else {
-      for (let y = corridor.y; y < corridor.y + corridor.height; y += step) {
-        for (let x = corridor.x + (edge - 34); x < corridor.x + corridor.width - (edge - 34); x += step) {
-          graphics.strokeRect(x + 2, y + 2, 36, 36);
-        }
+  private createEnvironmentFrames(): void {
+    for (const zone of [1, 2, 3] as const) {
+      const texture = this.scene.textures.get(`zone-${zone}-room-corridor`);
+      const source = texture.getSourceImage() as HTMLImageElement;
+      for (let frame = 0; frame < 4; frame += 1) {
+        const column = frame % 2;
+        const row = Math.floor(frame / 2);
+        const left = Math.floor(column * source.width / 2);
+        const top = Math.floor(row * source.height / 2);
+        const right = Math.floor((column + 1) * source.width / 2);
+        const bottom = Math.floor((row + 1) * source.height / 2);
+        texture.add(frame === 3 ? "corridor" : `room-${frame}`, 0, left, top, right - left, bottom - top);
       }
     }
+  }
+
+  private createHeroDirectionFrames(): void {
+    for (const classId of ["swordsman", "archer", "mage"] as const) {
+      const texture = this.scene.textures.get(`hero-${classId}-8dir`);
+      const source = texture.getSourceImage() as HTMLImageElement;
+      for (let frame = 0; frame < 8; frame += 1) {
+        const column = frame % 4;
+        const row = Math.floor(frame / 4);
+        const left = Math.floor(column * source.width / 4);
+        const top = Math.floor(row * source.height / 2);
+        const right = Math.floor((column + 1) * source.width / 4);
+        const bottom = Math.floor((row + 1) * source.height / 2);
+        texture.add(`dir-${frame}`, 0, left, top, right - left, bottom - top);
+      }
+    }
+  }
+
+  private drawWalkway(graphics: Phaser.GameObjects.Graphics, corridor: { x: number; y: number; width: number; height: number }, zone: number, accent: number): void {
+    const horizontal = corridor.width > corridor.height;
+    const textureWidth = horizontal ? corridor.height : corridor.width;
+    const textureHeight = horizontal ? corridor.width : corridor.height;
+    this.track(this.scene.add.tileSprite(
+      corridor.x + corridor.width / 2,
+      corridor.y + corridor.height / 2,
+      textureWidth,
+      textureHeight,
+      `zone-${zone}-room-corridor`,
+      "corridor",
+    ).setAngle(horizontal ? 90 : 0).setDepth(-22));
+    graphics.fillStyle(0x121611, 0.18).fillRect(corridor.x, corridor.y, corridor.width, corridor.height);
     // Accent trim along the corridor edges.
     graphics.lineStyle(3, accent, 0.55);
     if (horizontal) {
@@ -180,11 +208,21 @@ export class RoomRenderer {
     entry: RenderWorldRoom,
     palette: { floor: number; tile: number; wall: number; accent: number },
     options: { showBuildGrid: boolean; waypointRooms: ReadonlySet<string> },
+    decorSeed: string,
   ): void {
     const { room, rect, center } = entry;
+    const roomVariant = stableIndex(`${decorSeed}:${room.id}:${room.type}`, 3);
+    this.track(this.scene.add.tileSprite(
+      center.x,
+      center.y,
+      rect.width,
+      rect.height,
+      `zone-${room.zone}-room-corridor`,
+      `room-${roomVariant}`,
+    ).setDepth(-22));
     const floor = room.type === "boss" ? 0x160f1d : palette.floor;
-    graphics.fillStyle(floor, 0.98).fillRect(rect.x, rect.y, rect.width, rect.height);
-    graphics.fillStyle(room.type === "hidden-monster" ? 0x201428 : palette.tile, 0.7)
+    graphics.fillStyle(floor, room.type === "boss" ? 0.58 : 0.2).fillRect(rect.x, rect.y, rect.width, rect.height);
+    graphics.fillStyle(room.type === "hidden-monster" ? 0x201428 : palette.tile, 0.16)
       .fillRect(rect.x + 16, rect.y + 16, rect.width - 32, rect.height - 32);
     graphics.lineStyle(1, palette.accent, 0.1);
     for (let x = rect.x; x <= rect.x + rect.width; x += 40) graphics.lineBetween(x, rect.y, x, rect.y + rect.height);
@@ -275,10 +313,21 @@ export class RoomRenderer {
   }
 
   createHero(classId: HeroClassId, x: number, y: number, alpha = 1): Phaser.Physics.Arcade.Sprite {
-    const hero = this.scene.physics.add.sprite(x, y, `hero-${classId}`);
-    hero.setDepth(20).setAlpha(alpha);
+    const hero = this.scene.physics.add.sprite(x, y, `hero-${classId}-8dir`, "dir-4");
+    const frameHeight = hero.frame.realHeight || hero.height;
+    const baseScale = Math.min(0.3, 84 / Math.max(1, frameHeight));
+    hero.setDepth(20).setAlpha(alpha).setScale(baseScale);
     (hero.body as Phaser.Physics.Arcade.Body).setCircle(11, 3, 7);
     return hero;
+  }
+
+  updateHeroPose(hero: Phaser.Physics.Arcade.Sprite, aimAngle: number, moving: boolean, time: number): void {
+    const octant = ((Math.round(aimAngle / (Math.PI / 4)) % 8) + 8) % 8;
+    // Generated sheets rotate clockwise from front (south): S, SE, E, NE,
+    // N, NW, W, SW. Octants here begin at east in screen coordinates.
+    const directionFrames = [2, 1, 0, 7, 6, 5, 4, 3] as const;
+    hero.setFrame(`dir-${directionFrames[octant]}`);
+    hero.setAngle(moving ? Math.sin(time / 85) * 1.6 : 0);
   }
 
   createEnemy(kind: EnemyKind, x: number, y: number): Phaser.Physics.Arcade.Sprite {
@@ -321,9 +370,67 @@ export class RoomRenderer {
     this.scene.tweens.add({ targets: trace, alpha: 0, duration: 110, onComplete: () => trace.destroy() });
   }
 
+  showClassAttack(classId: HeroClassId, attacker: Phaser.Physics.Arcade.Sprite, x2: number, y2: number): void {
+    const color = classColor(classId);
+    const angle = Phaser.Math.Angle.Between(attacker.x, attacker.y, x2, y2);
+    this.scene.tweens.add({ targets: attacker, scaleX: attacker.scaleX * 1.16, scaleY: attacker.scaleY * 0.9, duration: 55, yoyo: true });
+    if (classId === "swordsman") {
+      const slash = this.scene.add.arc(attacker.x, attacker.y, 58, Phaser.Math.RadToDeg(angle) - 52, Phaser.Math.RadToDeg(angle) + 52, false)
+        .setStrokeStyle(9, color, 0.9).setDepth(31);
+      this.scene.tweens.add({ targets: slash, scale: 1.45, alpha: 0, duration: 180, onComplete: () => slash.destroy() });
+      this.showAttack(attacker.x, attacker.y, x2, y2, 0xffffff);
+    } else if (classId === "archer") {
+      const arrow = this.scene.add.rectangle(attacker.x, attacker.y, 26, 5, color, 1).setRotation(angle).setDepth(31);
+      this.scene.tweens.add({ targets: arrow, x: x2, y: y2, duration: 120, ease: "Quad.easeIn", onComplete: () => { this.showImpact(x2, y2, 25, color); arrow.destroy(); } });
+      this.showAttack(attacker.x, attacker.y, x2, y2, color);
+    } else {
+      const orb = this.scene.add.circle(attacker.x, attacker.y, 12, color, 0.92).setStrokeStyle(4, 0xffffff, 0.9).setDepth(31);
+      this.scene.tweens.add({ targets: orb, x: x2, y: y2, scale: 1.45, duration: 150, ease: "Sine.easeIn", onComplete: () => { this.showImpact(x2, y2, 48, color); orb.destroy(); } });
+      const rune = this.scene.add.circle(attacker.x, attacker.y, 26, color, 0.06).setStrokeStyle(3, color, 0.8).setDepth(30);
+      this.scene.tweens.add({ targets: rune, radius: 52, rotation: Math.PI, alpha: 0, duration: 260, onComplete: () => rune.destroy() });
+    }
+  }
+
   showImpact(x: number, y: number, radius: number, color: number): void {
     const impact = this.scene.add.circle(x, y, 7, color, 0.28).setStrokeStyle(2, color, 0.9).setDepth(32);
     this.scene.tweens.add({ targets: impact, radius, alpha: 0, duration: 230, onComplete: () => impact.destroy() });
+  }
+
+  updateEnemyPattern(
+    enemyId: string,
+    patternKind: "fan" | "floor",
+    patternPhase: "idle" | "telegraph",
+    patternIndex: number,
+    x: number,
+    y: number,
+    visible: boolean,
+  ): void {
+    const current = this.enemyPatternObjects.get(enemyId);
+    if (!visible || patternPhase !== "telegraph") {
+      current?.graphics.destroy();
+      this.enemyPatternObjects.delete(enemyId);
+      return;
+    }
+    const key = `${patternKind}:${patternIndex}`;
+    if (current?.key === key) return;
+    current?.graphics.destroy();
+    const graphics = this.scene.add.graphics().setDepth(16);
+    if (patternKind === "floor") {
+      for (const circle of enemyFloorPatternCircles(x, y, patternIndex)) {
+        graphics.fillStyle(0xff315a, 0.16).fillCircle(circle.x, circle.y, circle.radius);
+        graphics.lineStyle(4, 0xff6b82, 0.9).strokeCircle(circle.x, circle.y, circle.radius);
+        graphics.lineStyle(1, 0xffffff, 0.5).strokeCircle(circle.x, circle.y, circle.radius * 0.72);
+      }
+    } else {
+      for (const angle of enemyFanPatternAngles(patternIndex)) {
+        const endX = x + Math.cos(angle) * ENEMY_PATTERN_RANGE;
+        const endY = y + Math.sin(angle) * ENEMY_PATTERN_RANGE;
+        graphics.lineStyle(18, 0xff315a, 0.13).lineBetween(x, y, endX, endY);
+        graphics.lineStyle(3, 0xff8ca0, 0.84).lineBetween(x, y, endX, endY);
+      }
+    }
+    this.scene.tweens.add({ targets: graphics, alpha: 0.35, duration: 180, yoyo: true, repeat: -1 });
+    this.enemyPatternObjects.set(enemyId, { key, graphics });
   }
 
   destroy(): void {
@@ -357,6 +464,8 @@ export class RoomRenderer {
   }
 
   private clearRoom(): void {
+    for (const pattern of this.enemyPatternObjects.values()) pattern.graphics.destroy();
+    this.enemyPatternObjects.clear();
     for (const object of this.roomObjects) object.destroy();
     this.roomObjects = [];
   }
@@ -364,4 +473,10 @@ export class RoomRenderer {
 
 export function classColor(classId: HeroClassId): number {
   return CLASS_DEFINITIONS[classId].color;
+}
+
+function stableIndex(value: string, count: number): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) hash = Math.imul(hash ^ value.charCodeAt(index), 16777619);
+  return Math.abs(hash) % count;
 }

@@ -96,6 +96,10 @@ export class EnemyState extends Schema {
   @type("number") hp = 0;
   @type("number") maxHp = 0;
   @type("boolean") alive = true;
+  @type("string") patternKind = "fan";
+  @type("string") patternPhase = "idle";
+  @type("number") patternRemaining = 0;
+  @type("number") patternIndex = 0;
 }
 
 export class WaypointState extends Schema {

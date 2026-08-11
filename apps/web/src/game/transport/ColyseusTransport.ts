@@ -122,6 +122,10 @@ type EnemyStateLike = {
   hp?: number;
   maxHp?: number;
   alive?: boolean;
+  patternKind?: string;
+  patternPhase?: string;
+  patternRemaining?: number;
+  patternIndex?: number;
 };
 type DropStateLike = {
   id?: string;
@@ -612,6 +616,10 @@ export class ColyseusTransport {
       hp: enemy.hp ?? 0,
       maxHp: enemy.maxHp ?? 0,
       alive: enemy.alive ?? true,
+      patternKind: enemy.patternKind === "floor" ? "floor" : "fan",
+      patternPhase: enemy.patternPhase === "telegraph" ? "telegraph" : "idle",
+      patternRemaining: enemy.patternRemaining ?? 0,
+      patternIndex: enemy.patternIndex ?? 0,
     }));
     const drops = collectionValues(state.drops)
       .filter((drop) => drop.ownerUserId === this.localUserId && !drop.claimed && isDropSlot(drop.slot) && isDropRarity(drop.rarity))

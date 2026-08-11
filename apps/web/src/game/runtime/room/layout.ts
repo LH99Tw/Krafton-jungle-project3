@@ -85,7 +85,9 @@ export function buildRenderWorld(rooms: readonly RenderableRoom[], includeBoss: 
     corridors: corridorRectsBetween(like),
     blockedCells,
     walkable: built.rects,
-    bounds: boundsOf(built.rects),
+    // Include blocked grid cells so the visual background covers the complete
+    // field, not only the local bounding box of generated walkable rooms.
+    bounds: boundsOf([...built.rects, ...blockedCells]),
     bossRect: built.bossRect,
   };
 }

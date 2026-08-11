@@ -130,6 +130,10 @@ export type NetworkEnemySnapshot = {
   hp: number;
   maxHp: number;
   alive: boolean;
+  patternKind: "fan" | "floor";
+  patternPhase: "idle" | "telegraph";
+  patternRemaining: number;
+  patternIndex: number;
 };
 
 export type NetworkDropSnapshot = {

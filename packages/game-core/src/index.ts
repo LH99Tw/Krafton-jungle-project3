@@ -25,6 +25,10 @@ import {
   createEmptyEquipment,
   createInvaderEnemy,
   createRuntimeWorld,
+  ENEMY_PATTERN_RANGE,
+  ENEMY_PATTERN_TELEGRAPH_SECONDS,
+  enemyFanPatternAngles,
+  enemyFloorPatternCircles,
   equipmentBonuses,
   equipmentPower,
   isPlayerOnWaypoint,
@@ -43,7 +47,7 @@ import {
   type CoreWaypoint,
   type TravelIntent,
 } from "./v02/simulation";
-import { bossWorldRect, roomWorldCenter, roomWorldRect } from "./v02/world";
+import { bossWorldRect, roomWorldCenter } from "./v02/world";
 
 export * from "./v02";
 
@@ -272,8 +276,7 @@ export class GameCore {
         if (player.connected && player.alive && player.autoAttackCooldown <= 0) this.performAutoAttack(player.userId);
       }
     }
-    this.updateStaticEnemies(delta);
-    this.updateRangedEnemies(delta);
+    this.updatePatternEnemies(delta);
     this.updateBossPattern(delta);
     this.updateStaticRespawns(delta);
     this.updateInvaders(delta);
@@ -512,6 +515,8 @@ export class GameCore {
     enemy.hp = 0;
     enemy.aggroed = false;
     enemy.targetId = null;
+    enemy.patternPhase = "idle";
+    enemy.patternRemaining = 0;
     enemy.respawnRemaining = enemy.kind === "static" ? STATIC_RESPAWN_SECONDS[this.options.mode] : null;
     killer.kills += 1;
     this.gold += enemy.goldReward;
@@ -708,27 +713,53 @@ export class GameCore {
     }
   }
 
-  private updateStaticEnemies(delta: number): void {
+  private updatePatternEnemies(delta: number): void {
     for (const enemy of this.enemies.values()) {
-      if (!enemy.alive || enemy.behavior !== "static" || enemy.kind === "hidden") continue;
+      if (!enemy.alive || !["static", "hidden", "gate"].includes(enemy.kind)) continue;
       enemy.attackCooldown = Math.max(0, enemy.attackCooldown - delta);
-      if (!enemy.aggroed) continue;
-      const target = enemy.targetId ? this.players.get(enemy.targetId) : undefined;
-      if (!target || !target.alive || target.roomId !== enemy.spawnRoomId) {
-        this.moveEnemyToward(enemy, enemy.spawnX, enemy.spawnY, delta);
-        if (Math.hypot(enemy.x - enemy.spawnX, enemy.y - enemy.spawnY) < 2) {
-          enemy.aggroed = false;
-          enemy.targetId = null;
-        }
+      const target = this.nearestPlayerInRoom(enemy.roomId, enemy.x, enemy.y, Number.POSITIVE_INFINITY);
+      if (!target) {
+        enemy.targetId = null;
+        enemy.patternPhase = "idle";
+        enemy.patternRemaining = 0;
         continue;
       }
-
-      const distance = Math.hypot(target.x - enemy.x, target.y - enemy.y);
-      if (distance > enemy.attackRange) this.moveEnemyToward(enemy, target.x, target.y, delta);
-      else if (enemy.attackCooldown <= 0) {
-        this.damagePlayer(target, enemy.damage);
-        enemy.attackCooldown = 0.9;
+      enemy.aggroed = true;
+      enemy.targetId = target.userId;
+      if (enemy.patternPhase === "idle") {
+        if (enemy.attackCooldown > 0) continue;
+        enemy.patternKind = enemy.patternIndex % 2 === 0 ? "fan" : "floor";
+        enemy.patternPhase = "telegraph";
+        enemy.patternRemaining = ENEMY_PATTERN_TELEGRAPH_SECONDS;
+        continue;
       }
+      enemy.patternRemaining = Math.max(0, enemy.patternRemaining - delta);
+      if (enemy.patternRemaining > SIMULATION_EPSILON) continue;
+      this.resolveEnemyPattern(enemy);
+      enemy.patternPhase = "idle";
+      enemy.patternIndex += 1;
+      enemy.attackCooldown = enemy.kind === "static" ? 1.35 : enemy.kind === "hidden" ? 1.05 : 0.9;
+    }
+  }
+
+  private resolveEnemyPattern(enemy: CoreEnemy): void {
+    for (const player of this.players.values()) {
+      if (!player.alive || player.roomId !== enemy.roomId) continue;
+      let hit = false;
+      if (enemy.patternKind === "floor") {
+        hit = enemyFloorPatternCircles(enemy.x, enemy.y, enemy.patternIndex)
+          .some((circle) => Math.hypot(player.x - circle.x, player.y - circle.y) <= circle.radius);
+      } else {
+        const dx = player.x - enemy.x;
+        const dy = player.y - enemy.y;
+        const distance = Math.hypot(dx, dy);
+        hit = distance <= ENEMY_PATTERN_RANGE && enemyFanPatternAngles(enemy.patternIndex).some((angle) => {
+          const forward = dx * Math.cos(angle) + dy * Math.sin(angle);
+          const perpendicular = Math.abs(-dx * Math.sin(angle) + dy * Math.cos(angle));
+          return forward >= 0 && forward <= ENEMY_PATTERN_RANGE && perpendicular <= 18;
+        });
+      }
+      if (hit) this.damagePlayer(player, enemy.damage);
     }
   }
 
@@ -746,25 +777,14 @@ export class GameCore {
       enemy.targetId = null;
       enemy.lastHitBy = null;
       enemy.attackCooldown = 0;
+      enemy.patternKind = "fan";
+      enemy.patternPhase = "idle";
+      enemy.patternRemaining = 0;
+      enemy.patternIndex = 0;
       enemy.respawnRemaining = null;
       const room = this.rooms.get(enemy.spawnRoomId);
       if (room) room.cleared = false;
     }
-  }
-
-  private moveEnemyToward(enemy: CoreEnemy, x: number, y: number, delta: number): void {
-    const dx = x - enemy.x;
-    const dy = y - enemy.y;
-    const distance = Math.hypot(dx, dy);
-    if (distance <= 0) return;
-    const step = Math.min(distance, enemy.speed * delta);
-    const room = this.rooms.get(enemy.spawnRoomId);
-    const bounds = room ? roomWorldRect({ x: room.gridX, y: room.gridY }) : null;
-    const nextX = enemy.x + dx / distance * step;
-    const nextY = enemy.y + dy / distance * step;
-    enemy.x = bounds ? clamp(nextX, bounds.x, bounds.x + bounds.width) : nextX;
-    enemy.y = bounds ? clamp(nextY, bounds.y, bounds.y + bounds.height) : nextY;
-    enemy.roomId = enemy.spawnRoomId;
   }
 
   private damagePlayer(player: CorePlayer, rawDamage: number): void {
@@ -822,23 +842,6 @@ export class GameCore {
     this.invaderSpawnAccumulator = 0;
     const count = isNight ? 2 + Math.floor(this.day / 2) : 1;
     for (let index = 0; index < count; index += 1) this.spawnInvader(this.currentZone);
-  }
-
-  /**
-   * Ranged attack tiers: hidden/gate (mid-boss) and boss enemies fire at the
-   * nearest player in their room within attack range. Static enemies remain
-   * melee-only (handled by updateStaticEnemies).
-   */
-  private updateRangedEnemies(delta: number): void {
-    for (const enemy of this.enemies.values()) {
-      if (!enemy.alive || (enemy.kind !== "hidden" && enemy.behavior !== "gate" && enemy.behavior !== "boss")) continue;
-      enemy.attackCooldown = Math.max(0, enemy.attackCooldown - delta);
-      if (enemy.attackCooldown > 0) continue;
-      const target = this.nearestPlayerInRoom(enemy.roomId, enemy.x, enemy.y, enemy.attackRange);
-      if (!target) continue;
-      enemy.attackCooldown = enemy.kind === "boss" ? 1.4 : enemy.kind === "gate" ? 1.1 : 1.6;
-      this.damagePlayer(target, enemy.damage);
-    }
   }
 
   private updateBossPattern(delta: number): void {

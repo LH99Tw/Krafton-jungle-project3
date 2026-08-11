@@ -4,6 +4,9 @@ import {
   CLASS_COMBAT_RULES,
   createAugmentDraft,
   createSeededRandom,
+  ENEMY_PATTERN_RANGE,
+  enemyFanPatternAngles,
+  enemyFloorPatternCircles,
   generateThreeZoneMap,
   rollPersonalHiddenDrop,
   type AugmentId,
@@ -64,6 +67,8 @@ type LocalEnemy = {
   spawnY: number;
   lastAttackAt: number;
   lastShotAt: number;
+  patternIndex: number;
+  patternActive: boolean;
 };
 
 type LocalStructure = {
@@ -123,6 +128,7 @@ export class RoomGameScene extends Phaser.Scene {
   private structures: LocalStructure[] = [];
   private readonly remotePlayers = new Map<string, Phaser.Physics.Arcade.Sprite>();
   private readonly networkEnemies = new Map<string, Phaser.Physics.Arcade.Sprite>();
+  private readonly networkEnemyHp = new Map<string, number>();
   private readonly networkDrops = new Map<string, Phaser.GameObjects.Container>();
   private readonly networkDropRequests = new Map<string, number>();
   private readonly visitedRooms = new Set<string>();
@@ -191,6 +197,10 @@ export class RoomGameScene extends Phaser.Scene {
   preload(): void {
     for (const zone of [1, 2, 3] as const) {
       this.load.image(`zone-${zone}-vegetation`, `/Asset/zone-${zone}-vegetation.png`);
+      this.load.image(`zone-${zone}-room-corridor`, `/Asset/zone-${zone}-room-corridor-atlas.png`);
+    }
+    for (const classId of ["swordsman", "archer", "mage"] as const) {
+      this.load.image(`hero-${classId}-8dir`, `/Asset/hero-${classId}-8dir.png`);
     }
     this.load.image("zone-1-blocked", "/Asset/zone-1-blocked-forest.png");
     this.load.image("zone-2-blocked", "/Asset/zone-2-blocked-marsh.png");
@@ -499,6 +509,8 @@ export class RoomGameScene extends Phaser.Scene {
       spawnY: y,
       lastAttackAt: 0,
       lastShotAt: 0,
+      patternIndex: 0,
+      patternActive: false,
     };
     this.enemies.push(enemy);
     if (kind === "boss") this.boss = enemy;
@@ -514,7 +526,7 @@ export class RoomGameScene extends Phaser.Scene {
     const movement = new Phaser.Math.Vector2(x, y).normalize().scale(this.progression.stats.moveSpeed);
     this.player.setVelocity(movement.x, movement.y);
     const aim = this.aimAngle();
-    this.player.setFlipX(Math.cos(aim) < 0);
+    this.roomRenderer.updateHeroPose(this.player, aim, movement.lengthSq() > 0, time);
 
     if (Phaser.Input.Keyboard.JustDown(this.keys.Q) && time >= this.qReadyAt) this.useSkill("q", aim);
     if (Phaser.Input.Keyboard.JustDown(this.keys.E) && time >= this.eReadyAt) this.useSkill("e", aim);
@@ -556,7 +568,7 @@ export class RoomGameScene extends Phaser.Scene {
     const projectileCount = Math.max(1, this.progression.stats.projectileCount + (this.progression.has("archer-volley") ? 1 : 0));
     const selected = targets.slice(0, this.classDefinition.attackKind === "melee" ? 1 : projectileCount);
     for (const target of selected) {
-      this.roomRenderer.showAttack(this.player.x, this.player.y, target.sprite.x, target.sprite.y, classColor(this.options.heroClass));
+      this.roomRenderer.showClassAttack(this.options.heroClass, this.player, target.sprite.x, target.sprite.y);
       this.damageEnemy(target, this.rollAttackDamage(target));
     }
     this.lastAutoAttackAt = time + interval;
@@ -629,6 +641,13 @@ export class RoomGameScene extends Phaser.Scene {
       const anchorX = enemy.sprite.x;
       const anchorY = enemy.sprite.y;
       if (enemy.kind === "gate" || enemy.kind === "boss") enemy.sprite.setVelocity(0);
+      if (["static", "hidden", "gate", "boss"].includes(enemy.kind)) {
+        enemy.engaged = true;
+        enemy.sprite.setVelocity(0);
+        const interval = enemy.kind === "boss" ? 1_150 : enemy.kind === "gate" ? 1_350 : 1_650;
+        if (!enemy.patternActive && time - enemy.lastShotAt >= interval) this.fireLocalEnemyPattern(enemy, time);
+        continue;
+      }
       if (!enemy.engaged) {
         enemy.sprite.setVelocity(0);
         continue;
@@ -647,14 +666,7 @@ export class RoomGameScene extends Phaser.Scene {
       }
 
       const playerDistance = Phaser.Math.Distance.Between(enemy.sprite.x, enemy.sprite.y, this.player.x, this.player.y);
-      if (enemy.kind === "hidden" || enemy.kind === "boss") {
-        if (time - enemy.lastShotAt >= (enemy.kind === "boss" ? 1250 : 1650)) {
-          enemy.lastShotAt = time;
-          this.fireEnemyShot(enemy);
-        }
-        if (enemy.kind === "hidden" && playerDistance > 260) this.physics.moveTo(enemy.sprite, this.player.x, this.player.y, enemy.speed);
-        else enemy.sprite.setVelocity(0);
-      } else if (playerDistance <= 470) {
+      if (playerDistance <= 470) {
         this.physics.moveTo(enemy.sprite, this.player.x, this.player.y, enemy.speed);
       } else {
         this.physics.moveTo(enemy.sprite, enemy.spawnX, enemy.spawnY, enemy.speed);
@@ -669,15 +681,30 @@ export class RoomGameScene extends Phaser.Scene {
     }
   }
 
-  private fireEnemyShot(enemy: LocalEnemy): void {
-    const startX = enemy.sprite.x;
-    const startY = enemy.sprite.y;
-    const targetX = this.player.x;
-    const targetY = this.player.y;
-    this.roomRenderer.showAttack(startX, startY, targetX, targetY, enemy.kind === "boss" ? 0xff5f9f : 0xd88cff);
-    this.time.delayedCall(260, () => {
+  private fireLocalEnemyPattern(enemy: LocalEnemy, time: number): void {
+    const patternKind = enemy.patternIndex % 2 === 0 ? "fan" : "floor";
+    enemy.patternActive = true;
+    enemy.lastShotAt = time;
+    this.roomRenderer.updateEnemyPattern(enemy.id, patternKind, "telegraph", enemy.patternIndex, enemy.sprite.x, enemy.sprite.y, true);
+    this.time.delayedCall(850, () => {
+      this.roomRenderer.updateEnemyPattern(enemy.id, patternKind, "idle", enemy.patternIndex, enemy.sprite.x, enemy.sprite.y, false);
       if (!enemy.sprite.active || this.ended) return;
-      if (Phaser.Math.Distance.Between(this.player.x, this.player.y, targetX, targetY) <= 52) this.damagePlayer(enemy.damage);
+      let hit = false;
+      if (patternKind === "floor") {
+        hit = enemyFloorPatternCircles(enemy.sprite.x, enemy.sprite.y, enemy.patternIndex)
+          .some((circle) => Phaser.Math.Distance.Between(this.player.x, this.player.y, circle.x, circle.y) <= circle.radius);
+      } else {
+        const dx = this.player.x - enemy.sprite.x;
+        const dy = this.player.y - enemy.sprite.y;
+        hit = Math.hypot(dx, dy) <= ENEMY_PATTERN_RANGE && enemyFanPatternAngles(enemy.patternIndex).some((angle) => {
+          const forward = dx * Math.cos(angle) + dy * Math.sin(angle);
+          const perpendicular = Math.abs(-dx * Math.sin(angle) + dy * Math.cos(angle));
+          return forward >= 0 && forward <= ENEMY_PATTERN_RANGE && perpendicular <= 18;
+        });
+      }
+      if (hit) this.damagePlayer(enemy.damage);
+      enemy.patternIndex += 1;
+      enemy.patternActive = false;
     });
   }
 
@@ -696,6 +723,7 @@ export class RoomGameScene extends Phaser.Scene {
     const x = enemy.sprite.x;
     const y = enemy.sprite.y;
     enemy.sprite.disableBody(true, true);
+    this.roomRenderer.updateEnemyPattern(enemy.id, "fan", "idle", enemy.patternIndex, x, y, false);
     this.stats.kills += 1;
     this.gold += enemy.rewardGold;
     this.roomRenderer.showImpact(x, y, enemy.kind === "boss" ? 180 : 45, enemy.kind === "hidden" ? 0xd78cff : 0x8fd99d);
@@ -1104,6 +1132,7 @@ export class RoomGameScene extends Phaser.Scene {
       }
       sprite.setVisible(isLocal || shouldRenderPartyMember(member, localRoomId)).setActive(member.connected);
       sprite.setAlpha(isLocal ? 1 : 0.82);
+      this.roomRenderer.updateHeroPose(sprite, member.aim, false, performance.now());
     }
   }
 
@@ -1112,8 +1141,10 @@ export class RoomGameScene extends Phaser.Scene {
     const activeIds = new Set(enemies.map((enemy) => enemy.id));
     for (const [id, sprite] of this.networkEnemies) {
       if (!activeIds.has(id)) {
+        this.roomRenderer.updateEnemyPattern(id, "fan", "idle", 0, 0, 0, false);
         sprite.destroy();
         this.networkEnemies.delete(id);
+        this.networkEnemyHp.delete(id);
       }
     }
     for (const enemy of enemies) {
@@ -1123,7 +1154,32 @@ export class RoomGameScene extends Phaser.Scene {
             : enemy.kind === "invader" || enemy.behavior === "invader" ? "invader" : "static";
       const sprite = this.networkEnemies.get(enemy.id) ?? this.roomRenderer.createEnemy(kind, enemy.x, enemy.y);
       if (!this.networkEnemies.has(enemy.id)) this.networkEnemies.set(enemy.id, sprite);
-      sprite.setVisible(enemy.roomId === localRoomId && enemy.alive).setActive(enemy.alive);
+      const previousHp = this.networkEnemyHp.get(enemy.id);
+      if (previousHp !== undefined && enemy.hp < previousHp && enemy.roomId === localRoomId) {
+        const attacker = snapshot.players
+          .filter((member) => member.alive && member.roomId === enemy.roomId)
+          .map((member) => ({
+            member,
+            sprite: member.isLocal || member.userId === this.options.userId ? this.player : this.remotePlayers.get(member.userId),
+            distance: Phaser.Math.Distance.Between(member.x, member.y, enemy.x, enemy.y),
+          }))
+          .filter((candidate) => candidate.sprite)
+          .sort((left, right) => left.distance - right.distance)[0];
+        if (attacker?.sprite) this.roomRenderer.showClassAttack(attacker.member.heroClass, attacker.sprite, enemy.x, enemy.y);
+        this.roomRenderer.showImpact(enemy.x, enemy.y, 30, 0xffffff);
+      }
+      this.networkEnemyHp.set(enemy.id, enemy.hp);
+      const visible = enemy.roomId === localRoomId && enemy.alive;
+      sprite.setVisible(visible).setActive(enemy.alive);
+      this.roomRenderer.updateEnemyPattern(
+        enemy.id,
+        enemy.patternKind,
+        enemy.patternPhase,
+        enemy.patternIndex,
+        enemy.x,
+        enemy.y,
+        visible,
+      );
     }
   }
 
@@ -1359,7 +1415,10 @@ export class RoomGameScene extends Phaser.Scene {
   }
 
   private clearTransientEntities(): void {
-    for (const enemy of this.enemies) enemy.sprite.destroy();
+    for (const enemy of this.enemies) {
+      this.roomRenderer.updateEnemyPattern(enemy.id, "fan", "idle", enemy.patternIndex, enemy.sprite.x, enemy.sprite.y, false);
+      enemy.sprite.destroy();
+    }
     for (const drop of this.drops) drop.object.destroy();
     for (const drop of this.networkDrops.values()) drop.destroy();
     this.enemies = [];

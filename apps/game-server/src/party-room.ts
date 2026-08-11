@@ -606,6 +606,10 @@ export class PartyRoom extends Room<PartyRoomState> {
         hp: enemy.hp,
         maxHp: enemy.maxHp,
         alive: enemy.alive,
+        patternKind: enemy.patternKind,
+        patternPhase: enemy.patternPhase,
+        patternRemaining: enemy.patternRemaining,
+        patternIndex: enemy.patternIndex,
       });
       if (isNew || keyframeDue || roomChanged) {
         state.x = enemy.x;
