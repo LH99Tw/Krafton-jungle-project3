@@ -11,6 +11,7 @@ import {
   type GameStartOptions,
   type UpgradeChoice,
 } from "@/src/game/domain/types";
+import { resolveRuntimeOptions } from "@/src/game/domain/runtimeOptions";
 import { gameBridge } from "@/src/game/runtime/GameBridge";
 import { colyseusTransport, type NetworkStatus } from "@/src/game/transport/ColyseusTransport";
 import { globalChatTransport } from "@/src/game/transport/GlobalChatTransport";
@@ -141,7 +142,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       setSnapshot(EMPTY_SNAPSHOT);
       setUpgradeChoices([]);
       setResult(null);
-      setActiveOptions(options);
+      setActiveOptions(resolveRuntimeOptions(options, gameServerUrl));
       setRunKey((value) => value + 1);
       setScreen("playing");
     } catch (error) {
