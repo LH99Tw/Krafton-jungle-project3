@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import { CLASS_DEFINITIONS } from "@/src/game/content/classes";
 import { BUILDINGS } from "@/src/game/content/balance";
-import type { GameSnapshot, HeroClassId } from "@/src/game/domain/types";
+import type { EquipmentSummary, GameSnapshot, HeroClassId, PartyMemberSnapshot } from "@/src/game/domain/types";
 import { gameBridge } from "@/src/game/runtime/GameBridge";
 import { RoomMiniMap } from "./RoomMiniMap";
 import { UpgradeDraft } from "./UpgradeDraft";
@@ -30,6 +31,7 @@ export function GameHud({
   upgradeChoices?: UpgradeChoice[];
   onChoose?: (id: UpgradeId) => void;
 }) {
+  const [inventoryOpen, setInventoryOpen] = useState(false);
   const definition = CLASS_DEFINITIONS[heroClass];
   const phaseWarning = snapshot.phase === "night" || snapshot.phase === "boss";
   const party = snapshot.party.length > 0
@@ -61,6 +63,29 @@ export function GameHud({
         <div className="phase-copy"><small>DAY {snapshot.day} / 05</small><strong>{snapshot.phaseLabel}</strong></div>
         <time>{snapshot.phase === "boss" ? "FINAL" : formatTime(snapshot.phaseRemaining)}</time>
       </div>
+
+      <button
+        type="button"
+        className="inventory-toggle"
+        aria-label="파티 인벤토리"
+        onClick={() => setInventoryOpen((open) => !open)}
+      >
+        🎒 인벤토리
+      </button>
+
+      {inventoryOpen && (
+        <div className="inventory-popup" role="dialog" aria-label="공유 인벤토리">
+          <div className="inventory-popup-head">
+            <span>PARTY INVENTORY · 공유 장비</span>
+            <button type="button" onClick={() => setInventoryOpen(false)}>닫기</button>
+          </div>
+          <div className="inventory-party-grid">
+            {party.map((member) => (
+              <InventoryMember key={member.userId} member={member} equipment={member.isLocal ? snapshot.equipment : []} />
+            ))}
+          </div>
+        </div>
+      )}
 
       <section className="party-panel hud-panel" aria-label="파티 상태">
         <div className="hud-panel-title"><span>EXPEDITION PARTY</span><button type="button" onClick={onExit}>나가기</button></div>
@@ -154,6 +179,32 @@ export function GameHud({
       </div>
 
       <UpgradeDraft choices={upgradeChoices} onChoose={onChoose} />
+    </div>
+  );
+}
+
+const SLOTS: EquipmentSummary["slot"][] = ["weapon", "armor", "accessory"];
+
+function InventoryMember({ member, equipment }: { member: PartyMemberSnapshot; equipment: EquipmentSummary[] }) {
+  const bySlot = new Map(equipment.map((item) => [item.slot, item]));
+  return (
+    <div className={`inventory-member ${member.connected ? "" : "is-offline"}`}>
+      <div className="inventory-member-head">
+        <strong>{member.displayName}{member.isLocal ? " · YOU" : ""}</strong>
+        <small>{member.connected ? `HP ${Math.ceil(member.hp)}` : "OFF"}</small>
+      </div>
+      <div className="inventory-slots">
+        {SLOTS.map((slot) => {
+          const item = bySlot.get(slot);
+          return item ? (
+            <span className={`inventory-slot rarity-${item.rarity}`} key={slot}>
+              <small>{slot}</small><b>{item.name}</b><em>{item.power}P</em>
+            </span>
+          ) : (
+            <span className="inventory-slot is-empty" key={slot}><small>{slot}</small><b>—</b></span>
+          );
+        })}
+      </div>
     </div>
   );
 }

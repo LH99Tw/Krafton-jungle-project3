@@ -13,6 +13,7 @@ import {
   transformFlags,
   type ClientCommand,
   type InputFrame,
+  type HeroClassId,
   type ResolvedRoomOptions,
   type TransformSample,
   type WorldFrame,
@@ -165,10 +166,15 @@ export class PartyRoom extends Room<PartyRoomState> {
       throw new ServerError(503, "활성 게임 한도에 도달했습니다.");
     }
     const options = roomOptionsSchema.parse(rawOptions);
-    const internalOptions = rawOptions as { allowedUserIds?: unknown };
+    const internalOptions = rawOptions as { allowedUserIds?: unknown; aiPlayers?: unknown };
     if (Array.isArray(internalOptions.allowedUserIds)) {
       this.allowedUserIds = new Set(internalOptions.allowedUserIds.filter((value): value is string => typeof value === "string"));
     }
+    const aiPlayers = Array.isArray(internalOptions.aiPlayers)
+      ? internalOptions.aiPlayers.filter((value): value is { userId: string; displayName: string; heroClass: HeroClassId } =>
+        Boolean(value) && typeof (value as { userId?: unknown }).userId === "string"
+        && typeof (value as { heroClass?: unknown }).heroClass === "string")
+      : [];
     this.roomOptions = options;
     this.maxClients = options.partyMode === "solo" ? 1 : 3;
     this.setState(new PartyRoomState());
@@ -180,6 +186,10 @@ export class PartyRoom extends Room<PartyRoomState> {
       minimumPlayers: options.partyMode === "solo" ? 1 : 3,
     });
     this.state.seed = this.core.options.seed;
+    for (const ai of aiPlayers) {
+      const corePlayer = this.core.addPlayer({ userId: ai.userId, displayName: ai.displayName, heroClass: ai.heroClass });
+      corePlayer.ready = true;
+    }
     const match = await createMatch({
       roomId: this.roomId,
       mode: options.sessionMode,

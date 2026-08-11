@@ -213,7 +213,7 @@ const ENEMY_RULES: Readonly<Record<Exclude<CoreEnemyKind, "invader" | "boss">, {
 }>> = {
   static: { hp: 34, damage: 7, speed: 72, attackRange: 38, xp: 18, gold: 5 },
   hidden: { hp: 110, damage: 14, speed: 82, attackRange: 155, xp: 54, gold: 18 },
-  gate: { hp: 190, damage: 0, speed: 0, attackRange: 0, xp: 75, gold: 24 },
+  gate: { hp: 190, damage: 11, speed: 55, attackRange: 250, xp: 75, gold: 24 },
 };
 
 export function createRuntimeWorld(

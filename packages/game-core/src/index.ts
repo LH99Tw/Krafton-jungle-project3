@@ -82,6 +82,8 @@ export type CorePlayer = {
   structuresBuilt: number;
   goldSpent: number;
   gatesDestroyed: number;
+  /** Assigned to AI-controlled party members so the server can drive them. */
+  aiRole?: "follower" | "defender";
 };
 
 export type GameCoreOptions = {
@@ -134,6 +136,7 @@ export class GameCore {
   private invaderSpawnAccumulator = 0;
   private invaderSerial = 0;
   private hiddenDropSerial = 0;
+  private bossPatternAccumulator = 0;
   private readonly resourceAccumulators = new Map<CoreRoomId, number>();
 
   constructor(readonly options: GameCoreOptions) {
@@ -200,6 +203,10 @@ export class GameCore {
       goldSpent: 0,
       gatesDestroyed: 0,
     };
+    if (input.userId.startsWith("ai:")) {
+      const existingAi = [...this.players.values()].filter((candidate) => candidate.aiRole).length;
+      player.aiRole = existingAi === 0 ? "defender" : "follower";
+    }
     for (let level = 2; level <= this.teamLevel; level += 1) player.pendingUpgradeLevels.push(level);
     this.players.set(input.userId, player);
     this.activateNextDraft(player);
@@ -266,10 +273,13 @@ export class GameCore {
       }
     }
     this.updateStaticEnemies(delta);
+    this.updateRangedEnemies(delta);
+    this.updateBossPattern(delta);
     this.updateStaticRespawns(delta);
     this.updateInvaders(delta);
     this.updateInvaderSpawning(delta);
     this.updateResourceProduction(delta);
+    this.updateAiPlayers(delta);
     this.updateTravel(delta);
     this.refreshCurrentZone();
 
@@ -700,7 +710,7 @@ export class GameCore {
 
   private updateStaticEnemies(delta: number): void {
     for (const enemy of this.enemies.values()) {
-      if (!enemy.alive || enemy.behavior !== "static") continue;
+      if (!enemy.alive || enemy.behavior !== "static" || enemy.kind === "hidden") continue;
       enemy.attackCooldown = Math.max(0, enemy.attackCooldown - delta);
       if (!enemy.aggroed) continue;
       const target = enemy.targetId ? this.players.get(enemy.targetId) : undefined;
@@ -774,6 +784,8 @@ export class GameCore {
     for (const enemy of this.enemies.values()) {
       if (!enemy.alive || enemy.behavior !== "invader") continue;
       enemy.targetId = "base";
+      enemy.attackCooldown = Math.max(0, enemy.attackCooldown - delta);
+      // Coarse room-level advance toward the base every 2.5s.
       enemy.coarseProgress += delta;
       while (enemy.coarseProgress + SIMULATION_EPSILON >= 2.5 && enemy.alive) {
         enemy.coarseProgress -= 2.5;
@@ -781,21 +793,143 @@ export class GameCore {
           enemy.pathIndex += 1;
           enemy.roomId = enemy.path[enemy.pathIndex] as CoreRoomId;
         } else {
-          this.baseHp = Math.max(0, this.baseHp - enemy.damage);
+          this.damageBase(enemy.damage);
           enemy.alive = false;
-          if (this.baseHp === 0) this.finish("defeat", "베이스 캠프가 파괴되었습니다.");
+          break;
         }
+      }
+      // Smoothly walk toward the current path room's world center so the
+      // client renders the invader physically advancing through the world.
+      const target = this.roomWorldCenterOf(enemy.path[enemy.pathIndex] as CoreRoomId);
+      const dx = target.x - enemy.x;
+      const dy = target.y - enemy.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance > 4 && enemy.alive) {
+        const step = Math.min(distance, enemy.speed * delta);
+        enemy.x += dx / distance * step;
+        enemy.y += dy / distance * step;
       }
     }
   }
 
   private updateInvaderSpawning(delta: number): void {
-    if (this.phase !== "night") return;
+    if (this.phase === "lobby" || this.phase === "ended") return;
+    const isNight = this.phase === "night";
+    const baseInterval = isNight ? 6 : 14;
+    const interval = Math.max(3, baseInterval - this.day);
     this.invaderSpawnAccumulator += delta;
-    if (this.invaderSpawnAccumulator < 8) return;
-    this.invaderSpawnAccumulator -= 8;
-    const zone = this.currentZone;
-    this.spawnInvader(zone);
+    if (this.invaderSpawnAccumulator < interval) return;
+    this.invaderSpawnAccumulator = 0;
+    const count = isNight ? 2 + Math.floor(this.day / 2) : 1;
+    for (let index = 0; index < count; index += 1) this.spawnInvader(this.currentZone);
+  }
+
+  /**
+   * Ranged attack tiers: hidden/gate (mid-boss) and boss enemies fire at the
+   * nearest player in their room within attack range. Static enemies remain
+   * melee-only (handled by updateStaticEnemies).
+   */
+  private updateRangedEnemies(delta: number): void {
+    for (const enemy of this.enemies.values()) {
+      if (!enemy.alive || (enemy.kind !== "hidden" && enemy.behavior !== "gate" && enemy.behavior !== "boss")) continue;
+      enemy.attackCooldown = Math.max(0, enemy.attackCooldown - delta);
+      if (enemy.attackCooldown > 0) continue;
+      const target = this.nearestPlayerInRoom(enemy.roomId, enemy.x, enemy.y, enemy.attackRange);
+      if (!target) continue;
+      enemy.attackCooldown = enemy.kind === "boss" ? 1.4 : enemy.kind === "gate" ? 1.1 : 1.6;
+      this.damagePlayer(target, enemy.damage);
+    }
+  }
+
+  private updateBossPattern(delta: number): void {
+    if (this.phase !== "boss") return;
+    const boss = [...this.enemies.values()].find((enemy) => enemy.behavior === "boss" && enemy.alive);
+    if (!boss) return;
+    const enraged = boss.hp / boss.maxHp <= 0.3;
+    const interval = enraged ? 2.4 : 3.4;
+    this.bossPatternAccumulator += delta;
+    if (this.bossPatternAccumulator < interval) return;
+    this.bossPatternAccumulator = 0;
+    const targets = [...this.players.values()].filter((player) => player.alive && player.roomId === boss.roomId);
+    for (const target of targets) this.damagePlayer(target, Math.max(1, Math.round(boss.damage * 0.75)));
+  }
+
+  private nearestPlayerInRoom(roomId: CoreRoomId, x: number, y: number, range: number): CorePlayer | null {
+    let best: CorePlayer | null = null;
+    let bestDistance = range;
+    for (const player of this.players.values()) {
+      if (!player.alive || player.roomId !== roomId) continue;
+      const distance = Math.hypot(player.x - x, player.y - y);
+      if (distance <= bestDistance) {
+        best = player;
+        bestDistance = distance;
+      }
+    }
+    return best;
+  }
+
+  private roomWorldCenterOf(roomId: CoreRoomId): Readonly<{ x: number; y: number }> {
+    const room = this.rooms.get(roomId);
+    if (room) return roomWorldCenter({ x: room.gridX, y: room.gridY });
+    return { x: 0, y: 0 };
+  }
+
+  private damageBase(rawDamage: number): void {
+    this.baseHp = Math.max(0, this.baseHp - Math.max(1, Math.round(rawDamage)));
+    if (this.baseHp === 0) this.finish("defeat", "베이스 캠프가 파괴되었습니다.");
+  }
+
+  /**
+   * Server-side AI for `ai:` party members. The first AI guards the base
+   * (defender); the rest follow the nearest human leader (follower) and engage
+   * enemies in their room. Drives input + aim so the shared movement/attack
+   * pipeline moves them normally.
+   */
+  private updateAiPlayers(delta: number): void {
+    for (const player of this.players.values()) {
+      if (!player.aiRole || !player.alive) {
+        if (player.aiRole) { player.inputX = 0; player.inputY = 0; }
+        continue;
+      }
+      if (this.phase === "lobby" || this.phase === "ended") { player.inputX = 0; player.inputY = 0; continue; }
+      const leader = this.aiLeader(player);
+      const targetRoom = player.aiRole === "defender"
+        ? this.rooms.get(this.maps.zones[0].startRoomId)
+        : leader ? this.rooms.get(leader.roomId) : null;
+      if (!targetRoom) { player.inputX = 0; player.inputY = 0; continue; }
+      const anchor = this.roomWorldCenterOf(targetRoom.id);
+      this.aiApproach(player, anchor.x, anchor.y, player.aiRole === "follower" ? 70 : 40);
+      const enemy = this.nearestPlayerInRoomEnemy(player);
+      if (enemy && (this.phase === "day" || this.phase === "night" || this.phase === "boss")) {
+        player.aim = Math.atan2(enemy.y - player.y, enemy.x - player.x);
+        this.performAutoAttack(player.userId);
+      }
+    }
+  }
+
+  private aiLeader(ai: CorePlayer): CorePlayer | null {
+    let best: CorePlayer | null = null;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const candidate of this.players.values()) {
+      if (candidate.userId === ai.userId || candidate.aiRole || !candidate.alive) continue;
+      const distance = Math.hypot(candidate.x - ai.x, candidate.y - ai.y);
+      if (distance < bestDistance) { best = candidate; bestDistance = distance; }
+    }
+    return best ?? [...this.players.values()].find((candidate) => candidate.userId !== ai.userId && candidate.alive) ?? null;
+  }
+
+  private aiApproach(player: CorePlayer, x: number, y: number, desiredGap: number): void {
+    const dx = x - player.x;
+    const dy = y - player.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance <= desiredGap) { player.inputX = 0; player.inputY = 0; return; }
+    player.inputX = dx / distance;
+    player.inputY = dy / distance;
+  }
+
+  private nearestPlayerInRoomEnemy(player: CorePlayer): CoreEnemy | null {
+    const rules = CLASS_COMBAT_RULES[player.heroClass];
+    return selectNearestConeEnemy(player, this.enemies.values(), rules.attackRange, Math.PI);
   }
 
   private updateResourceProduction(delta: number): void {
