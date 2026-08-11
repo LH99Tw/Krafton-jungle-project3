@@ -115,6 +115,17 @@ test("renders the dedicated access sidebar with the clean decorative asset", asy
   await Promise.all(profileBadges.map((file) => access(new URL(`public/images/ui/profile-badges/${file}`, root))));
 });
 
+test("keeps augment lab and quick mage launch shortcuts development-only", async () => {
+  const accessScreen = await readFile(new URL("src/features/lobby/AccessScreen.tsx", root), "utf8");
+  const shell = await readFile(new URL("src/features/game/GameShell.tsx", root), "utf8");
+
+  assert.match(accessScreen, /LOCAL_DEVELOPMENT_TOOLS_ENABLED && onOpenLab/);
+  assert.match(accessScreen, /LOCAL_DEVELOPMENT_TOOLS_ENABLED && \(\s*<FantasyButton[\s\S]*마법사로 바로 시작하기/);
+  assert.match(shell, /LOCAL_DEVELOPMENT_TOOLS_ENABLED && screen === "lab"/);
+  assert.match(shell, /onOpenLab=\{LOCAL_DEVELOPMENT_TOOLS_ENABLED \?/);
+  assert.match(shell, /const quickPlayMage = LOCAL_DEVELOPMENT_TOOLS_ENABLED/);
+});
+
 test("keeps the lobby room list scrollable without shifting the join controls", async () => {
   const lobby = await readFile(new URL("src/features/lobby/LobbyScreen.tsx", root), "utf8");
   const styles = await readFile(new URL("app/globals.css", root), "utf8");

@@ -33,6 +33,7 @@ export type Viewer = {
 } | null;
 
 type Screen = "access" | "lobby" | "selecting" | "editor" | "lab" | "playing";
+const LOCAL_DEVELOPMENT_TOOLS_ENABLED = process.env.NODE_ENV !== "production";
 const RUN_RECOVERY_KEY = "five-days:active-run:v1";
 const RUN_RECOVERY_TTL_MS = 35 * 60 * 1000;
 
@@ -371,11 +372,13 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
 
   if (screen === "lobby" && viewer) return <LobbyScreen viewer={viewer} rooms={rooms} snapshot={lobby} messages={messages} busy={busy} error={surfaceError} onCreate={createLobby} onJoin={joinLobby} onLeave={leaveLobby} onReady={(ready) => lobbyTransport.ready(ready)} onStart={() => lobbyTransport.startSelection()} onSoloStart={startSoloExpedition} onChat={(message) => globalChatTransport.chat(message)} onAddAi={() => lobbyTransport.addAi()} onRemoveAi={(userId) => lobbyTransport.removeAi(userId)} onBack={() => setScreen("access")} />;
 
-  if (screen === "lab") return <AugmentLabScreen onBack={() => setScreen("access")} />;
+  if (LOCAL_DEVELOPMENT_TOOLS_ENABLED && screen === "lab") return <AugmentLabScreen onBack={() => setScreen("access")} />;
   if (screen === "editor" && localMapEditorEnabled) return <MapEditorScreen onBack={() => setScreen("access")} onPlay={playEditorMap} />;
 
-  const quickPlayMage = () => void beginRun({ heroClass: "mage", sessionMode: "prototype", difficulty: "normal", partyMode: "solo" });
-  return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onLogout={logout} editorEnabled={localMapEditorEnabled} onOpenEditor={() => { if (localMapEditorEnabled) setScreen("editor"); }} onOpenLab={() => setScreen("lab")} onStart={() => { setSurfaceError(""); if (gameServerUrl) setScreen("lobby"); else void beginRun({ heroClass: "swordsman", sessionMode: "prototype", difficulty: "normal", partyMode: "solo" }); }} onQuickPlayMage={quickPlayMage} />;
+  const quickPlayMage = LOCAL_DEVELOPMENT_TOOLS_ENABLED
+    ? () => void beginRun({ heroClass: "mage", sessionMode: "prototype", difficulty: "normal", partyMode: "solo" })
+    : undefined;
+  return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onLogout={logout} editorEnabled={localMapEditorEnabled} onOpenEditor={() => { if (localMapEditorEnabled) setScreen("editor"); }} onOpenLab={LOCAL_DEVELOPMENT_TOOLS_ENABLED ? () => setScreen("lab") : undefined} onStart={() => { setSurfaceError(""); if (gameServerUrl) setScreen("lobby"); else void beginRun({ heroClass: "swordsman", sessionMode: "prototype", difficulty: "normal", partyMode: "solo" }); }} onQuickPlayMage={quickPlayMage} />;
 }
 
 function saveRunRecovery(userId: string, roomId: string, options: GameStartOptions): void {
