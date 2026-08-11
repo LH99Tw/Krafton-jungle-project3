@@ -146,7 +146,7 @@ export function isWalkableDiscPoint(
   return true;
 }
 
-function isWalkableDiscLine(
+export function isWalkableDiscLine(
   rects: readonly WorldRect[],
   fromX: number,
   fromY: number,

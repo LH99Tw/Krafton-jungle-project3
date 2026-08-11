@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GameCore } from "../src/index";
+import { GameCore, OFFICIAL_WORLD } from "../src/index";
 import type { CoreWorldDefinition } from "../src/v02/simulation";
 import {
   findWalkableDiscPath,
@@ -84,4 +84,82 @@ test("a distant AI follower recovers through terrain when direct steering is blo
 
   assert.equal(follower.roomId, targetRoomId, `follower stopped at ${follower.x},${follower.y}`);
   assert.ok(Math.hypot(human.x - follower.x, human.y - follower.y) <= 240);
+});
+
+test("an official-map follower does not oscillate when its leader retargets across a corridor", () => {
+  const core = new GameCore({
+    mode: "prototype",
+    difficulty: "normal",
+    seed: "official-follow-retarget",
+    minimumPlayers: 1,
+    world: OFFICIAL_WORLD,
+  });
+  const human = core.addPlayer({ userId: "human", displayName: "용사", heroClass: "swordsman" });
+  core.setReady(human.userId, true);
+  human.hp = 1_000_000;
+  human.maxHp = 1_000_000;
+  core.addPlayer({ userId: "ai:defender", displayName: "수호자", heroClass: "swordsman" });
+  const follower = core.addPlayer({ userId: "ai:follower", displayName: "동료", heroClass: "archer" });
+  follower.hp = 1_000_000;
+  follower.maxHp = 1_000_000;
+
+  core.movePlayerToRoom(human.userId, "editor:room-gate");
+  for (let step = 0; step < 280; step += 1) core.update(0.05);
+  assert.notEqual(follower.roomId, OFFICIAL_WORLD.baseRoomId, "the follower should leave the base before retargeting");
+
+  core.movePlayerToRoom(human.userId, OFFICIAL_WORLD.baseRoomId);
+  for (let step = 0; step < 500; step += 1) core.update(0.05);
+
+  assert.equal(follower.roomId, OFFICIAL_WORLD.baseRoomId, `follower stopped at ${follower.x},${follower.y}`);
+  assert.ok(Math.hypot(human.x - follower.x, human.y - follower.y) <= 240);
+});
+
+test("authored invaders choose the shorter bent corridor distance instead of the fewest rooms", () => {
+  const gate = "editor:gate" as const;
+  const shortA = "editor:short-a" as const;
+  const shortB = "editor:short-b" as const;
+  const long = "editor:long" as const;
+  const base = "editor:base" as const;
+  const boss = "editor:boss" as const;
+  const rect = (x: number, y: number) => ({ x, y, width: 120, height: 120 });
+  const rooms: CoreWorldDefinition["rooms"] = [
+    { id: gate, zone: 1, kind: "gate", rect: rect(0, 0), mapX: 0, mapY: 0, connections: [long, shortA], depth: 3 },
+    { id: shortA, zone: 1, kind: "empty", rect: rect(200, 0), mapX: 1, mapY: 0, connections: [gate, shortB], depth: 2 },
+    { id: shortB, zone: 1, kind: "empty", rect: rect(400, 0), mapX: 2, mapY: 0, connections: [shortA, base], depth: 1 },
+    { id: long, zone: 1, kind: "empty", rect: rect(0, 2_000), mapX: 0, mapY: 10, connections: [gate, base], depth: 1 },
+    { id: base, zone: 1, kind: "start", rect: rect(600, 0), mapX: 3, mapY: 0, connections: [shortB, long], depth: 0 },
+    { id: boss, zone: 3, kind: "boss", rect: rect(800, 0), mapX: 4, mapY: 0, connections: [], depth: 4 },
+  ];
+  const center = (roomId: typeof gate | typeof shortA | typeof shortB | typeof long | typeof base) => {
+    const room = rooms.find((candidate) => candidate.id === roomId)!;
+    return { x: room.rect.x + room.rect.width / 2, y: room.rect.y + room.rect.height / 2 };
+  };
+  const links = [
+    [gate, long],
+    [long, base],
+    [gate, shortA],
+    [shortA, shortB],
+    [shortB, base],
+  ] as const;
+  const world: CoreWorldDefinition = {
+    kind: "authored",
+    id: "weighted-invader-route",
+    rooms,
+    connections: links.map(([from, to]) => ({
+      id: `${from}-${to}`,
+      from,
+      to,
+      floorRects: [],
+      points: [center(from), center(to)],
+      portal: center(to),
+    })),
+    walkable: rooms.map((room) => room.rect),
+    bounds: { x: 0, y: 0, width: 920, height: 2_120 },
+    baseRoomId: base,
+    bossRoomId: boss,
+    gateRoomIds: [gate],
+  };
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "weighted-route", minimumPlayers: 1, world });
+
+  assert.deepEqual(core.spawnInvader().path, [gate, shortA, shortB, base]);
 });

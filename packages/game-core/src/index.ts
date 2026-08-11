@@ -56,6 +56,7 @@ import {
   buildWorldFromRooms,
   corridorRectBetween,
   findWalkableDiscPath,
+  isWalkableDiscLine,
   isWalkableLine,
   resolveWalkablePoint,
   roomContainingPoint,
@@ -172,7 +173,6 @@ const INVADER_SPAWN_SLOTS = 24;
 const INVADER_ATTACKERS_PER_PLAYER = 6;
 const INVADER_CORRIDOR_LANE_OFFSET = 20;
 const AI_FOLLOWER_GAP = 180;
-const AI_PATHFIND_DISTANCE = 560;
 const AI_PATH_REPLAN_SECONDS = 0.75;
 const AI_PATH_TARGET_DRIFT = 96;
 const AI_PATH_WAYPOINT_RADIUS = 32;
@@ -1317,25 +1317,9 @@ export class GameCore {
     destination: CoreRoomId,
     navigation: InvaderNavigation,
   ): CoreRoomId[] | null {
-    const previous = new Map<CoreRoomId, CoreRoomId | null>([[from, null]]);
-    const queue: CoreRoomId[] = [from];
-    while (queue.length > 0) {
-      const current = queue.shift() as CoreRoomId;
-      if (current === destination) break;
-      for (const next of [...(this.rooms.get(current)?.connections ?? [])].sort()) {
-        if (previous.has(next) || !this.isInvaderEdgeTraversable(current, next, navigation)) continue;
-        previous.set(next, current);
-        queue.push(next);
-      }
-    }
-    if (!previous.has(destination)) return null;
-    const reversed: CoreRoomId[] = [];
-    let cursor: CoreRoomId | null = destination;
-    while (cursor) {
-      reversed.push(cursor);
-      cursor = previous.get(cursor) ?? null;
-    }
-    return reversed.reverse();
+    return this.weightedRoomPath(from, destination, (current, next) => (
+      this.isInvaderEdgeTraversable(current, next, navigation)
+    ));
   }
 
   private invaderSimplePaths(
@@ -1407,6 +1391,9 @@ export class GameCore {
     const authoredPoints = authoredConnection
       ? (authoredConnection.from === enemy.roomId ? authoredConnection.points : [...authoredConnection.points].reverse())
       : null;
+    if (authoredPoints && navigation.corridorWaypointIndex === 0) {
+      navigation.corridorWaypointIndex = this.furthestReachableConnectionPoint(enemy.x, enemy.y, authoredPoints);
+    }
     if (authoredPoints && navigation.corridorWaypointIndex < authoredPoints.length) {
       const rawTarget = authoredPoints[navigation.corridorWaypointIndex]!;
       const toward = authoredPoints[navigation.corridorWaypointIndex + 1] ?? this.roomWorldCenterOf(nextRoomId);
@@ -1654,22 +1641,55 @@ export class GameCore {
   }
 
   private shortestRoomPath(from: CoreRoomId, destination: CoreRoomId): CoreRoomId[] | null {
+    return this.weightedRoomPath(from, destination, () => true);
+  }
+
+  private weightedRoomPath(
+    from: CoreRoomId,
+    destination: CoreRoomId,
+    traversable: (from: CoreRoomId, to: CoreRoomId) => boolean,
+  ): CoreRoomId[] | null {
     const previous = new Map<CoreRoomId, CoreRoomId | null>([[from, null]]);
-    const queue: CoreRoomId[] = [from];
+    const distances = new Map<CoreRoomId, number>([[from, 0]]);
+    const queue: Array<{ roomId: CoreRoomId; distance: number }> = [{ roomId: from, distance: 0 }];
     while (queue.length > 0) {
-      const current = queue.shift() as CoreRoomId;
-      if (current === destination) break;
-      for (const next of [...(this.rooms.get(current)?.connections ?? [])].sort()) {
-        if (previous.has(next)) continue;
-        previous.set(next, current);
-        queue.push(next);
+      queue.sort((left, right) => left.distance - right.distance || left.roomId.localeCompare(right.roomId));
+      const current = queue.shift()!;
+      if (current.distance > (distances.get(current.roomId) ?? Number.POSITIVE_INFINITY) + SIMULATION_EPSILON) continue;
+      if (current.roomId === destination) break;
+      for (const next of [...(this.rooms.get(current.roomId)?.connections ?? [])].sort()) {
+        if (!traversable(current.roomId, next)) continue;
+        const candidate = current.distance + this.roomConnectionTravelCost(current.roomId, next);
+        if (candidate + SIMULATION_EPSILON >= (distances.get(next) ?? Number.POSITIVE_INFINITY)) continue;
+        distances.set(next, candidate);
+        previous.set(next, current.roomId);
+        queue.push({ roomId: next, distance: candidate });
       }
     }
-    if (!previous.has(destination)) return null;
+    if (!distances.has(destination)) return null;
     const path: CoreRoomId[] = [];
     let cursor: CoreRoomId | null = destination;
     while (cursor) { path.push(cursor); cursor = previous.get(cursor) ?? null; }
     return path.reverse();
+  }
+
+  private roomConnectionTravelCost(from: CoreRoomId, to: CoreRoomId): number {
+    const fromCenter = this.roomWorldCenterOf(from);
+    const toCenter = this.roomWorldCenterOf(to);
+    const connection = this.authoredWorld?.connections.find((candidate) => (
+      candidate.from === from && candidate.to === to
+      || candidate.to === from && candidate.from === to
+    ));
+    if (!connection) return Math.hypot(toCenter.x - fromCenter.x, toCenter.y - fromCenter.y);
+    const points = connection.from === from ? connection.points : [...connection.points].reverse();
+    const route = [fromCenter, ...points, toCenter];
+    let distance = 0;
+    for (let index = 1; index < route.length; index += 1) {
+      const previousPoint = route[index - 1]!;
+      const point = route[index]!;
+      distance += Math.hypot(point.x - previousPoint.x, point.y - previousPoint.y);
+    }
+    return distance;
   }
 
   private damageBase(rawDamage: number): void {
@@ -1769,7 +1789,14 @@ export class GameCore {
     const existing = this.partyNavigation.get(player.userId);
     const navigation = existing?.from === player.roomId && existing.to === nextRoomId
       ? existing
-      : { from: player.roomId, to: nextRoomId, waypointIndex: 0 };
+      : {
+          from: player.roomId,
+          to: nextRoomId,
+          // The room id remains the source room while an actor is physically
+          // inside its corridor. Restarting at point zero would send an actor
+          // that already passed the doorway back in the opposite direction.
+          waypointIndex: this.furthestReachableConnectionPoint(player.x, player.y, points),
+        };
     while (navigation.waypointIndex < points.length) {
       const point = points[navigation.waypointIndex]!;
       if (Math.hypot(point.x - player.x, point.y - player.y) > 24) break;
@@ -1777,6 +1804,23 @@ export class GameCore {
     }
     this.partyNavigation.set(player.userId, navigation);
     return points[navigation.waypointIndex] ?? this.roomWorldCenterOf(nextRoomId);
+  }
+
+  private furthestReachableConnectionPoint(
+    x: number,
+    y: number,
+    points: readonly Readonly<{ x: number; y: number }>[],
+  ): number {
+    if (!this.authoredWorld) return 0;
+    const rects = this.authoredWalkable();
+    let furthest = 0;
+    for (let index = 0; index < points.length; index += 1) {
+      const point = points[index]!;
+      if (isWalkableDiscLine(rects, x, y, point.x, point.y, ACTOR_COLLISION_RADIUS)) {
+        furthest = index;
+      }
+    }
+    return furthest;
   }
 
   private aiLeader(ai: CorePlayer): CorePlayer | null {
@@ -1792,16 +1836,25 @@ export class GameCore {
 
   private distantAiFollowAnchor(player: CorePlayer, leader: CorePlayer): Readonly<{ x: number; y: number }> | null {
     const distance = Math.hypot(leader.x - player.x, leader.y - player.y);
-    if (distance < AI_PATHFIND_DISTANCE) {
-      this.aiFollowNavigation.delete(player.userId);
-      return null;
-    }
     const playerRoom = this.rooms.get(player.roomId);
     const leaderRoom = this.rooms.get(leader.roomId);
     const rects = this.authoredWorld
       ? this.authoredWalkable()
       : playerRoom?.zone === leaderRoom?.zone ? this.zoneWorlds.get(playerRoom?.zone ?? 1)?.rects : null;
     if (!rects) return null;
+
+    // Straight-line distance is not a valid navigation criterion: two close
+    // positions can still be separated by a wall. Only bypass A* when the
+    // actor's full collision disc has a direct walkable line to the leader.
+    // Otherwise A* accumulates the real route length around corridor bends.
+    if (isWalkableDiscLine(rects, player.x, player.y, leader.x, leader.y, ACTOR_COLLISION_RADIUS)) {
+      this.aiFollowNavigation.delete(player.userId);
+      return player.roomId === leader.roomId ? null : { x: leader.x, y: leader.y };
+    }
+    if (player.roomId === leader.roomId && distance <= AI_FOLLOWER_GAP) {
+      this.aiFollowNavigation.delete(player.userId);
+      return null;
+    }
 
     let navigation = this.aiFollowNavigation.get(player.userId);
     const targetDrift = navigation
