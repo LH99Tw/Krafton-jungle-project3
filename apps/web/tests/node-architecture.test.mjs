@@ -75,6 +75,8 @@ test("gates deployments on verification and repairs required production settings
   assert.match(workflow, /pnpm test/);
   assert.match(workflow, /upsert_env \.env\.web GUESTBOOK_ADMIN_DELETE_KEY/);
   assert.match(workflow, /upsert_env \.env\.web PUBLIC_PLAYTEST_ENABLED true/);
+  assert.match(workflow, /upsert_env \.env\.web PROTOCOL_VERSION 4/);
+  assert.match(workflow, /upsert_env \.env\.game PROTOCOL_VERSION 4/);
   assert.match(configure, /GUESTBOOK_ADMIN_DELETE_KEY/);
   assert.match(instrumentation, /required\("GUESTBOOK_ADMIN_DELETE_KEY"\)/);
 });

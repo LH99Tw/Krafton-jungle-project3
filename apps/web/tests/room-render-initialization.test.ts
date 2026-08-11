@@ -19,7 +19,8 @@ test("runtime preloads 32px hero sheets and selects an aim-direction frame", () 
   const generatedTextures = readFileSync(new URL("../src/game/client/render/createTextures.ts", import.meta.url), "utf8");
   assert.match(scene, /this\.load\.spritesheet\(`hero-\$\{classId\}`/);
   assert.match(scene, /frameWidth: HERO_SPRITE_FRAME_SIZE/);
+  assert.match(scene, /endFrame: HERO_TOTAL_FRAME_COUNT - 1/);
   assert.match(renderer, /`hero-\$\{classId\}`/);
-  assert.match(renderer, /setFrame\(heroFrameForAimAngle\(aimAngle\)\)/);
+  assert.match(renderer, /setFrame\(heroFrameForPose\(aimAngle, moving, time\)\)/);
   assert.doesNotMatch(generatedTextures, /key: "hero-/);
 });

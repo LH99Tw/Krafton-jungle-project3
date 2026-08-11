@@ -40,7 +40,7 @@ import type { InputFrame, WorldFrame } from "@five-days/protocol";
 import { resolveSharedPartyProgress } from "../../domain/sharedPartyProgress";
 import { editorThemeZone } from "../../domain/mapEditor";
 import { ProgressionModel } from "../../systems/ProgressionModel";
-import { HERO_SPRITE_FRAME_SIZE, HERO_SPRITE_PATHS } from "../../client/render/heroSprites";
+import { HERO_SPRITE_FRAME_SIZE, HERO_SPRITE_PATHS, HERO_TOTAL_FRAME_COUNT } from "../../client/render/heroSprites";
 import { colyseusTransport } from "../../transport/ColyseusTransport";
 import { predictPlayerTransform, RealtimeTransformBuffer, shouldRenderPartyMember } from "../../netcode/RealtimeBuffer";
 import { gameBridge, type GameCommand } from "../GameBridge";
@@ -147,6 +147,8 @@ export class RoomGameScene extends Phaser.Scene {
   private networkDisconnect?: () => void;
   private worldFrameDisconnect?: () => void;
   private localInputDisconnect?: () => void;
+  private localAim = 0;
+  private localMoving = false;
   private enemies: LocalEnemy[] = [];
   private drops: LocalDrop[] = [];
   private structures: LocalStructure[] = [];
@@ -242,7 +244,7 @@ export class RoomGameScene extends Phaser.Scene {
       this.load.spritesheet(`hero-${classId}`, path, {
         frameWidth: HERO_SPRITE_FRAME_SIZE,
         frameHeight: HERO_SPRITE_FRAME_SIZE,
-        endFrame: 7,
+        endFrame: HERO_TOTAL_FRAME_COUNT - 1,
       });
     }
     for (const zone of [1, 2, 3] as const) {
@@ -456,6 +458,8 @@ export class RoomGameScene extends Phaser.Scene {
     const localState = snapshot?.players.find((member) => member.isLocal)
       ?? snapshot?.players.find((member) => member.userId === this.options.userId);
     if (!snapshot || !localState) return;
+    this.localAim = frame.aim;
+    this.localMoving = Math.hypot(frame.x, frame.y) > 0.01;
     const current = this.localPrediction ?? { x: localState.x, y: localState.y, roomId: localState.roomId };
     this.localPrediction = predictPlayerTransform({
       ...current,
@@ -480,6 +484,7 @@ export class RoomGameScene extends Phaser.Scene {
         this.localPrediction.y + (this.localCorrection?.y ?? 0) * correctionScale,
       );
       this.player.setVisible(true).setActive(true);
+      this.roomRenderer.updateHeroPose(this.player, this.localAim, this.localMoving, now);
       if (correctionScale === 0) this.localCorrection = null;
     }
     for (const member of snapshot.players) {
@@ -489,6 +494,7 @@ export class RoomGameScene extends Phaser.Scene {
       if (!sprite || !transform) continue;
       const point = clampToWorld(this.zoneWorld.bounds, transform.x, transform.y);
       sprite.setPosition(point.x, point.y).setVisible(shouldRenderPartyMember(member, localState.roomId));
+      this.roomRenderer.updateHeroPose(sprite, transform.aim, Math.hypot(transform.vx, transform.vy) > 1, now);
     }
     for (const enemy of snapshot.enemies) {
       const sprite = this.networkEnemies.get(enemy.id);
@@ -1262,7 +1268,6 @@ export class RoomGameScene extends Phaser.Scene {
       }
       sprite.setVisible(isLocal || shouldRenderPartyMember(member, localRoomId)).setActive(member.connected);
       sprite.setAlpha(isLocal ? 1 : 0.82);
-      this.roomRenderer.updateHeroPose(sprite, member.aim, false, performance.now());
     }
   }
 
