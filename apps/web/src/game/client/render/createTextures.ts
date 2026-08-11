@@ -119,7 +119,7 @@ export function createGameTextures(scene: Phaser.Scene): void {
     },
   ];
 
-  // Clean 8-directional transparent pixel art skeleton textures
+  // 8-directional transparent pixel art skeleton with eye sockets facing player
   const SKELETON_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315] as const;
   SKELETON_ANGLES.forEach((angle) => {
     specs.push({
@@ -132,57 +132,72 @@ export function createGameTextures(scene: Phaser.Scene): void {
         const dirY = Math.round(Math.sin(rad));
 
         // Ground shadow
-        g.fillStyle(0x000000, 0.35).fillEllipse(16, 28, 20, 7);
+        g.fillStyle(0x000000, 0.4).fillEllipse(16, 28, 20, 7);
 
-        // Stepping bone legs
-        const step = Math.round(dirX * 3);
-        g.fillStyle(0xdedede).fillRect(11 - step, 20, 3, 7);
-        g.fillStyle(0xb5b5b5).fillRect(10 - step, 26, 4, 2);
-        g.fillStyle(0xdedede).fillRect(18 + step, 20, 3, 7);
-        g.fillStyle(0xb5b5b5).fillRect(18 + step, 26, 4, 2);
+        // Stepping legs
+        const legShift = Math.round(dirX * 3);
+        g.fillStyle(0xe0e0e0).fillRect(11 - legShift, 20, 3, 7);
+        g.fillStyle(0xaaaaaa).fillRect(10 - legShift, 26, 4, 2);
+        g.fillStyle(0xe0e0e0).fillRect(18 + legShift, 20, 3, 7);
+        g.fillStyle(0xaaaaaa).fillRect(18 + legShift, 26, 4, 2);
 
-        // Spine
+        // Spine & Ribcage
         g.fillStyle(0x999999).fillRect(14, 18, 4, 3);
+        g.fillStyle(0xf0f0f0).fillRect(11, 11, 10, 7);
+        g.fillStyle(0x666666)
+          .fillRect(13, 12, 6, 1)
+          .fillRect(13, 14, 6, 1)
+          .fillRect(13, 16, 6, 1);
 
-        // Ribcage
-        g.fillStyle(0xe6e6e6).fillRect(12, 11, 8, 7);
-        g.fillStyle(0x7c7c7c)
-          .fillRect(14, 12, 4, 1)
-          .fillRect(14, 14, 4, 1)
-          .fillRect(14, 16, 4, 1);
+        // Wooden Shield (Left Side)
+        const shieldX = 5 + dirX * 2;
+        const shieldY = 10 + dirY * 2;
+        g.fillStyle(0x3e2723).fillRect(shieldX, shieldY, 7, 10);
+        g.fillStyle(0x6d4c41).fillRect(shieldX + 1, shieldY + 1, 5, 8);
+        g.fillStyle(0xd4af37).fillRect(shieldX + 3, shieldY + 4, 2, 2);
 
-        // Wooden Shield
-        const shieldX = 7 + dirX * 3;
-        const shieldY = 11 + dirY * 2;
-        g.fillStyle(0x4a3425).fillRect(shieldX, shieldY, 7, 9);
-        g.fillStyle(0x8c6239).fillRect(shieldX + 1, shieldY + 1, 5, 7);
-        g.fillStyle(0xc49a45).fillRect(shieldX + 3, shieldY + 3, 2, 2);
-
-        // Bone Sword
-        const swordX = 22 + dirX * 2;
-        const swordY = 8 + dirY * 2;
-        g.fillStyle(0xc0c0c0).fillRect(swordX, swordY, 2, 10);
-        g.fillStyle(0x808080).fillRect(swordX - 2, swordY + 8, 6, 2);
+        // Bone Sword (Right Side)
+        const swordX = 21 + dirX * 2;
+        const swordY = 7 + dirY * 2;
+        g.fillStyle(0xe0e0e0).fillRect(swordX, swordY, 2, 11);
+        g.fillStyle(0x757575).fillRect(swordX - 2, swordY + 9, 6, 2);
 
         // Skull Head
-        g.fillStyle(0xf5f5f5).fillRect(11 + dirX, 3 + dirY, 10, 9);
-        g.fillStyle(0xd9d9d9).fillRect(12 + dirX, 2 + dirY, 8, 2);
+        g.fillStyle(0xffffff).fillRect(10 + dirX * 2, 2 + dirY * 2, 12, 10);
+        g.fillStyle(0xdddddd).fillRect(11 + dirX * 2, 1 + dirY * 2, 10, 2);
 
-        // Crimson Glowing Eye Sockets
-        const eyeX1 = 12 + Math.max(-2, Math.min(2, dirX * 2));
-        const eyeX2 = 17 + Math.max(-2, Math.min(2, dirX * 2));
-        const eyeY = 6 + Math.max(-2, Math.min(2, dirY * 2));
+        // Face & Eye Sockets facing player direction
+        if (angle !== 270) { // If NOT facing away (270 deg is North/Back)
+          // Glowing crimson eyes glaring directly at player
+          const eyeOffX = dirX * 2;
+          const eyeOffY = dirY * 2;
 
-        if (angle !== 180) {
-          g.fillStyle(0x220505).fillRect(eyeX1, eyeY, 3, 3).fillRect(eyeX2, eyeY, 3, 3);
-          g.fillStyle(0xff1133).fillRect(eyeX1 + 1, eyeY + 1, 1, 1).fillRect(eyeX2 + 1, eyeY + 1, 1, 1);
+          // Eye Sockets
+          g.fillStyle(0x1a0000)
+            .fillRect(11 + eyeOffX, 5 + eyeOffY, 4, 4)
+            .fillRect(17 + eyeOffX, 5 + eyeOffY, 4, 4);
+
+          // Intense Glowing Crimson Pupils
+          g.fillStyle(0xff0033)
+            .fillRect(12 + eyeOffX, 6 + eyeOffY, 2, 2)
+            .fillRect(18 + eyeOffX, 6 + eyeOffY, 2, 2);
+
+          // White Pupil Core Center
+          g.fillStyle(0xffffff)
+            .fillRect(13 + eyeOffX, 6 + eyeOffY, 1, 1)
+            .fillRect(19 + eyeOffX, 6 + eyeOffY, 1, 1);
+
+          // Skull Teeth Grid
+          g.fillStyle(0xdddddd).fillRect(12 + eyeOffX, 10 + eyeOffY, 8, 3);
+          g.fillStyle(0x222222)
+            .fillRect(13 + eyeOffX, 10 + eyeOffY, 1, 3)
+            .fillRect(15 + eyeOffX, 10 + eyeOffY, 1, 3)
+            .fillRect(17 + eyeOffX, 10 + eyeOffY, 1, 3);
         } else {
-          g.fillStyle(0xcccccc).fillRect(12, 5, 8, 6);
+          // Back of skull (North / 270 deg)
+          g.fillStyle(0xd0d0d0).fillRect(11, 3, 10, 8);
+          g.fillStyle(0x888888).fillRect(14, 10, 4, 3);
         }
-
-        // Skull Jaw
-        g.fillStyle(0xcccccc).fillRect(13 + dirX, 11 + dirY, 6, 2);
-        g.fillStyle(0x333333).fillRect(14 + dirX, 12 + dirY, 1, 1).fillRect(16 + dirX, 12 + dirY, 1, 1);
       },
     });
   });

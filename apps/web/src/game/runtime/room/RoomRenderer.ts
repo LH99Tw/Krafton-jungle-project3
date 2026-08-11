@@ -353,22 +353,26 @@ export class RoomRenderer {
     return enemy;
   }
 
-  updateEnemyPose(sprite: Phaser.Physics.Arcade.Sprite, kind: string): void {
+  updateEnemyPose(sprite: Phaser.Physics.Arcade.Sprite, kind: string, targetX?: number, targetY?: number): void {
     if (!sprite.active || !sprite.body) return;
     const body = sprite.body as Phaser.Physics.Arcade.Body;
     const vx = body.velocity.x;
     const vy = body.velocity.y;
     const speedSq = vx * vx + vy * vy;
 
-    if (speedSq > 4) {
-      const angle = Phaser.Math.RadToDeg(Math.atan2(vy, vx));
-      const normalized = (angle + 360) % 360;
-      const snapAngle = (Math.round(normalized / 45) * 45) % 360;
-      if (kind === "static" || kind === "invader" || kind === "hidden") {
-        sprite.setTexture(`enemy-skeleton-${snapAngle}`);
-      } else {
-        sprite.setAngle(angle);
-      }
+    let angle = 90;
+    if (typeof targetX === "number" && typeof targetY === "number") {
+      angle = Phaser.Math.RadToDeg(Math.atan2(targetY - sprite.y, targetX - sprite.x));
+    } else if (speedSq > 4) {
+      angle = Phaser.Math.RadToDeg(Math.atan2(vy, vx));
+    }
+
+    const normalized = (angle + 360) % 360;
+    const snapAngle = (Math.round(normalized / 45) * 45) % 360;
+    if (kind === "static" || kind === "invader" || kind === "hidden") {
+      sprite.setTexture(`enemy-skeleton-${snapAngle}`);
+    } else {
+      sprite.setAngle(angle);
     }
   }
 

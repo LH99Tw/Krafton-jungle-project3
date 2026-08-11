@@ -900,7 +900,7 @@ export class RoomGameScene extends Phaser.Scene {
         const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchor.x, anchor.y, ENEMY_COLLISION_RADIUS);
         enemy.sprite.setPosition(clamped.x, clamped.y);
         this.lastWalkableEnemyPositions.set(enemy.id, clamped);
-        this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind);
+        this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind, this.player.x, this.player.y);
         this.updateLocalEnemyHpBar(enemy);
         continue;
       }
@@ -910,13 +910,13 @@ export class RoomGameScene extends Phaser.Scene {
         const config = enemyPatternConfig(patternTier(enemy.kind));
         const interval = (config.telegraphSeconds + config.cooldownSeconds) * 1_000;
         if (!enemy.patternActive && time - enemy.lastShotAt >= interval) this.fireLocalEnemyPattern(enemy, time);
-        this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind);
+        this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind, this.player.x, this.player.y);
         this.updateLocalEnemyHpBar(enemy);
         continue;
       }
       if (!enemy.engaged) {
         enemy.sprite.setVelocity(0);
-        this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind);
+        this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind, this.player.x, this.player.y);
         this.updateLocalEnemyHpBar(enemy);
         continue;
       }
@@ -933,7 +933,7 @@ export class RoomGameScene extends Phaser.Scene {
         const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchor.x, anchor.y, ENEMY_COLLISION_RADIUS);
         enemy.sprite.setPosition(clamped.x, clamped.y);
         this.lastWalkableEnemyPositions.set(enemy.id, clamped);
-        this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind);
+        this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind, this.player.x, this.player.y);
         this.updateLocalEnemyHpBar(enemy);
         continue;
       }
@@ -944,7 +944,7 @@ export class RoomGameScene extends Phaser.Scene {
         const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchor.x, anchor.y, ENEMY_COLLISION_RADIUS);
         enemy.sprite.setPosition(clamped.x, clamped.y);
         this.lastWalkableEnemyPositions.set(enemy.id, clamped);
-        this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind);
+        this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind, this.player.x, this.player.y);
         this.updateLocalEnemyHpBar(enemy);
       }
 
@@ -955,7 +955,7 @@ export class RoomGameScene extends Phaser.Scene {
       const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchor.x, anchor.y, ENEMY_COLLISION_RADIUS);
       enemy.sprite.setPosition(clamped.x, clamped.y);
       this.lastWalkableEnemyPositions.set(enemy.id, clamped);
-      this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind);
+      this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind, this.player.x, this.player.y);
       this.updateLocalEnemyHpBar(enemy);
     }
   }
