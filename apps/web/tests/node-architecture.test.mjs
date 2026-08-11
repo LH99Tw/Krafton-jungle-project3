@@ -73,6 +73,11 @@ test("gates deployments on verification and repairs required production settings
   assert.match(workflow, /pnpm lint/);
   assert.match(workflow, /pnpm typecheck/);
   assert.match(workflow, /pnpm test/);
+  assert.match(workflow, /workflow_run:\s+workflows: \[CI\][\s\S]+branches: \[main\]/);
+  assert.match(workflow, /github\.event\.workflow_run\.conclusion == 'success'/);
+  assert.match(workflow, /RELEASE_SHA:.*github\.event\.workflow_run\.head_sha/);
+  assert.match(workflow, /ref: \$\{\{ env\.RELEASE_SHA \}\}/);
+  assert.match(workflow, /five-days-game-server:\$\{\{ env\.RELEASE_SHA \}\}/);
   assert.match(workflow, /upsert_env \.env\.web GUESTBOOK_ADMIN_DELETE_KEY/);
   assert.match(workflow, /upsert_env \.env\.web PUBLIC_PLAYTEST_ENABLED true/);
   assert.match(workflow, /upsert_env \.env\.web PROTOCOL_VERSION 6/);
