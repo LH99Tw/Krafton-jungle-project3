@@ -41,7 +41,7 @@ type LobbyEventMap = {
   disconnected: { code: number; reason: string };
 };
 
-export class LobbyTransport {
+class LobbyTransport {
   private room: Room<RawLobbyState> | null = null;
   private latestSnapshot: LobbySnapshot | null = null;
   private readonly listeners = new Map<keyof LobbyEventMap, Set<(value: never) => void>>();

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc --noEmit",
-    "lint": "tsc --noEmit",
+    "lint": "eslint src test --config ../../eslint.config.mjs",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
@@ -17,7 +17,7 @@
   },
   "devDependencies": {
     "@types/node": "22.19.19",
-    "tsx": "4.21.0",
+    "tsx": "4.23.12",
     "typescript": "5.9.3"
   }
 }

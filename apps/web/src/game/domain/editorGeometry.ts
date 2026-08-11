@@ -4,11 +4,11 @@ import type {
   EditorRoom,
 } from "./mapEditor";
 
-export type EditorGeometryPoint = { x: number; y: number };
+type EditorGeometryPoint = { x: number; y: number };
 export type EditorGeometryRect = { x: number; y: number; width: number; height: number };
 export type EditorWallSegment = { x1: number; y1: number; x2: number; y2: number };
 
-export type EditorRouteGeometry = {
+type EditorRouteGeometry = {
   connectionId: string;
   points: EditorGeometryPoint[];
   floorRects: EditorGeometryRect[];

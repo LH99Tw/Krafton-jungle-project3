@@ -3,10 +3,10 @@ import { buildEditorGeometry } from "./editorGeometry";
 export const EDITOR_MAP_STORAGE_KEY = "five-days:local-map:v1";
 export const EDITOR_MIN_COORDINATE = -128;
 export const EDITOR_MAX_COORDINATE = 127;
-export const EDITOR_MIN_ROOM_WIDTH = 2;
-export const EDITOR_MAX_ROOM_WIDTH = 6;
-export const EDITOR_MIN_ROOM_HEIGHT = 2;
-export const EDITOR_MAX_ROOM_HEIGHT = 5;
+const EDITOR_MIN_ROOM_WIDTH = 2;
+const EDITOR_MAX_ROOM_WIDTH = 6;
+const EDITOR_MIN_ROOM_HEIGHT = 2;
+const EDITOR_MAX_ROOM_HEIGHT = 5;
 
 const EDITOR_ROOM_TYPES = ["start", "empty", "resource", "static-monster", "hidden-monster", "gate", "boss"] as const;
 const EDITOR_ASSET_THEMES = ["forest", "marsh", "wastes"] as const;
@@ -14,7 +14,7 @@ const EDITOR_PORT_SIDES = ["north", "east", "south", "west"] as const;
 
 export type EditorRoomType = "start" | "empty" | "resource" | "static-monster" | "hidden-monster" | "gate" | "boss";
 export type EditorAssetTheme = "forest" | "marsh" | "wastes";
-export type EditorPortSide = "north" | "east" | "south" | "west";
+type EditorPortSide = "north" | "east" | "south" | "west";
 export type EditorConnectionPort = { side: EditorPortSide; offset: number };
 
 export type EditorRoom = {
@@ -188,11 +188,11 @@ export function cloneEditorMap(map: EditorMapDefinition): EditorMapDefinition {
   };
 }
 
-export function editorPortSpan(room: EditorRoom, side: EditorPortSide): number {
+function editorPortSpan(room: EditorRoom, side: EditorPortSide): number {
   return side === "north" || side === "south" ? room.width : room.height;
 }
 
-export function isValidEditorPort(room: EditorRoom, port: EditorConnectionPort): boolean {
+function isValidEditorPort(room: EditorRoom, port: EditorConnectionPort): boolean {
   return EDITOR_PORT_SIDES.includes(port.side)
     && Number.isInteger(port.offset)
     && port.offset >= 0

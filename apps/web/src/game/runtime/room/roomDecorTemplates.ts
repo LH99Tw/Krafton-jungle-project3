@@ -3,7 +3,7 @@ import type { RenderableRoom } from "./layout";
 
 export const ROOM_DECOR_TEMPLATE_COUNT = 16;
 
-export type RoomDecorPlacement = Readonly<{
+type RoomDecorPlacement = Readonly<{
   frame: number;
   x: number;
   y: number;

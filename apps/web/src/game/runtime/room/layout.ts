@@ -30,7 +30,7 @@ export const BUILD_BOUNDS = {
   gridSize: 40,
 } as const;
 
-export const WALL_HALF_TILE = 20;
+const WALL_HALF_TILE = 20;
 
 export function wallEnvelopeRects(
   walkable: readonly WorldRect[],

@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc --noEmit",
-    "lint": "tsc --noEmit",
+    "lint": "eslint src --config ../../eslint.config.mjs",
     "test": "node --test",
     "typecheck": "tsc --noEmit"
   },

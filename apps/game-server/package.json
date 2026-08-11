@@ -7,13 +7,13 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc --noEmit",
     "start": "tsx src/index.ts",
-    "lint": "tsc --noEmit",
+    "lint": "eslint src test --config ../../eslint.config.mjs",
     "test": "tsx --test test/*.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@colyseus/schema": "3.0.72",
     "@colyseus/core": "0.16.24",
+    "@colyseus/schema": "3.0.72",
     "@colyseus/ws-transport": "0.16.5",
     "@fails-components/webtransport": "1.6.7",
     "@fails-components/webtransport-transport-http3-quiche": "1.6.7",
@@ -22,8 +22,7 @@
     "@five-days/game-core": "workspace:*",
     "@five-days/protocol": "workspace:*",
     "express": "5.1.0",
-    "tsx": "4.21.0",
-    "zod": "4.4.3"
+    "tsx": "4.23.12"
   },
   "devDependencies": {
     "@types/express": "5.0.3",

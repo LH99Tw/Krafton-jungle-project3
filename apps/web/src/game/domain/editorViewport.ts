@@ -1,12 +1,12 @@
-export const EDITOR_VIEW_WIDTH = 1_300;
-export const EDITOR_VIEW_HEIGHT = 700;
-export const EDITOR_MIN_ZOOM = 0.2;
-export const EDITOR_MAX_ZOOM = 2.5;
+const EDITOR_VIEW_WIDTH = 1_300;
+const EDITOR_VIEW_HEIGHT = 700;
+const EDITOR_MIN_ZOOM = 0.2;
+const EDITOR_MAX_ZOOM = 2.5;
 
 export type EditorViewport = { centerX: number; centerY: number; zoom: number };
 export type EditorViewBox = { x: number; y: number; width: number; height: number };
 
-export function clampEditorZoom(zoom: number): number {
+function clampEditorZoom(zoom: number): number {
   return Math.max(EDITOR_MIN_ZOOM, Math.min(EDITOR_MAX_ZOOM, zoom));
 }
 

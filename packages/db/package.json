@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "tsc --noEmit",
-    "lint": "tsc --noEmit",
+    "lint": "eslint src --config ../../eslint.config.mjs",
     "test": "node --test",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
@@ -19,7 +19,7 @@
   "dependencies": {
     "drizzle-orm": "0.45.2",
     "pg": "8.23.0",
-    "tsx": "4.21.0"
+    "tsx": "4.23.12"
   },
   "devDependencies": {
     "@types/node": "22.19.19",
