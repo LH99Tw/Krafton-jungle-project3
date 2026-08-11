@@ -52,6 +52,76 @@ export type RenderZoneWorld = {
   bossRect: WorldRect;
 };
 
+const EDITOR_CELL_WIDTH = 320;
+const EDITOR_CELL_HEIGHT = 220;
+const EDITOR_CORRIDOR_SIZE = 180;
+
+export type EditorRenderableRoom = RenderableRoom & { width: number; height: number };
+
+/** Builds one continuous, freely-sized world from rooms placed by the local map editor. */
+export function buildEditorRenderWorld(rooms: readonly EditorRenderableRoom[]): RenderZoneWorld {
+  const minX = Math.min(...rooms.map((room) => room.x));
+  const minY = Math.min(...rooms.map((room) => room.y));
+  const shifted = rooms.map((room) => ({ ...room, x: room.x - minX + 1, y: room.y - minY + 1 }));
+  const roomById = new Map<string, RenderWorldRoom>();
+  const worldRooms = shifted.map((room): RenderWorldRoom => {
+    const rect = {
+      x: room.x * EDITOR_CELL_WIDTH,
+      y: room.y * EDITOR_CELL_HEIGHT,
+      width: room.width * EDITOR_CELL_WIDTH,
+      height: room.height * EDITOR_CELL_HEIGHT,
+    };
+    const entry = { room, rect, center: { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } };
+    roomById.set(room.id, entry);
+    return entry;
+  });
+  const corridors: WorldRect[] = [];
+  const seen = new Set<string>();
+  for (const room of shifted) {
+    for (const connectedId of room.connections) {
+      const edge = [room.id, connectedId].sort().join("|");
+      if (seen.has(edge)) continue;
+      seen.add(edge);
+      const from = roomById.get(room.id);
+      const to = roomById.get(connectedId);
+      if (!from || !to) continue;
+      const horizontalFirst = Math.abs(to.center.x - from.center.x) >= Math.abs(to.center.y - from.center.y);
+      if (horizontalFirst) {
+        corridors.push(horizontalCorridor(from.center.x, to.center.x, from.center.y));
+        corridors.push(verticalCorridor(from.center.y, to.center.y, to.center.x));
+      } else {
+        corridors.push(verticalCorridor(from.center.y, to.center.y, from.center.x));
+        corridors.push(horizontalCorridor(from.center.x, to.center.x, to.center.y));
+      }
+    }
+  }
+  const walkable = [...worldRooms.map((room) => room.rect), ...corridors];
+  const contentBounds = boundsOf(walkable);
+  const bounds = {
+    x: 0,
+    y: 0,
+    width: contentBounds.x + contentBounds.width + EDITOR_CELL_WIDTH,
+    height: contentBounds.y + contentBounds.height + EDITOR_CELL_HEIGHT,
+  };
+  const bossRoom = worldRooms.find((room) => room.room.type === "boss");
+  return {
+    rooms: worldRooms,
+    corridors,
+    blockedCells: [],
+    walkable,
+    bounds,
+    bossRect: bossRoom?.rect ?? { x: bounds.x, y: bounds.y, width: 1280, height: 720 },
+  };
+}
+
+function horizontalCorridor(fromX: number, toX: number, y: number): WorldRect {
+  return { x: Math.min(fromX, toX), y: y - EDITOR_CORRIDOR_SIZE / 2, width: Math.max(EDITOR_CORRIDOR_SIZE, Math.abs(toX - fromX)), height: EDITOR_CORRIDOR_SIZE };
+}
+
+function verticalCorridor(fromY: number, toY: number, x: number): WorldRect {
+  return { x: x - EDITOR_CORRIDOR_SIZE / 2, y: Math.min(fromY, toY), width: EDITOR_CORRIDOR_SIZE, height: Math.max(EDITOR_CORRIDOR_SIZE, Math.abs(toY - fromY)) };
+}
+
 /** True when `x,y` fall inside the base-camp build plot. */
 export function isInsideBuildBounds(x: number, y: number): boolean {
   return x >= BUILD_BOUNDS.minX && x <= BUILD_BOUNDS.maxX && y >= BUILD_BOUNDS.minY && y <= BUILD_BOUNDS.maxY;

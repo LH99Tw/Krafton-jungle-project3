@@ -12,6 +12,7 @@ export function AccessScreen({
   onGuest,
   onLogout,
   onStart,
+  onOpenEditor,
 }: {
   viewer: Viewer;
   busy: boolean;
@@ -19,6 +20,7 @@ export function AccessScreen({
   onGuest: (displayName: string) => Promise<void>;
   onLogout: () => Promise<void>;
   onStart: () => void;
+  onOpenEditor: () => void;
 }) {
   return (
     <main className="access-screen">
@@ -29,7 +31,10 @@ export function AccessScreen({
         <Guestbook viewer={viewer} />
         <div className="access-launch">
           <p>{viewer ? "함께 싸울 원정대를 찾으세요." : "왼쪽에서 먼저 접속해 주세요."}</p>
-          <FantasyButton variant="secondary" size="large" type="button" onClick={onStart} disabled={!viewer || busy} trailingIcon="→">원정대 찾기</FantasyButton>
+          <div className="access-launch-actions">
+            <FantasyButton variant="quiet" size="large" type="button" onClick={onOpenEditor} trailingIcon="⌘">로컬 맵 빌더</FantasyButton>
+            <FantasyButton variant="secondary" size="large" type="button" onClick={onStart} disabled={!viewer || busy} trailingIcon="→">원정대 찾기</FantasyButton>
+          </div>
         </div>
       </section>
     </main>

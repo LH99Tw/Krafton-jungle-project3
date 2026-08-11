@@ -19,6 +19,8 @@ import { lobbyTransport, type LobbySnapshot } from "@/src/game/transport/LobbyTr
 import { AccessScreen } from "../lobby/AccessScreen";
 import { CharacterSelectScreen } from "../lobby/CharacterSelectScreen";
 import { LobbyScreen } from "../lobby/LobbyScreen";
+import { MapEditorScreen } from "../map-editor/MapEditorScreen";
+import type { EditorMapDefinition } from "@/src/game/domain/mapEditor";
 import { GameHud } from "./GameHud";
 import { ResultOverlay } from "./ResultOverlay";
 
@@ -29,7 +31,7 @@ export type Viewer = {
   csrfToken: string;
 } | null;
 
-type Screen = "access" | "lobby" | "selecting" | "playing";
+type Screen = "access" | "lobby" | "selecting" | "editor" | "playing";
 
 export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytestEnabled, autoStartOptions, sessionUnavailable = false }: {
   viewer: Viewer;
@@ -290,20 +292,33 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   }, [router, viewer]);
 
   const returnToLobby = useCallback(() => {
+    const wasEditorPlaytest = Boolean(activeOptions?.editorMap);
     runGenerationRef.current += 1;
     colyseusTransport.disconnect();
     lobbyTransport.returnFromGame();
     setNetworkStatus("disconnected"); setResult(null); setUpgradeChoices([]); snapshotRef.current = EMPTY_SNAPSHOT; setSnapshot(EMPTY_SNAPSHOT); setActiveOptions(null); setLaunching(false);
-    setScreen(lobby ? "lobby" : "access");
-  }, [lobby]);
+    setScreen(wasEditorPlaytest ? "editor" : lobby ? "lobby" : "access");
+  }, [activeOptions?.editorMap, lobby]);
 
   const chooseUpgrade = useCallback((upgradeId: UpgradeChoice["id"]) => {
     gameBridge.command({ type: "choose-upgrade", upgradeId });
     if (!activeOptions?.networked) setUpgradeChoices([]);
   }, [activeOptions?.networked]);
 
+  const playEditorMap = useCallback((editorMap: EditorMapDefinition) => {
+    runGenerationRef.current += 1;
+    colyseusTransport.disconnect();
+    setNetworkStatus("connected");
+    setSnapshot(EMPTY_SNAPSHOT);
+    setUpgradeChoices([]);
+    setResult(null);
+    setActiveOptions({ heroClass: "swordsman", sessionMode: "prototype", difficulty: "normal", partyMode: "solo", networked: false, userId: viewer?.userId ?? "map-editor", editorMap });
+    setRunKey((value) => value + 1);
+    setScreen("playing");
+  }, [viewer?.userId]);
+
   if (screen === "playing" && activeOptions) return <main className="play-screen">
-    <div className="network-status" role="status">게임 서버 · {networkStatus === "connected" ? "연결됨" : networkStatus}</div>
+    <div className="network-status" role="status">{activeOptions.editorMap ? "로컬 맵 테스트" : `게임 서버 · ${networkStatus === "connected" ? "연결됨" : networkStatus}`}</div>
     <GameCanvas key={runKey} options={activeOptions} />
     <GameHud snapshot={snapshot} heroClass={activeOptions.heroClass} onExit={returnToLobby} upgradeChoices={upgradeChoices} onChoose={chooseUpgrade} />
     <ResultOverlay result={result} heroClass={activeOptions.heroClass} onLobby={returnToLobby} />
@@ -313,7 +328,9 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
 
   if (screen === "lobby" && viewer) return <LobbyScreen viewer={viewer} rooms={rooms} snapshot={lobby} messages={messages} busy={busy} error={surfaceError} onCreate={createLobby} onJoin={joinLobby} onLeave={leaveLobby} onReady={(ready) => lobbyTransport.ready(ready)} onStart={() => lobbyTransport.startSelection()} onSoloStart={startSoloExpedition} onChat={(message) => globalChatTransport.chat(message)} onAddAi={() => lobbyTransport.addAi()} onRemoveAi={(userId) => lobbyTransport.removeAi(userId)} onBack={() => setScreen("access")} />;
 
-  return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onLogout={logout} onStart={() => { setSurfaceError(""); if (gameServerUrl) setScreen("lobby"); else void beginRun({ heroClass: "swordsman", sessionMode: "prototype", difficulty: "normal", partyMode: "solo" }); }} />;
+  if (screen === "editor") return <MapEditorScreen onBack={() => setScreen("access")} onPlay={playEditorMap} />;
+
+  return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onLogout={logout} onOpenEditor={() => setScreen("editor")} onStart={() => { setSurfaceError(""); if (gameServerUrl) setScreen("lobby"); else void beginRun({ heroClass: "swordsman", sessionMode: "prototype", difficulty: "normal", partyMode: "solo" }); }} />;
 }
 
 function formatClientError(error: unknown, fallback: string): string {

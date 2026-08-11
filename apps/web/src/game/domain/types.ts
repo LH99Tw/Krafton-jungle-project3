@@ -1,4 +1,5 @@
 import type { AugmentId } from "@five-days/game-core";
+import type { EditorMapDefinition } from "./mapEditor";
 export type {
   FastLaneOffer,
   InputFrame,
@@ -234,6 +235,7 @@ export type GameStartOptions = {
   partyMode: PartyMode;
   networked?: boolean;
   userId?: string;
+  editorMap?: EditorMapDefinition;
 };
 
 export type GameResult = {

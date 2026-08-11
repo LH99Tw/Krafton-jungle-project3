@@ -13,7 +13,6 @@ import {
   type PersonalHiddenDrop,
   type ThreeZoneMap,
   type ZoneId,
-  type ZoneRoom,
 } from "@five-days/game-core";
 import { BUILDINGS, DIFFICULTY } from "../../content/balance";
 import { CLASS_DEFINITIONS } from "../../content/classes";
@@ -33,12 +32,14 @@ import type {
 } from "../../domain/types";
 import type { InputFrame, WorldFrame } from "@five-days/protocol";
 import { resolveSharedPartyProgress } from "../../domain/sharedPartyProgress";
+import { editorThemeZone } from "../../domain/mapEditor";
 import { ProgressionModel } from "../../systems/ProgressionModel";
 import { colyseusTransport } from "../../transport/ColyseusTransport";
 import { predictPlayerTransform, RealtimeTransformBuffer, shouldRenderPartyMember } from "../../netcode/RealtimeBuffer";
 import { gameBridge, type GameCommand } from "../GameBridge";
 import {
   BASE_CORE,
+  buildEditorRenderWorld,
   buildRenderWorld,
   clampToWalkable,
   clampToWorld,
@@ -48,7 +49,9 @@ import {
   type RenderWorldRoom,
   type RenderZoneWorld,
 } from "./layout";
+import { PlayerVisionFog } from "./PlayerVisionFog";
 import { RoomRenderer, classColor } from "./RoomRenderer";
+import type { VisionRevealSource } from "./vision";
 
 type LocalEnemyKind = "static" | "hidden" | "gate" | "invader" | "boss";
 
@@ -94,6 +97,18 @@ type EquippedRuntime = {
   attackSpeedPercent: number;
 };
 
+type LocalMapRoom = {
+  id: string;
+  zone: ZoneId;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+  type: RenderableRoom["type"];
+  connections: readonly string[];
+  depthScore: number;
+};
+
 const PHASE_LABELS: Record<Phase, string> = {
   day: "낮 · 방 탐색",
   night: "밤 · 기지 공세",
@@ -115,9 +130,11 @@ export class RoomGameScene extends Phaser.Scene {
   private readonly difficulty;
   private readonly runSeed: string;
   private readonly worldMap: ThreeZoneMap;
+  private readonly editorRooms: readonly LocalMapRoom[];
   private readonly progression: ProgressionModel;
   private roomRenderer!: RoomRenderer;
   private player!: Phaser.Physics.Arcade.Sprite;
+  private visionFog!: PlayerVisionFog;
   private keys!: Record<"W" | "A" | "S" | "D" | "Q" | "E" | "SPACE" | "B", Phaser.Input.Keyboard.Key>;
   private commandDisconnect?: () => void;
   private networkDisconnect?: () => void;
@@ -191,7 +208,20 @@ export class RoomGameScene extends Phaser.Scene {
     this.difficulty = DIFFICULTY[options.difficulty];
     this.runSeed = `v02:${options.userId ?? "local"}:${options.heroClass}:${options.difficulty}`;
     this.worldMap = generateThreeZoneMap(this.runSeed);
-    this.currentRoomId = this.worldMap.zones[0].startRoomId;
+    this.editorRooms = options.editorMap ? options.editorMap.rooms.map((room): LocalMapRoom => ({
+      id: room.id,
+      zone: editorThemeZone(room.asset),
+      x: room.x,
+      y: room.y,
+      width: room.width,
+      height: room.height,
+      type: room.type,
+      connections: options.editorMap!.connections
+        .filter((connection) => connection.from === room.id || connection.to === room.id)
+        .map((connection) => connection.from === room.id ? connection.to : connection.from),
+      depthScore: room.x + room.y,
+    })) : [];
+    this.currentRoomId = this.editorRooms.find((room) => room.type === "start")?.id ?? this.worldMap.zones[0].startRoomId;
     this.phaseRemaining = SESSION_DURATIONS[options.sessionMode].day;
     this.progression = new ProgressionModel({
       ...this.classDefinition.stats,
@@ -223,6 +253,7 @@ export class RoomGameScene extends Phaser.Scene {
     this.player = this.roomRenderer.createHero(this.options.heroClass, startCenter.x, startCenter.y);
     this.player.setVisible(!this.options.networked);
     this.configureCamera();
+    this.visionFog = new PlayerVisionFog(this);
     this.configureInput();
     this.commandDisconnect = gameBridge.connect((command) => this.handleCommand(command));
 
@@ -253,6 +284,27 @@ export class RoomGameScene extends Phaser.Scene {
 
   /** Rebuilds and redraws the continuous world for a zone and re-anchors the camera. */
   private renderZoneWorld(zone: ZoneId, waypointRoomId?: string): void {
+    if (this.editorRooms.length > 0) {
+      const rooms = this.editorRooms.map((room) => ({
+        id: room.id,
+        zone: room.zone,
+        x: room.x,
+        y: room.y,
+        width: room.width ?? 3,
+        height: room.height ?? 3,
+        type: room.type,
+        connections: [...room.connections],
+      }));
+      this.zoneWorld = buildEditorRenderWorld(rooms);
+      this.physics.world.setBounds(this.zoneWorld.bounds.x, this.zoneWorld.bounds.y, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
+      this.cameras.main?.setBounds(this.zoneWorld.bounds.x, this.zoneWorld.bounds.y, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
+      this.roomRenderer?.renderWorld(this.zoneWorld, {
+        decorSeed: `${this.runSeed}:editor`,
+        showBuildGrid: true,
+        waypointRooms: waypointRoomId ? new Set([waypointRoomId]) : new Set(),
+      });
+      return;
+    }
     const zoneMap = this.worldMap.zones[zone - 1];
     const rooms = zoneMap.rooms.map((room): RenderableRoom => ({
       id: room.id,
@@ -274,6 +326,7 @@ export class RoomGameScene extends Phaser.Scene {
 
   update(time: number, delta: number): void {
     this.roomRenderer.updateCrosshair(this.input.activePointer);
+    this.visionFog.update(this.player.x, this.player.y, time);
     if (this.ended) return;
     const safeDeltaMs = Math.min(100, Math.max(0, delta));
 
@@ -302,6 +355,18 @@ export class RoomGameScene extends Phaser.Scene {
       this.snapshotAccumulator = 0;
       this.emitSnapshot();
     }
+  }
+
+  /**
+   * Client-only vision hook for installable lights. A future lantern system can
+   * call this whenever its authoritative world position or radius changes.
+   */
+  public upsertVisionRevealSource(source: VisionRevealSource): void {
+    this.visionFog.upsertRevealSource(source);
+  }
+
+  public removeVisionRevealSource(id: string): void {
+    this.visionFog.removeRevealSource(id);
   }
 
   /** Server snapshots are the only simulation source while networked. */
@@ -429,17 +494,17 @@ export class RoomGameScene extends Phaser.Scene {
 
   private enterLocalRoom(roomId: string, sourceRoomId: string | null, keepPosition = false): void {
     this.clearTransientEntities();
-    const zone = this.zoneMap();
-    const room = zone.rooms.find((candidate) => candidate.id === roomId);
+    const room = this.allLocalRooms().find((candidate) => candidate.id === roomId);
     if (!room) throw new Error(`Unknown local room: ${roomId}`);
     this.currentRoomId = room.id;
     this.currentZone = room.zone;
     this.visitedRooms.add(room.id);
 
+    if (room.type === "boss") this.localPhase = "boss";
     const waypointActive = room.type === "start"
       || room.type === "central-waypoint"
-      || (room.type === "gate" && this.clearedGateZones.has(room.zone));
-    const waypointKey = `${room.zone}:${waypointActive ? room.id : ""}`;
+      || (!this.options.editorMap && room.type === "gate" && this.clearedGateZones.has(room.zone));
+    const waypointKey = `${this.options.editorMap ? "editor" : room.zone}:${waypointActive ? room.id : ""}`;
     if (waypointKey !== this.renderedWaypointKey) {
       this.renderedWaypointKey = waypointKey;
       this.renderZoneWorld(room.zone, waypointActive ? room.id : undefined);
@@ -467,7 +532,7 @@ export class RoomGameScene extends Phaser.Scene {
     else if (room.type !== "gate") this.message = "정복한 방입니다. 연결된 통로로 이동할 수 있습니다.";
   }
 
-  private spawnRoomContent(room: ZoneRoom): void {
+  private spawnRoomContent(room: LocalMapRoom): void {
     const entry = this.zoneWorld.rooms.find((candidate) => candidate.room.id === room.id);
     const cx = entry?.center.x ?? 0;
     const cy = entry?.center.y ?? 0;
@@ -484,6 +549,9 @@ export class RoomGameScene extends Phaser.Scene {
     } else if (room.type === "gate") {
       this.spawnEnemy("gate", cx, cy - 30, room.zone);
       this.message = `구역 ${room.zone} 게이트를 파괴하면 웨이포인트가 활성화됩니다.`;
+    } else if (room.type === "boss") {
+      this.spawnEnemy("boss", cx, cy, room.zone);
+      this.message = "마왕의 제단 · 보스를 쓰러뜨려 편집 맵을 검증하세요.";
     } else {
       this.clearedRooms.add(room.id);
     }
@@ -888,8 +956,8 @@ export class RoomGameScene extends Phaser.Scene {
     this.clearedRooms.add(this.currentRoomId);
     this.clearedGateZones.add(this.currentZone);
     this.stats.gatesDestroyed = this.clearedGateZones.size;
-    this.roomRenderer.showWaypoint(this.currentZone === 3 ? "마왕전 진입 웨이포인트" : "다음 구역 웨이포인트");
-    this.message = "게이트 파괴 완료 · 웨이포인트 위에서 집결 명령을 사용하세요.";
+    if (!this.options.editorMap) this.roomRenderer.showWaypoint(this.currentZone === 3 ? "마왕전 진입 웨이포인트" : "다음 구역 웨이포인트");
+    this.message = this.options.editorMap ? "몬스터 게이트 파괴 완료 · 연결된 통로를 따라 진행하세요." : "게이트 파괴 완료 · 웨이포인트 위에서 집결 명령을 사용하세요.";
   }
 
   private updateTravel(deltaSeconds: number): void {
@@ -1103,7 +1171,7 @@ export class RoomGameScene extends Phaser.Scene {
   private recallToBase(): void {
     const previous = this.currentRoomId;
     this.currentZone = 1;
-    this.enterLocalRoom(this.worldMap.zones[0].startRoomId, null);
+    this.enterLocalRoom(this.startRoomId(), null);
     this.message = `귀환 완료 · ${previous}에서 베이스로 이동했습니다.`;
   }
 
@@ -1278,10 +1346,10 @@ export class RoomGameScene extends Phaser.Scene {
     const roomMap = this.localRoomMap();
     const currentRoom = this.currentRoom();
     const waypointNearby = this.isNearActiveWaypoint();
-    const advancesZone = currentRoom?.type === "gate" && this.clearedGateZones.has(this.currentZone);
+    const advancesZone = !this.options.editorMap && currentRoom?.type === "gate" && this.clearedGateZones.has(this.currentZone);
     const destinationId = advancesZone
       ? this.currentZone === 3 ? "boss" : this.worldMap.zones[this.currentZone].startRoomId
-      : this.worldMap.zones[0].startRoomId;
+      : this.startRoomId();
     const equipped = [...this.equipment.values()].map((item) => item.summary);
     const teamPower = this.progression.powerScore + equipped.reduce((sum, item) => sum + item.power, 0);
     const boss = this.boss?.sprite.active ? this.boss : null;
@@ -1306,7 +1374,7 @@ export class RoomGameScene extends Phaser.Scene {
       qCooldown: Math.max(0, (this.qReadyAt - this.time.now) / 1000),
       eCooldown: Math.max(0, (this.eReadyAt - this.time.now) / 1000),
       dashCooldown: Math.max(0, (this.dashReadyAt - this.time.now) / 1000),
-      bossAvailable: this.currentZone === 3 && this.clearedGateZones.has(3) && this.currentRoom()?.type === "gate",
+      bossAvailable: !this.options.editorMap && this.currentZone === 3 && this.clearedGateZones.has(3) && this.currentRoom()?.type === "gate",
       bossHp: boss ? Math.max(0, boss.hp) : null,
       bossMaxHp: boss?.maxHp ?? null,
       message: this.message,
@@ -1437,7 +1505,7 @@ export class RoomGameScene extends Phaser.Scene {
   }
 
   private localRoomMap(): RoomMapCell[] {
-    return this.worldMap.zones.flatMap((zone) => zone.rooms.map((room): RoomMapCell => ({
+    return this.allLocalRooms().map((room): RoomMapCell => ({
       id: room.id,
       zone: room.zone,
       x: room.x,
@@ -1447,7 +1515,7 @@ export class RoomGameScene extends Phaser.Scene {
       current: room.id === this.currentRoomId,
       cleared: this.clearedRooms.has(room.id),
       connections: [...room.connections],
-    })));
+    }));
   }
 
   private finishGame(state: "victory" | "defeat", reason: string): void {
@@ -1483,13 +1551,18 @@ export class RoomGameScene extends Phaser.Scene {
     this.boss = null;
   }
 
-  private zoneMap() {
-    return this.worldMap.zones[this.currentZone - 1];
+  private allLocalRooms(): readonly LocalMapRoom[] {
+    if (this.editorRooms.length > 0) return this.editorRooms;
+    return this.worldMap.zones.flatMap((zone) => zone.rooms) as readonly LocalMapRoom[];
   }
 
-  private currentRoom(): ZoneRoom | undefined {
+  private currentRoom(): LocalMapRoom | undefined {
     if (this.currentRoomId === "boss") return undefined;
-    return this.zoneMap().rooms.find((room) => room.id === this.currentRoomId);
+    return this.allLocalRooms().find((room) => room.id === this.currentRoomId);
+  }
+
+  private startRoomId(): string {
+    return this.editorRooms.find((room) => room.type === "start")?.id ?? this.worldMap.zones[0].startRoomId;
   }
 
   private isLocalBuildRoom(): boolean {
@@ -1498,6 +1571,7 @@ export class RoomGameScene extends Phaser.Scene {
   }
 
   private isNearGateWaypoint(): boolean {
+    if (this.options.editorMap) return false;
     const room = this.currentRoom();
     const center = this.currentRoomCenter();
     return Boolean(room?.type === "gate" && this.clearedGateZones.has(room.zone)
@@ -1565,6 +1639,7 @@ export class RoomGameScene extends Phaser.Scene {
     this.networkEnemyAttackSequence.clear();
     this.networkDrops.clear();
     this.networkDropRequests.clear();
+    this.visionFog?.destroy();
     this.roomRenderer?.destroy();
   }
 }
