@@ -39,7 +39,7 @@ const ENEMY_LOOK = {
   invader: { texture: "enemy-skeleton-0", depth: 12, radius: 11 },
   hidden: { texture: "enemy-demon-midboss-0", depth: 16, radius: 64 },
   gate: { texture: "gate", depth: 12, radius: 26 },
-  boss: { texture: "boss", depth: 18, radius: 48 },
+  boss: { texture: "boss", depth: 18, radius: 72 },
 } as const;
 const NETWORK_ENEMY_POOL_LIMIT: Record<EnemyKind, number> = {
   invader: 256,
@@ -489,15 +489,67 @@ export class RoomRenderer {
     });
   }
 
+  applyBullChargeMotion(enemy: Phaser.GameObjects.Sprite): void {
+    if (enemy.getData("hasBullMotion")) return;
+    enemy.setData("hasBullMotion", true);
+
+    // Fast aggressive galloping motion
+    this.scene.tweens.add({
+      targets: enemy,
+      scaleY: enemy.scaleY * 1.07,
+      scaleX: enemy.scaleX * 0.94,
+      duration: 320,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+  }
+
+  applyDragonHoverMotion(enemy: Phaser.GameObjects.Sprite): void {
+    if (enemy.getData("hasDragonMotion")) return;
+    enemy.setData("hasDragonMotion", true);
+
+    // Grand wing-flapping flight motion
+    this.scene.tweens.add({
+      targets: enemy,
+      scaleY: enemy.scaleY * 1.08,
+      displayOriginY: enemy.displayOriginY + 14,
+      duration: 800,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+    this.scene.tweens.add({
+      targets: enemy,
+      angle: 3.5,
+      duration: 1100,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+  }
+
   createEnemy(kind: EnemyKind, x: number, y: number): Phaser.Physics.Arcade.Sprite {
     const look = ENEMY_LOOK[kind];
-    const hasAsset = kind === "hidden" && this.scene.textures.exists("enemy-demon-midboss-asset");
-    const textureKey = kind === "hidden"
-      ? (hasAsset ? "enemy-demon-midboss-asset" : "enemy-demon-midboss-0")
-      : (kind === "static" || kind === "invader" ? "enemy-skeleton-0" : look.texture);
+    const hasMidbossAsset = kind === "hidden" && this.scene.textures.exists("enemy-demon-midboss-asset");
+    const hasGateAsset = kind === "gate" && this.scene.textures.exists("enemy-gate-asset");
+    const hasBossBullAsset = kind === "boss" && this.scene.textures.exists("enemy-boss-bull-asset");
+
+    const textureKey = kind === "gate"
+      ? (hasGateAsset ? "enemy-gate-asset" : "gate")
+      : kind === "hidden"
+        ? (hasMidbossAsset ? "enemy-demon-midboss-asset" : "enemy-demon-midboss-0")
+        : kind === "boss"
+          ? (hasBossBullAsset ? "enemy-boss-bull-asset" : "boss")
+          : "enemy-skeleton-0";
 
     const enemy = this.scene.physics.add.sprite(x, y, textureKey).setDepth(look.depth);
-    if (hasAsset) enemy.setDisplaySize(192, 192);
+    if (hasMidbossAsset) enemy.setDisplaySize(192, 192);
+    if (hasGateAsset) enemy.setDisplaySize(112, 130);
+    if (kind === "boss") {
+      enemy.setDisplaySize(250, 250);
+      if (hasBossBullAsset) this.applyBullChargeMotion(enemy);
+    }
     (enemy.body as Phaser.Physics.Arcade.Body).setCircle(look.radius);
     if (kind === "gate" || kind === "boss") enemy.setImmovable(true);
     this.playEnemyEmergence(enemy, kind);
@@ -508,10 +560,18 @@ export class RoomRenderer {
   acquireNetworkEnemy(kind: EnemyKind, x: number, y: number): Phaser.GameObjects.Sprite {
     const pool = this.networkEnemyPool.get(kind);
     const enemy = pool?.pop() ?? this.scene.add.sprite(x, y, ENEMY_LOOK[kind].texture);
-    const hasAsset = kind === "hidden" && this.scene.textures.exists("enemy-demon-midboss-asset");
-    const textureKey = kind === "hidden"
-      ? (hasAsset ? "enemy-demon-midboss-asset" : "enemy-demon-midboss-0")
-      : (kind === "static" || kind === "invader" ? "enemy-skeleton-0" : ENEMY_LOOK[kind].texture);
+    const hasMidbossAsset = kind === "hidden" && this.scene.textures.exists("enemy-demon-midboss-asset");
+    const hasGateAsset = kind === "gate" && this.scene.textures.exists("enemy-gate-asset");
+    const hasBossBullAsset = kind === "boss" && this.scene.textures.exists("enemy-boss-bull-asset");
+
+    const textureKey = kind === "gate"
+      ? (hasGateAsset ? "enemy-gate-asset" : "gate")
+      : kind === "hidden"
+        ? (hasMidbossAsset ? "enemy-demon-midboss-asset" : "enemy-demon-midboss-0")
+        : kind === "boss"
+          ? (hasBossBullAsset ? "enemy-boss-bull-asset" : "boss")
+          : "enemy-skeleton-0";
+
     enemy
       .setTexture(textureKey)
       .setPosition(x, y)
@@ -519,7 +579,12 @@ export class RoomRenderer {
       .setAlpha(1)
       .setVisible(true)
       .setActive(true);
-    if (hasAsset) enemy.setDisplaySize(192, 192);
+    if (hasMidbossAsset) enemy.setDisplaySize(192, 192);
+    if (hasGateAsset) enemy.setDisplaySize(112, 130);
+    if (kind === "boss") {
+      enemy.setDisplaySize(250, 250);
+      if (hasBossBullAsset) this.applyBullChargeMotion(enemy);
+    }
     this.playEnemyEmergence(enemy, kind);
     return enemy;
   }
@@ -528,6 +593,8 @@ export class RoomRenderer {
     this.scene.tweens.killTweensOf(enemy);
     enemy.setData("hasHoverMotion", false);
     enemy.setData("isEmerging", false);
+    enemy.setData("hasBullMotion", false);
+    enemy.setData("hasDragonMotion", false);
     enemy.setAngle(0);
     enemy.setCrop().clearTint().setScale(1).setAlpha(1).setVisible(false).setActive(false).setPosition(-10_000, -10_000);
     const pool = this.networkEnemyPool.get(kind) ?? [];
@@ -560,6 +627,21 @@ export class RoomRenderer {
         sprite.setTexture("enemy-demon-midboss-asset").setDisplaySize(192, 192);
       } else {
         sprite.setTexture(`enemy-demon-midboss-${snapAngle}`);
+      }
+    } else if (kind === "gate") {
+      if (this.scene.textures.exists("enemy-gate-asset")) {
+        sprite.setTexture("enemy-gate-asset").setDisplaySize(112, 130);
+      }
+    } else if (kind === "boss") {
+      const isDragon = sprite.getData("bossPhase") === "dragon";
+      if (isDragon && this.scene.textures.exists("enemy-boss-dragon-asset")) {
+        sprite.setTexture("enemy-boss-dragon-asset").setDisplaySize(250, 250);
+        this.applyDragonHoverMotion(sprite);
+      } else if (this.scene.textures.exists("enemy-boss-bull-asset")) {
+        sprite.setTexture("enemy-boss-bull-asset").setDisplaySize(250, 250);
+        this.applyBullChargeMotion(sprite);
+      } else {
+        sprite.setDisplaySize(250, 250);
       }
     } else if (kind === "static" || kind === "invader") {
       sprite.setTexture(`enemy-skeleton-${snapAngle}`);
@@ -696,6 +778,50 @@ export class RoomRenderer {
       const rune = this.scene.add.circle(attacker.x, attacker.y, 26, color, 0.06).setStrokeStyle(3, color, 0.8).setDepth(30);
       this.scene.tweens.add({ targets: rune, radius: 52, rotation: Math.PI, alpha: 0, duration: 260, onComplete: () => rune.destroy() });
     }
+  }
+
+  showAutoSkill(classId: HeroClassId, skillId: "q" | "e", attacker: Phaser.GameObjects.Sprite, targetX: number, targetY: number, radius: number): void {
+    const color = classColor(classId);
+    const angle = Phaser.Math.Angle.Between(attacker.x, attacker.y, targetX, targetY);
+    attacker.setData("attackPoseUntil", this.scene.time.now + 180);
+    this.scene.tweens.add({ targets: attacker, scaleX: attacker.scaleX * 1.12, scaleY: attacker.scaleY * 0.88, duration: 80, yoyo: true });
+    if (classId === "swordsman") {
+      const arc = this.scene.add.arc(attacker.x, attacker.y, skillId === "q" ? radius : 48,
+        Phaser.Math.RadToDeg(angle) - (skillId === "q" ? 120 : 35),
+        Phaser.Math.RadToDeg(angle) + (skillId === "q" ? 120 : 35), false)
+        .setStrokeStyle(skillId === "q" ? 14 : 9, 0xfff4b0, 0.92).setDepth(32);
+      this.scene.tweens.add({ targets: arc, scale: 1.2, alpha: 0, duration: 260, onComplete: () => arc.destroy() });
+      if (skillId === "e") this.showAttack(attacker.x, attacker.y, targetX, targetY, color);
+    } else if (classId === "archer") {
+      if (skillId === "q") {
+        for (const offset of [-0.08, 0, 0.08]) {
+          const arrow = this.scene.add.rectangle(attacker.x, attacker.y, 34, 5, 0xd9ffe2, 1).setRotation(angle + offset).setDepth(32);
+          this.scene.tweens.add({ targets: arrow, x: targetX, y: targetY, duration: 180, ease: "Quad.easeIn", onComplete: () => arrow.destroy() });
+        }
+      } else {
+        const rain = this.scene.add.circle(targetX, targetY, radius, color, 0.1).setStrokeStyle(4, color, 0.85).setDepth(30);
+        this.scene.tweens.add({ targets: rain, scale: 1.12, alpha: 0, duration: 420, onComplete: () => rain.destroy() });
+        for (let index = 0; index < 5; index += 1) {
+          const x = targetX + Math.cos(index * 1.7) * radius * 0.65;
+          const y = targetY + Math.sin(index * 1.7) * radius * 0.65;
+          const arrow = this.scene.add.rectangle(x, y - 70, 4, 24, 0xd9ffe2, 0.88).setDepth(32);
+          this.scene.tweens.add({ targets: arrow, y: y, duration: 180 + index * 24, onComplete: () => { this.showImpact(x, y, 20, color); arrow.destroy(); } });
+        }
+      }
+    } else if (skillId === "q") {
+      const orb = this.scene.add.circle(attacker.x, attacker.y, 16, 0xe6c8ff, 0.95).setStrokeStyle(4, 0xffffff, 0.9).setDepth(32);
+      this.scene.tweens.add({ targets: orb, x: targetX, y: targetY, scale: 1.35, duration: 220, ease: "Sine.easeIn", onComplete: () => { this.showImpact(targetX, targetY, 42, color); orb.destroy(); } });
+    } else {
+      const rune = this.scene.add.circle(targetX, targetY, radius * 0.45, color, 0.1).setStrokeStyle(4, 0xdcc4ff, 0.9).setDepth(30);
+      this.scene.tweens.add({ targets: rune, scale: 2.1, angle: 180, alpha: 0, duration: 460, onComplete: () => rune.destroy() });
+      this.showImpact(targetX, targetY, radius, color);
+    }
+  }
+
+  showDodge(sprite: Phaser.GameObjects.Sprite, targetX: number, targetY: number): void {
+    const trail = this.scene.add.line(0, 0, sprite.x, sprite.y, targetX, targetY, 0xbfffea, 0.8).setLineWidth(8).setDepth(29);
+    const flash = this.scene.add.circle(sprite.x, sprite.y, 26, 0xbfffea, 0.18).setStrokeStyle(3, 0xffffff, 0.9).setDepth(30);
+    this.scene.tweens.add({ targets: [trail, flash], alpha: 0, scale: 1.4, duration: 260, onComplete: () => { trail.destroy(); flash.destroy(); } });
   }
 
   showImpact(x: number, y: number, radius: number, color: number): void {

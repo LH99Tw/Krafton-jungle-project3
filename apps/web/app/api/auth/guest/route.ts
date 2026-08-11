@@ -57,7 +57,7 @@ export async function POST(request: Request) {
     return response;
   } catch {
     if (process.env.NODE_ENV !== "production") {
-      const devUserId = "dev-guest-" + Date.now();
+      const devUserId = crypto.randomUUID();
       const sessionToken = randomToken();
       const csrfToken = randomToken();
       const maxAge = 24 * 60 * 60;

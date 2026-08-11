@@ -23,8 +23,8 @@ export const CLASS_DEFINITIONS: Record<HeroClassId, ClassDefinition> = {
       projectileCount: 1,
     },
     skills: [
-      { key: "Q", name: "초승달 베기", description: "전방 넓은 범위를 크게 벱니다.", cooldownMs: 4800 },
-      { key: "E", name: "용기 충전", description: "조준 방향으로 돌진하며 적을 관통합니다.", cooldownMs: 6500 },
+      { key: "Q", name: "폭풍 베기", description: "주변을 크게 베어 여러 적을 동시에 공격합니다.", cooldownMs: 5000 },
+      { key: "E", name: "돌진 처형", description: "가장 가까운 적을 향해 돌진하며 일렬의 적을 꿰뚫습니다.", cooldownMs: 7000 },
     ],
   },
   archer: {
@@ -48,8 +48,8 @@ export const CLASS_DEFINITIONS: Record<HeroClassId, ClassDefinition> = {
       projectileCount: 1,
     },
     skills: [
-      { key: "Q", name: "꿰뚫는 화살", description: "긴 직선의 적을 모두 관통합니다.", cooldownMs: 4200 },
-      { key: "E", name: "화살비", description: "지정 구역에 연속 피해를 줍니다.", cooldownMs: 7200 },
+      { key: "Q", name: "집중 사격", description: "가장 가까운 적에게 강력한 화살 세 발을 집중합니다.", cooldownMs: 4200 },
+      { key: "E", name: "화살비", description: "적이 모인 지점에 화살을 퍼부어 넓은 범위를 공격합니다.", cooldownMs: 7200 },
     ],
   },
   mage: {
@@ -73,8 +73,8 @@ export const CLASS_DEFINITIONS: Record<HeroClassId, ClassDefinition> = {
       projectileCount: 1,
     },
     skills: [
-      { key: "Q", name: "붕괴 룬", description: "지정 위치를 폭발시켜 범위 피해를 줍니다.", cooldownMs: 5200 },
-      { key: "E", name: "잔상 도약", description: "순간이동 후 출발 지점을 폭발시킵니다.", cooldownMs: 6900 },
+      { key: "Q", name: "비전 구체", description: "가장 가까운 적을 추적하는 강력한 마력탄을 발사합니다.", cooldownMs: 5200 },
+      { key: "E", name: "운석 낙하", description: "적이 모인 지점에 운석을 떨어뜨려 광역 피해를 줍니다.", cooldownMs: 6900 },
     ],
   },
 };

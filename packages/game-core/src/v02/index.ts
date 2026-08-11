@@ -5,5 +5,6 @@ export * from "./official-map";
 export * from "./progression";
 export * from "./random";
 export * from "./simulation";
+export * from "./skills";
 export * from "./world";
 export * from "./visibility";

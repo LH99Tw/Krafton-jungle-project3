@@ -32,7 +32,9 @@ export default async function Home({ searchParams }: {
 
   const viewer = user
     ? { userId: user.id, displayName: user.displayName, accountType: user.accountType, csrfToken }
-    : null;
+    : (process.env.NODE_ENV !== "production"
+      ? { userId: "00000000-0000-0000-0000-000000000001", displayName: "마법사", accountType: "guest" as const, csrfToken: "dev-token" }
+      : null);
 
   const initialScreen = (query.lab === "1" || query.screen === "lab") ? "lab" : null;
 
@@ -48,7 +50,7 @@ export default async function Home({ searchParams }: {
 }
 
 function parseAutoStartOptions(query: Record<string, string | string[] | undefined>): GameStartOptions | null {
-  const isAuto = query.autostart === "1" || query.start === "1" || query.play !== undefined || query.mage === "1" || query.heroClass !== undefined || query.class !== undefined;
+  const isAuto = query.autostart === "1" || query.start === "1" || query.play !== undefined || query.mage === "1" || query.heroClass !== undefined || query.class !== undefined || query.boss === "1" || query.room !== undefined || query.hidden === "1" || query.midboss === "1";
   if (!isAuto) return null;
   const rawClass = String(query.heroClass || query.class || query.play || (query.mage === "1" ? "mage" : "")).toLowerCase();
   const heroClass: GameStartOptions["heroClass"] = ["swordsman", "archer", "mage"].includes(rawClass)
@@ -59,5 +61,10 @@ function parseAutoStartOptions(query: Record<string, string | string[] | undefin
     ? query.difficulty as GameStartOptions["difficulty"]
     : "normal";
   const partyMode = query.party === "coop" ? "coop" : "solo";
-  return { heroClass, sessionMode, difficulty, partyMode };
+  const targetRoomType = query.boss === "1" || query.room === "boss"
+    ? "boss"
+    : query.hidden === "1" || query.midboss === "1" || query.room === "hidden"
+      ? "hidden"
+      : undefined;
+  return { heroClass, sessionMode, difficulty, partyMode, targetRoomType };
 }
