@@ -1,8 +1,12 @@
 import * as Phaser from "phaser";
 import { PLAYER_VISION_RADIUS } from "@five-days/protocol";
 import {
+  computeVisibilityRays,
   selectVisionRevealSources,
+  visibilityPolygonFromRays,
   type VisionRevealSource,
+  type VisibilityRay,
+  type VisionWallSegment,
 } from "./vision";
 
 const PLAYER_SOURCE_ID = "player";
@@ -26,6 +30,9 @@ type FogLayer = {
  */
 export class PlayerVisionFog {
   private readonly installedSources = new Map<string, VisionRevealSource>();
+  private readonly rayCache = new Map<string, { x: number; y: number; radius: number; revision: string; rays: VisibilityRay[] }>();
+  private wallSegments: readonly VisionWallSegment[] = [];
+  private wallRevision = "empty";
   private layers: FogLayer[] = [];
 
   constructor(private readonly scene: Phaser.Scene) {
@@ -44,6 +51,13 @@ export class PlayerVisionFog {
 
   clearRevealSources(): void {
     this.installedSources.clear();
+  }
+
+  setWorld(wallSegments: readonly VisionWallSegment[], revision: string): void {
+    if (revision === this.wallRevision) return;
+    this.wallSegments = wallSegments;
+    this.wallRevision = revision;
+    this.rayCache.clear();
   }
 
   update(
@@ -65,17 +79,9 @@ export class PlayerVisionFog {
         const drift = time * 0.00022 + layer.phase + index * 1.83;
         const breathing = 1 + Math.sin(drift * 0.73) * 0.018;
         const radius = source.radius * layer.radiusScale * breathing;
-        const wander = source.radius * 0.018;
-        const offsetX = Math.sin(drift) * wander;
-        const offsetY = Math.cos(drift * 0.81) * wander;
-
-        // Three overlapping apertures keep the boundary organic without a
-        // costly full-screen shader. Their movement is slow enough to read as
-        // drifting mist rather than a pulsing UI circle.
-        layer.aperture
-          .fillCircle(source.x + offsetX, source.y + offsetY, radius)
-          .fillCircle(source.x - offsetX * 0.62, source.y + offsetY * 0.38, radius * 0.985)
-          .fillCircle(source.x + offsetY * 0.44, source.y - offsetX * 0.52, radius * 0.972);
+        const cached = this.cachedRays(source);
+        const points = visibilityPolygonFromRays(source, cached, radius);
+        if (points.length >= 3) layer.aperture.fillPoints(points, true);
       }
     }
   }
@@ -89,6 +95,7 @@ export class PlayerVisionFog {
     }
     this.layers = [];
     this.installedSources.clear();
+    this.rayCache.clear();
   }
 
   private createLayers(): void {
@@ -124,5 +131,15 @@ export class PlayerVisionFog {
         phase: index * 0.67,
       };
     });
+  }
+
+  private cachedRays(source: VisionRevealSource): VisibilityRay[] {
+    const cached = this.rayCache.get(source.id);
+    if (cached && cached.revision === this.wallRevision && cached.radius === source.radius && Math.hypot(source.x - cached.x, source.y - cached.y) < 4) {
+      return cached.rays;
+    }
+    const rays = computeVisibilityRays(source, source.radius * FOG_EDGE_OUTER_SCALE * 1.02, this.wallSegments);
+    this.rayCache.set(source.id, { x: source.x, y: source.y, radius: source.radius, revision: this.wallRevision, rays });
+    return rays;
   }
 }

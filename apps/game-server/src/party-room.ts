@@ -2,10 +2,9 @@ import { Client, matchMaker, Room, ServerError, type AuthContext } from "@colyse
 import { StateView } from "@colyseus/schema";
 import { type GameTicketClaims } from "@five-days/auth";
 import { createMatch, finalizeMatch } from "@five-days/db/repositories";
-import { GameCore, type CoreRoomId } from "@five-days/game-core";
+import { BOSS_ROOM_ID, GameCore, createCoreViewSnapshot, type CoreRoomId } from "@five-days/game-core";
 import {
   PARTY_ROOM,
-  PLAYER_VISION_RADIUS,
   PROTOCOL_VERSION,
   clientCommandSchema,
   inputFrameSchema,
@@ -505,21 +504,22 @@ export class PartyRoom extends Room<PartyRoomState> {
   private syncState(forceKeyframe = false): void {
     const now = Date.now();
     const keyframeDue = forceKeyframe || now - this.lastKeyframeAt >= KEYFRAME_INTERVAL_MS;
-    this.state.phase = this.core.phase;
-    this.state.resultState = this.core.result ?? "";
-    this.state.resultReason = this.core.resultReason;
-    this.state.day = this.core.day;
+    const view = createCoreViewSnapshot(this.core);
+    this.state.phase = view.phase;
+    this.state.resultState = view.result ?? "";
+    this.state.resultReason = view.resultReason;
+    this.state.day = view.day;
     this.state.serverTime = Date.now();
-    this.state.elapsed = this.core.elapsed;
-    this.state.phaseEndsAt = this.core.phaseRemaining > 0 ? Date.now() + this.core.phaseRemaining * 1000 : 0;
-    this.state.baseHp = this.core.baseHp;
-    this.state.baseMaxHp = this.core.baseMaxHp;
-    this.state.gold = this.core.gold;
-    this.state.currentZone = this.core.currentZone;
-    this.state.teamLevel = this.core.teamLevel;
-    this.state.teamXp = this.core.teamXp;
-    this.state.teamXpToNext = this.core.teamXpToNext;
-    for (const player of this.core.players.values()) {
+    this.state.elapsed = view.elapsed;
+    this.state.phaseEndsAt = view.phaseRemaining > 0 ? Date.now() + view.phaseRemaining * 1000 : 0;
+    this.state.baseHp = view.baseHp;
+    this.state.baseMaxHp = view.baseMaxHp;
+    this.state.gold = view.gold;
+    this.state.currentZone = view.currentZone;
+    this.state.teamLevel = view.teamLevel;
+    this.state.teamXp = view.teamXp;
+    this.state.teamXpToNext = view.teamXpToNext;
+    for (const player of view.players) {
       let state = this.state.players.get(player.userId);
       const isNew = !state;
       if (!state) {
@@ -591,8 +591,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       }
     }
 
-    for (const room of this.core.rooms.values()) {
-      if (!room.discovered) continue;
+    for (const room of view.rooms) {
       let state = this.state.rooms.get(room.id);
       if (!state) {
         state = new RoomState();
@@ -610,8 +609,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       });
     }
 
-    for (const door of this.core.doors.values()) {
-      if (!this.core.discoveredRooms.has(door.fromRoomId) && !this.core.discoveredRooms.has(door.toRoomId)) continue;
+    for (const door of view.doors) {
       let state = this.state.doors.get(door.id);
       if (!state) {
         state = new DoorState();
@@ -620,8 +618,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       Object.assign(state, door);
     }
 
-    for (const enemy of this.core.enemies.values()) {
-      if (!this.core.discoveredRooms.has(enemy.roomId)) continue;
+    for (const enemy of view.enemies) {
       let state = this.state.enemies.get(enemy.id);
       const isNew = !state;
       if (!state) {
@@ -652,8 +649,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       this.schemaRoomIds.set(`enemy:${enemy.id}`, enemy.roomId);
     }
 
-    for (const waypoint of this.core.waypoints.values()) {
-      if (!this.core.discoveredRooms.has(waypoint.roomId)) continue;
+    for (const waypoint of view.waypoints) {
       let state = this.state.waypoints.get(waypoint.id);
       if (!state) {
         state = new WaypointState();
@@ -673,7 +669,7 @@ export class PartyRoom extends Room<PartyRoomState> {
     }
 
     const liveDropIds = new Set<string>();
-    for (const drop of this.core.drops.values()) {
+    for (const drop of view.drops) {
       liveDropIds.add(drop.id);
       let state = this.state.drops.get(drop.id);
       if (!state) {
@@ -803,10 +799,24 @@ export class PartyRoom extends Room<PartyRoomState> {
   ): boolean {
     const viewerRoom = this.core.rooms.get(viewer.roomId as CoreRoomId);
     const candidateRoom = this.core.rooms.get(candidate.roomId as CoreRoomId);
-    if (candidate.roomId !== viewer.roomId && (!viewerRoom || !candidateRoom || viewerRoom.zone !== candidateRoom.zone)) {
-      return false;
+    if (!viewerRoom || !candidateRoom || viewerRoom.zone !== candidateRoom.zone) return false;
+    if (viewer.roomId === BOSS_ROOM_ID || candidate.roomId === BOSS_ROOM_ID) return viewer.roomId === candidate.roomId;
+    if (candidate.roomId === viewer.roomId) return true;
+    const visited = new Set<string>([viewer.roomId]);
+    let frontier = [viewer.roomId];
+    for (let depth = 0; depth < 2; depth += 1) {
+      const next: string[] = [];
+      for (const roomId of frontier) {
+        for (const connectedId of this.core.rooms.get(roomId as CoreRoomId)?.connections ?? []) {
+          if (visited.has(connectedId)) continue;
+          if (connectedId === candidate.roomId) return true;
+          visited.add(connectedId);
+          next.push(connectedId);
+        }
+      }
+      frontier = next;
     }
-    return Math.hypot(candidate.x - viewer.x, candidate.y - viewer.y) <= PLAYER_VISION_RADIUS;
+    return false;
   }
 
   private updateClientViews(): void {

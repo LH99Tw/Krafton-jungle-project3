@@ -180,14 +180,14 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   useEffect(() => {
     const offSnapshot = lobbyTransport.on("snapshot", (value) => {
       setLobby(value);
-      if (value.phase === "selecting") setScreen((current) => current === "playing" ? current : "selecting");
+      if (value.phase === "selecting") setScreen((current) => current === "playing" || current === "editor" ? current : "selecting");
       if (value.phase === "waiting") setScreen((current) => current === "selecting" ? "lobby" : current);
     });
     const offError = lobbyTransport.on("error", (error) => setSurfaceError(formatClientError(error, "로비 요청을 처리하지 못했습니다.")));
     const offDisconnected = lobbyTransport.on("disconnected", ({ reason }) => {
       setLobby(null);
       setSurfaceError(formatClientError(reason, "대기실 연결이 종료되었습니다."));
-      setScreen((current) => current === "playing" ? current : "lobby");
+      setScreen((current) => current === "playing" || current === "editor" ? current : "lobby");
     });
     const offStart = lobbyTransport.on("start", (event: LobbyGameStart) => {
       if (!viewer) return;
@@ -341,7 +341,16 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     setSnapshot(EMPTY_SNAPSHOT);
     setUpgradeChoices([]);
     setResult(null);
-    setActiveOptions({ heroClass: "swordsman", sessionMode: "prototype", difficulty: "normal", partyMode: "solo", networked: false, userId: viewer?.userId ?? "map-editor", editorMap });
+    setActiveOptions({
+      heroClass: "swordsman",
+      sessionMode: "prototype",
+      difficulty: "normal",
+      partyMode: "coop",
+      runtimeMode: "editor-core",
+      networked: false,
+      userId: viewer?.userId ?? "map-editor",
+      editorMap,
+    });
     setRunKey((value) => value + 1);
     setScreen("playing");
   }, [localMapEditorEnabled, viewer?.userId]);

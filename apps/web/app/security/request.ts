@@ -89,7 +89,16 @@ export function allowedOrigins(): Set<string> {
 export function hasAllowedOrigin(request: Request, requireOrigin = process.env.NODE_ENV === "production"): boolean {
   const origin = request.headers.get("origin");
   if (!origin) return !requireOrigin;
-  return allowedOrigins().has(origin);
+  if (origin === new URL(request.url).origin || allowedOrigins().has(origin)) return true;
+  if (process.env.NODE_ENV !== "production") {
+    try {
+      const hostname = new URL(origin).hostname;
+      return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 export async function readJsonLimited<T>(request: Request, maximumBytes: number): Promise<T> {

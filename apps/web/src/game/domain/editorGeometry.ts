@@ -1,4 +1,8 @@
-import type { EditorMapDefinition, EditorRoom } from "./mapEditor";
+import type {
+  EditorConnectionPort,
+  EditorMapDefinition,
+  EditorRoom,
+} from "./mapEditor";
 
 export type EditorGeometryPoint = { x: number; y: number };
 export type EditorGeometryRect = { x: number; y: number; width: number; height: number };
@@ -34,7 +38,12 @@ const DIRECTIONS = [
 ] as const;
 
 type GridPoint = { x: number; y: number };
-type Port = { outside: GridPoint; door: EditorGeometryPoint };
+export type EditorRoomPortGeometry = {
+  port: EditorConnectionPort;
+  outside: GridPoint;
+  door: EditorGeometryPoint;
+};
+type Port = EditorRoomPortGeometry;
 type SearchNode = GridPoint & { direction: string; cost: number; estimate: number; previous: string | null };
 
 /** Builds the single source of truth used by both the SVG editor and Phaser playtest. */
@@ -59,7 +68,15 @@ export function buildEditorGeometry(map: EditorMapDefinition, scale: EditorGeome
     const from = map.rooms.find((room) => room.id === connection.from);
     const to = map.rooms.find((room) => room.id === connection.to);
     if (!from || !to || from.id === to.id) continue;
-    const routed = routeConnection(from, to, map.rooms, occupied, usedRouteCells);
+    const routed = routeConnection(
+      from,
+      to,
+      map.rooms,
+      occupied,
+      usedRouteCells,
+      connection.fromPort,
+      connection.toPort,
+    );
     if (!routed) {
       errors.push(`“${from.name}”과 “${to.name}” 사이에 직교 통로를 만들 공간이 없습니다.`);
       continue;
@@ -85,11 +102,15 @@ function routeConnection(
   rooms: readonly EditorRoom[],
   occupied: ReadonlySet<string>,
   usedRouteCells: ReadonlySet<string>,
+  fromPort?: EditorConnectionPort,
+  toPort?: EditorConnectionPort,
 ): { points: EditorGeometryPoint[]; cells: GridPoint[] } | null {
   const bounds = routingBounds(rooms);
   let best: { points: EditorGeometryPoint[]; cells: GridPoint[]; score: number } | null = null;
-  for (const start of roomPorts(from)) {
-    for (const end of roomPorts(to)) {
+  const starts = fromPort ? [editorRoomPort(from, fromPort)].filter(Boolean) as Port[] : legacyRoomPorts(from);
+  const ends = toPort ? [editorRoomPort(to, toPort)].filter(Boolean) as Port[] : legacyRoomPorts(to);
+  for (const start of starts) {
+    for (const end of ends) {
       if (occupied.has(cellKey(start.outside.x, start.outside.y)) || occupied.has(cellKey(end.outside.x, end.outside.y))) continue;
       const cells = findGridPath(start.outside, end.outside, bounds, occupied, usedRouteCells);
       if (!cells) continue;
@@ -151,14 +172,37 @@ function reconstructPath(last: SearchNode, nodes: ReadonlyMap<string, SearchNode
   return result.reverse();
 }
 
-function roomPorts(room: EditorRoom): Port[] {
+/** Every selectable grid-aligned doorway on a room perimeter. */
+export function editorRoomPorts(room: EditorRoom): EditorRoomPortGeometry[] {
+  const result: EditorRoomPortGeometry[] = [];
+  for (const side of ["north", "east", "south", "west"] as const) {
+    const span = side === "north" || side === "south" ? room.width : room.height;
+    for (let offset = 0; offset < span; offset += 1) {
+      const geometry = editorRoomPort(room, { side, offset });
+      if (geometry) result.push(geometry);
+    }
+  }
+  return result;
+}
+
+/** Resolves one stored doorway into its door point and adjacent routing cell. */
+export function editorRoomPort(room: EditorRoom, port: EditorConnectionPort): EditorRoomPortGeometry | null {
+  const span = port.side === "north" || port.side === "south" ? room.width : room.height;
+  if (!Number.isInteger(port.offset) || port.offset < 0 || port.offset >= span) return null;
+  if (port.side === "north") return { port, outside: { x: room.x + port.offset, y: room.y - 1 }, door: { x: room.x + port.offset + 0.5, y: room.y } };
+  if (port.side === "east") return { port, outside: { x: room.x + room.width, y: room.y + port.offset }, door: { x: room.x + room.width, y: room.y + port.offset + 0.5 } };
+  if (port.side === "south") return { port, outside: { x: room.x + port.offset, y: room.y + room.height }, door: { x: room.x + port.offset + 0.5, y: room.y + room.height } };
+  return { port, outside: { x: room.x - 1, y: room.y + port.offset }, door: { x: room.x, y: room.y + port.offset + 0.5 } };
+}
+
+function legacyRoomPorts(room: EditorRoom): Port[] {
   const column = room.x + Math.floor(room.width / 2);
   const row = room.y + Math.floor(room.height / 2);
   return [
-    { outside: { x: column, y: room.y - 1 }, door: { x: column + 0.5, y: room.y } },
-    { outside: { x: room.x + room.width, y: row }, door: { x: room.x + room.width, y: row + 0.5 } },
-    { outside: { x: column, y: room.y + room.height }, door: { x: column + 0.5, y: room.y + room.height } },
-    { outside: { x: room.x - 1, y: row }, door: { x: room.x, y: row + 0.5 } },
+    { port: { side: "north", offset: column - room.x }, outside: { x: column, y: room.y - 1 }, door: { x: column + 0.5, y: room.y } },
+    { port: { side: "east", offset: row - room.y }, outside: { x: room.x + room.width, y: row }, door: { x: room.x + room.width, y: row + 0.5 } },
+    { port: { side: "south", offset: column - room.x }, outside: { x: column, y: room.y + room.height }, door: { x: column + 0.5, y: room.y + room.height } },
+    { port: { side: "west", offset: row - room.y }, outside: { x: room.x - 1, y: row }, door: { x: room.x, y: row + 0.5 } },
   ];
 }
 
@@ -174,7 +218,8 @@ function routeFloorRects(points: readonly EditorGeometryPoint[], width: number):
   return rects;
 }
 
-function boundarySegments(rects: readonly EditorGeometryRect[]): EditorWallSegment[] {
+/** Returns only the outside boundary of the union of axis-aligned floor rectangles. */
+export function boundarySegments(rects: readonly EditorGeometryRect[]): EditorWallSegment[] {
   const segments: EditorWallSegment[] = [];
   for (const rect of rects) {
     const candidates = [

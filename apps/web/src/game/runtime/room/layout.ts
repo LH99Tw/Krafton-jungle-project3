@@ -8,7 +8,8 @@ import {
   ZONE_GRID_SIZE,
   type WorldRect,
 } from "@five-days/game-core";
-import { buildEditorGeometry, type EditorWallSegment } from "../../domain/editorGeometry";
+import { boundarySegments, buildEditorGeometry, type EditorWallSegment } from "../../domain/editorGeometry";
+import type { EditorConnection } from "../../domain/mapEditor";
 
 export const ROOM_VIEW = {
   width: 1280,
@@ -28,6 +29,20 @@ export const BUILD_BOUNDS = {
   maxY: 638,
   gridSize: 40,
 } as const;
+
+export const WALL_HALF_TILE = 20;
+
+export function wallEnvelopeRects(
+  walkable: readonly WorldRect[],
+  margin = WALL_HALF_TILE,
+): WorldRect[] {
+  return walkable.map((rect) => ({
+    x: rect.x - margin,
+    y: rect.y - margin,
+    width: rect.width + margin * 2,
+    height: rect.height + margin * 2,
+  }));
+}
 
 export type RenderableRoom = {
   id: string;
@@ -54,19 +69,26 @@ export type RenderZoneWorld = {
   bossRect: WorldRect;
 };
 
-const EDITOR_CELL_WIDTH = 320;
-const EDITOR_CELL_HEIGHT = 220;
-const EDITOR_CORRIDOR_SIZE = 180;
+export const EDITOR_CELL_WIDTH = 320;
+export const EDITOR_CELL_HEIGHT = 220;
+export const EDITOR_CORRIDOR_SIZE = 180;
 
 export type EditorRenderableRoom = RenderableRoom & { width: number; height: number };
 
 /** Builds one continuous, freely-sized world from rooms placed by the local map editor. */
-export function buildEditorRenderWorld(rooms: readonly EditorRenderableRoom[]): RenderZoneWorld {
-  const connections = new Map<string, { id: string; from: string; to: string }>();
-  for (const room of rooms) for (const connectedId of room.connections) {
-    const ids = [room.id, connectedId].sort();
-    const id = `${ids[0]}|${ids[1]}`;
-    connections.set(id, { id, from: ids[0]!, to: ids[1]! });
+export function buildEditorRenderWorld(
+  rooms: readonly EditorRenderableRoom[],
+  sourceConnections?: readonly EditorConnection[],
+): RenderZoneWorld {
+  const connections = new Map<string, EditorConnection>();
+  if (sourceConnections) {
+    for (const connection of sourceConnections) connections.set(connection.id, connection);
+  } else {
+    for (const room of rooms) for (const connectedId of room.connections) {
+      const ids = [room.id, connectedId].sort();
+      const id = `${ids[0]}|${ids[1]}`;
+      connections.set(id, { id, from: ids[0]!, to: ids[1]! });
+    }
   }
   const geometry = buildEditorGeometry({
     version: 1,
@@ -140,7 +162,7 @@ export function buildRenderWorld(rooms: readonly RenderableRoom[], includeBoss: 
     corridors: corridorRectsBetween(like),
     blockedCells,
     walkable: built.rects,
-    wallSegments: [],
+    wallSegments: boundarySegments(built.rects),
     // Include blocked grid cells so the visual background covers the complete
     // field, not only the local bounding box of generated walkable rooms.
     bounds: boundsOf([...built.rects, ...blockedCells]),

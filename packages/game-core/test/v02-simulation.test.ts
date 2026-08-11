@@ -326,6 +326,49 @@ test("invader path selection is deterministic and occasionally chooses a route u
   assert.equal(foundLonger, true, "seeded 20% routing should produce at least one valid detour");
 });
 
+test("gate invaders use 24 deterministic, non-overlapping spawn slots", () => {
+  const first = startedCore("invader-spawn-slots");
+  const second = startedCore("invader-spawn-slots");
+  const firstPositions = Array.from({ length: 24 }, () => {
+    const invader = first.spawnInvader(1);
+    return `${invader.x.toFixed(3)},${invader.y.toFixed(3)}`;
+  });
+  const secondPositions = Array.from({ length: 24 }, () => {
+    const invader = second.spawnInvader(1);
+    return `${invader.x.toFixed(3)},${invader.y.toFixed(3)}`;
+  });
+  assert.equal(new Set(firstPositions).size, 24);
+  assert.deepEqual(firstPositions, secondPositions);
+});
+
+test("at most six invaders engage one player while the rest continue toward the base", () => {
+  const core = startedCore("invader-attacker-slots");
+  const player = core.players.get("p1")!;
+  const invaders = Array.from({ length: 12 }, () => core.spawnInvader(1));
+  core.movePlayerToRoom(player.userId, invaders[0]!.roomId);
+  player.hp = 10_000;
+  player.maxHp = 10_000;
+  for (const [index, invader] of invaders.entries()) {
+    invader.x = player.x + 100 + index;
+    invader.y = player.y;
+  }
+  core.update(0.01);
+  assert.equal(invaders.filter((invader) => invader.targetId === player.userId).length, 6);
+  assert.equal(invaders.filter((invader) => invader.targetId === "base").length, 6);
+});
+
+test("a 21-invader wave leaves its distributed gate slots without corridor deadlock", () => {
+  const core = startedCore("invader-large-wave");
+  core.setConnected("p1", false);
+  const invaders = Array.from({ length: 21 }, () => core.spawnInvader(1));
+  const starts = new Map(invaders.map((invader) => [invader.id, { x: invader.x, y: invader.y }]));
+  for (let index = 0; index < 100; index += 1) core.update(0.1);
+  for (const invader of invaders) {
+    const start = starts.get(invader.id)!;
+    assert.ok(!invader.alive || Math.hypot(invader.x - start.x, invader.y - start.y) > 100);
+  }
+});
+
 test("invaders acquire, attack, and release nearby players with aggro hysteresis", () => {
   const core = startedCore("invader-aggro");
   const player = core.players.get("p1")!;

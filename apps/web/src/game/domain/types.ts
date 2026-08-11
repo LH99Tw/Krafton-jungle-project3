@@ -245,6 +245,7 @@ export type GameStartOptions = {
   difficulty: "easy" | "normal" | "hard";
   partyMode: PartyMode;
   networked?: boolean;
+  runtimeMode?: "server" | "legacy-local" | "editor-core";
   userId?: string;
   editorMap?: EditorMapDefinition;
 };

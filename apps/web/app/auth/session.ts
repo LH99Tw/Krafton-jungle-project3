@@ -6,6 +6,7 @@ import {
   csrfCookieName,
   sessionCookieName,
 } from "./cookies";
+import { hasAllowedOrigin } from "@/app/security/request";
 
 export {
   CSRF_COOKIE,
@@ -64,11 +65,7 @@ export async function validateMutationRequest(request: Request): Promise<boolean
 
   const origin = request.headers.get("origin");
   if (!origin) return process.env.NODE_ENV !== "production";
-  const allowed = new Set(
-    (process.env.ALLOWED_ORIGINS ?? process.env.APP_ORIGIN ?? "http://localhost:3000")
-      .split(",").map((value) => value.trim()).filter(Boolean),
-  );
-  return allowed.has(origin);
+  return hasAllowedOrigin(request, true);
 }
 
 export async function requestId(): Promise<string> {

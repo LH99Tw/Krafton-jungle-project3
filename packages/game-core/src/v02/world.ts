@@ -148,6 +148,43 @@ export function resolveWalkablePoint(
   return { x: resolvedX, y: resolvedY };
 }
 
+/** Swept movement for circular actors, so their visible body cannot overlap a wall. */
+export function resolveWalkableDiscPoint(
+  rects: readonly WorldRect[],
+  desiredX: number,
+  desiredY: number,
+  previousX: number,
+  previousY: number,
+  radius: number,
+): Readonly<{ x: number; y: number }> {
+  const walkable = (x: number, y: number): boolean => {
+    const samples = Math.max(8, Math.ceil(radius * Math.PI / 6));
+    if (!isWalkablePoint(rects, x, y)) return false;
+    for (let index = 0; index < samples; index += 1) {
+      const angle = index * Math.PI * 2 / samples;
+      if (!isWalkablePoint(rects, x + Math.cos(angle) * radius, y + Math.sin(angle) * radius)) return false;
+    }
+    return true;
+  };
+  const deltaX = desiredX - previousX;
+  const deltaY = desiredY - previousY;
+  const steps = Math.max(1, Math.ceil(Math.max(Math.abs(deltaX), Math.abs(deltaY)) / 8));
+  const stepX = deltaX / steps;
+  const stepY = deltaY / steps;
+  let x = previousX;
+  let y = previousY;
+  for (let step = 0; step < steps; step += 1) {
+    const nextX = x + stepX;
+    const nextY = y + stepY;
+    if (walkable(nextX, nextY)) { x = nextX; y = nextY; continue; }
+    let moved = false;
+    if (walkable(nextX, y)) { x = nextX; moved = true; }
+    if (walkable(x, nextY)) { y = nextY; moved = true; }
+    if (!moved) break;
+  }
+  return { x, y };
+}
+
 /** Corridor rectangles joining every orthogonally connected room pair. */
 export function corridorRectsBetween(rooms: Iterable<GridRoomLike>): WorldRect[] {
   const grid = new Map<string, GridPosition>();

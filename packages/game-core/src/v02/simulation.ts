@@ -22,6 +22,7 @@ import {
   roomWorldCenter,
   roomWorldRect,
   resolveWalkablePoint,
+  type WorldRect,
 } from "./world";
 
 export const ROOM_WIDTH = 1_280;
@@ -31,7 +32,8 @@ export const WAYPOINT_RADIUS = 92;
 export const WAYPOINT_HOLD_SECONDS = 5;
 export const BOSS_ROOM_ID = "boss:arena" as const;
 
-export type CoreRoomId = RoomId | typeof BOSS_ROOM_ID;
+export type AuthoredRoomId = `editor:${string}`;
+export type CoreRoomId = RoomId | typeof BOSS_ROOM_ID | AuthoredRoomId;
 export type CoreRoomKind = RoomType | "boss";
 export type CoreEnemyKind = "static" | "hidden" | "gate" | "invader" | "boss";
 export type CoreEnemyBehavior = "static" | "gate" | "invader" | "boss";
@@ -49,13 +51,45 @@ export type CoreRoom = {
   connections: readonly CoreRoomId[];
   discovered: boolean;
   cleared: boolean;
+  rect?: WorldRect;
 };
+
+export type CoreWorldConnectionDefinition = Readonly<{
+  id: string;
+  from: AuthoredRoomId;
+  to: AuthoredRoomId;
+  floorRects: readonly WorldRect[];
+  points: readonly Readonly<{ x: number; y: number }>[];
+  portal: Readonly<{ x: number; y: number }>;
+}>;
+
+/** Geometry-neutral authored world consumed by the same GameCore used on Colyseus. */
+export type CoreWorldDefinition = Readonly<{
+  kind: "authored";
+  id: string;
+  rooms: readonly Readonly<{
+    id: AuthoredRoomId;
+    zone: ZoneId;
+    kind: CoreRoomKind;
+    rect: WorldRect;
+    mapX: number;
+    mapY: number;
+    connections: readonly AuthoredRoomId[];
+    depth: number;
+  }>[];
+  connections: readonly CoreWorldConnectionDefinition[];
+  walkable: readonly WorldRect[];
+  bounds: WorldRect;
+  baseRoomId: AuthoredRoomId;
+  bossRoomId: AuthoredRoomId;
+  gateRoomIds: readonly AuthoredRoomId[];
+}>;
 
 export type CoreDoor = {
   id: string;
   zone: ZoneId;
-  fromRoomId: RoomId;
-  toRoomId: RoomId;
+  fromRoomId: CoreRoomId;
+  toRoomId: CoreRoomId;
   open: boolean;
   locked: boolean;
 };
@@ -96,7 +130,7 @@ export type CoreEnemy = {
 
 export type CoreWaypoint = {
   id: string;
-  roomId: RoomId;
+  roomId: CoreRoomId;
   zone: ZoneId;
   kind: CoreWaypointKind;
   x: number;
@@ -329,18 +363,19 @@ export function createInvaderEnemy(
   spawnIndex: number,
   maps: ThreeZoneMap,
   difficulty: "easy" | "normal" | "hard",
+  authored?: Readonly<{ roomId: CoreRoomId; path: readonly CoreRoomId[]; position: Readonly<{ x: number; y: number }> }>,
 ): CoreEnemy {
   const random = createSeededRandom(`invader:${seed}:${zone}:${spawnIndex}`);
   const multiplier = DIFFICULTY_MULTIPLIER[difficulty];
-  const path = createInvaderPath(zone, maps);
+  const path = authored?.path ?? createInvaderPath(zone, maps);
   const hp = Math.round((22 + zone * 8) * multiplier.hp);
-  const spawn = invaderWorldSpawn(path[0], maps);
+  const spawn = authored?.position ?? invaderWorldSpawn(path[0], maps);
   return {
     id: `enemy:invader:${zone}:${spawnIndex}:${hashSeed(`${seed}:${random.next()}`).toString(16)}`,
     kind: "invader",
     behavior: "invader",
-    roomId: path[0] as CoreRoomId,
-    spawnRoomId: path[0] as CoreRoomId,
+    roomId: authored?.roomId ?? path[0] as CoreRoomId,
+    spawnRoomId: authored?.roomId ?? path[0] as CoreRoomId,
     x: spawn.x,
     y: spawn.y,
     spawnX: spawn.x,
@@ -509,11 +544,11 @@ export function makeDraftId(seed: string | number, playerId: string, level: numb
   return `draft:${level}:${hashSeed(`${seed}:${playerId}:${level}:${draftIndex}`).toString(16)}`;
 }
 
-export function waypointId(roomId: RoomId, kind: CoreWaypointKind): string {
+export function waypointId(roomId: CoreRoomId, kind: CoreWaypointKind): string {
   return `waypoint:${roomId}:${kind}`;
 }
 
-export function doorId(left: RoomId, right: RoomId): string {
+export function doorId(left: CoreRoomId, right: CoreRoomId): string {
   return `door:${[left, right].sort().join("|")}`;
 }
 
@@ -562,22 +597,24 @@ function createWaypoint(
   };
 }
 
-function createSeededRoomEnemy(
+export function createSeededRoomEnemy(
   seed: string | number,
-  roomId: RoomId,
+  roomId: CoreRoomId,
   zone: ZoneId,
   kind: "static" | "hidden" | "gate",
   difficulty: "easy" | "normal" | "hard",
   originX: number,
   originY: number,
+  roomWidth = ROOM_WIDTH,
+  roomHeight = ROOM_HEIGHT,
 ): CoreEnemy {
   const random = createSeededRandom(`enemy:${seed}:${roomId}:${kind}`);
   const base = ENEMY_RULES[kind];
   const difficultyRule = DIFFICULTY_MULTIPLIER[difficulty];
   const zoneScale = 1 + (zone - 1) * 0.28;
   const hp = Math.round(base.hp * zoneScale * difficultyRule.hp);
-  const x = originX + (kind === "gate" ? ROOM_WIDTH * 0.76 : ROOM_WIDTH * (0.35 + random.next() * 0.3));
-  const y = originY + (kind === "gate" ? ROOM_HEIGHT * 0.24 : ROOM_HEIGHT * (0.3 + random.next() * 0.4));
+  const x = originX + (kind === "gate" ? roomWidth * 0.76 : roomWidth * (0.35 + random.next() * 0.3));
+  const y = originY + (kind === "gate" ? roomHeight * 0.24 : roomHeight * (0.3 + random.next() * 0.4));
   return {
     id: `enemy:${kind}:${roomId}:${hashSeed(`${seed}:${roomId}`).toString(16)}`,
     kind,

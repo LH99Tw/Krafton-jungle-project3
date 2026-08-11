@@ -12,10 +12,37 @@ test("production mutations require an explicitly allowed Origin", () => {
     assert.equal(hasAllowedOrigin(new Request("https://web.example.com/api/guestbook", {
       headers: { origin: "https://web.example.com" },
     })), true);
+    assert.equal(hasAllowedOrigin(new Request("http://127.0.0.1:3000/api/guestbook", {
+      headers: { origin: "http://127.0.0.1:3000" },
+    })), true);
     assert.equal(hasAllowedOrigin(new Request("https://web.example.com/api/guestbook", {
       headers: { origin: "https://evil.example" },
     })), false);
     assert.equal(hasAllowedOrigin(new Request("https://web.example.com/api/guestbook")), false);
+  } finally {
+    if (originalNodeEnv === undefined) delete mutableEnv.NODE_ENV;
+    else mutableEnv.NODE_ENV = originalNodeEnv;
+    if (originalAllowedOrigins === undefined) delete mutableEnv.ALLOWED_ORIGINS;
+    else mutableEnv.ALLOWED_ORIGINS = originalAllowedOrigins;
+  }
+});
+
+test("development mutations accept loopback host aliases", () => {
+  const mutableEnv = process.env as Record<string, string | undefined>;
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalAllowedOrigins = process.env.ALLOWED_ORIGINS;
+  mutableEnv.NODE_ENV = "development";
+  mutableEnv.ALLOWED_ORIGINS = "http://localhost:3000";
+  try {
+    assert.equal(hasAllowedOrigin(new Request("http://localhost:3000/api/guestbook", {
+      headers: { origin: "http://127.0.0.1:3000" },
+    })), true);
+    assert.equal(hasAllowedOrigin(new Request("http://localhost:3000/api/guestbook", {
+      headers: { origin: "https://evil.example" },
+    })), false);
+    assert.equal(hasAllowedOrigin(new Request("http://localhost:3000/api/guestbook", {
+      headers: { origin: "not-an-origin" },
+    })), false);
   } finally {
     if (originalNodeEnv === undefined) delete mutableEnv.NODE_ENV;
     else mutableEnv.NODE_ENV = originalNodeEnv;

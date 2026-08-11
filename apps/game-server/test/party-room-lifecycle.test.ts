@@ -215,7 +215,21 @@ test("player AOI follows the shared vision radius across rooms in the same zone"
     zone: 1,
     gridX: 1,
     gridY: 0,
-    connections: ["forest:0"],
+    connections: ["forest:0", "forest:1b"],
+  };
+  const roomB2 = {
+    id: "forest:1b",
+    zone: 1,
+    gridX: 2,
+    gridY: 0,
+    connections: ["forest:1", "forest:1c"],
+  };
+  const roomB3 = {
+    id: "forest:1c",
+    zone: 1,
+    gridX: 3,
+    gridY: 0,
+    connections: ["forest:1b"],
   };
   const roomC = {
     id: "forest:2",
@@ -225,7 +239,7 @@ test("player AOI follows the shared vision radius across rooms in the same zone"
     connections: [],
   };
   const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
-  harness.core = { rooms: new Map([[roomA.id, roomA], [roomB.id, roomB], [roomC.id, roomC]]) };
+  harness.core = { rooms: new Map([[roomA.id, roomA], [roomB.id, roomB], [roomB2.id, roomB2], [roomB3.id, roomB3], [roomC.id, roomC]]) };
   const isPlayerInAoi = (PartyRoom.prototype as unknown as {
     isPlayerInAoi(
       this: PartyRoom,
@@ -247,7 +261,17 @@ test("player AOI follows the shared vision radius across rooms in the same zone"
   }), true);
   assert.equal(isPlayerInAoi.call(harness as unknown as PartyRoom, viewer, {
     roomId: roomB.id,
-    x: 1_441,
+    x: 9_000,
+    y: 360,
+  }), true);
+  assert.equal(isPlayerInAoi.call(harness as unknown as PartyRoom, viewer, {
+    roomId: roomB2.id,
+    x: 20_000,
+    y: 360,
+  }), true);
+  assert.equal(isPlayerInAoi.call(harness as unknown as PartyRoom, viewer, {
+    roomId: roomB3.id,
+    x: 640,
     y: 360,
   }), false);
   assert.equal(isPlayerInAoi.call(harness as unknown as PartyRoom, viewer, {

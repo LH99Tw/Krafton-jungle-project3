@@ -39,6 +39,8 @@ import type {
 import type { InputFrame, WorldFrame } from "@five-days/protocol";
 import { resolveSharedPartyProgress } from "../../domain/sharedPartyProgress";
 import { editorThemeZone } from "../../domain/mapEditor";
+import { buildEditorCoreWorld, editorCoreRoomId } from "@/src/features/map-editor/editorCoreWorld";
+import { localCoreSession } from "@/src/features/map-editor/LocalCoreSession";
 import { ProgressionModel } from "../../systems/ProgressionModel";
 import { HERO_SPRITE_FRAME_SIZE, HERO_SPRITE_PATHS, HERO_TOTAL_FRAME_COUNT } from "../../client/render/heroSprites";
 import { colyseusTransport } from "../../transport/ColyseusTransport";
@@ -60,7 +62,7 @@ import {
 } from "./layout";
 import { PlayerVisionFog } from "./PlayerVisionFog";
 import { RoomRenderer, classColor } from "./RoomRenderer";
-import { isWithinPlayerVision, type VisionRevealSource } from "./vision";
+import type { VisionRevealSource } from "./vision";
 
 type LocalEnemyKind = "static" | "hidden" | "gate" | "invader" | "boss";
 const PLAYER_COLLISION_RADIUS = 14;
@@ -226,8 +228,9 @@ export class RoomGameScene extends Phaser.Scene {
     this.difficulty = DIFFICULTY[options.difficulty];
     this.runSeed = `v02:${options.userId ?? "local"}:${options.heroClass}:${options.difficulty}`;
     this.worldMap = generateThreeZoneMap(this.runSeed);
+    const editorCore = options.runtimeMode === "editor-core";
     this.editorRooms = options.editorMap ? options.editorMap.rooms.map((room): LocalMapRoom => ({
-      id: room.id,
+      id: editorCore ? editorCoreRoomId(room.id) : room.id,
       zone: editorThemeZone(room.asset),
       x: room.x,
       y: room.y,
@@ -236,7 +239,10 @@ export class RoomGameScene extends Phaser.Scene {
       type: room.type,
       connections: options.editorMap!.connections
         .filter((connection) => connection.from === room.id || connection.to === room.id)
-        .map((connection) => connection.from === room.id ? connection.to : connection.from),
+        .map((connection) => {
+          const connectedId = connection.from === room.id ? connection.to : connection.from;
+          return editorCore ? editorCoreRoomId(connectedId) : connectedId;
+        }),
       depthScore: room.x + room.y,
     })) : [];
     this.currentRoomId = this.editorRooms.find((room) => room.type === "start")?.id ?? this.worldMap.zones[0].startRoomId;
@@ -277,17 +283,20 @@ export class RoomGameScene extends Phaser.Scene {
     const startCenter = this.zoneWorld.rooms.find((entry) => entry.room.id === this.currentRoomId)?.center ?? { x: 0, y: 0 };
     this.player = this.roomRenderer.createHero(this.options.heroClass, startCenter.x, startCenter.y);
     this.lastWalkablePlayerPosition = { ...startCenter };
-    this.player.setVisible(!this.options.networked);
+    this.player.setVisible(!this.usesAuthoritativeRuntime());
     this.configureCamera();
     this.visionFog = new PlayerVisionFog(this);
+    this.configureVisionWorld();
     this.configureInput();
     this.commandDisconnect = gameBridge.connect((command) => this.handleCommand(command));
 
-    if (this.options.networked) {
+    if (this.usesAuthoritativeRuntime()) {
       this.networkDisconnect = gameBridge.on("network", (snapshot) => this.syncNetworkState(snapshot));
       this.worldFrameDisconnect = gameBridge.on("worldFrame", (frame) => this.handleWorldFrame(frame));
       this.localInputDisconnect = gameBridge.on("localInput", (frame) => this.applyPredictedInput(frame));
-      const initialSnapshot = colyseusTransport.snapshot;
+      const initialSnapshot = this.options.runtimeMode === "editor-core" && this.options.editorMap
+        ? localCoreSession.start(buildEditorCoreWorld(this.options.editorMap), this.options.userId ?? "map-editor")
+        : colyseusTransport.snapshot;
       if (initialSnapshot) this.syncNetworkState(initialSnapshot);
       else this.renderNetworkPlaceholder();
     } else {
@@ -304,7 +313,7 @@ export class RoomGameScene extends Phaser.Scene {
     this.cameras.main.setBounds(0, 0, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
     this.cameras.main.startFollow(this.player, true, 0.12, 0.12);
     this.cameras.main.setZoom(1);
-    this.cameras.main.setBackgroundColor(0x0a0d0b);
+    this.cameras.main.setBackgroundColor(0x000000);
     this.cameras.main.fadeIn(350, 12, 20, 16);
   }
 
@@ -321,7 +330,10 @@ export class RoomGameScene extends Phaser.Scene {
         type: room.type,
         connections: [...room.connections],
       }));
-      this.zoneWorld = buildEditorRenderWorld(rooms);
+      const sourceConnections = this.options.editorMap?.connections.map((connection) => this.options.runtimeMode === "editor-core"
+        ? { ...connection, from: editorCoreRoomId(connection.from), to: editorCoreRoomId(connection.to) }
+        : connection);
+      this.zoneWorld = buildEditorRenderWorld(rooms, sourceConnections);
       this.physics.world.setBounds(this.zoneWorld.bounds.x, this.zoneWorld.bounds.y, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
       this.cameras.main?.setBounds(this.zoneWorld.bounds.x, this.zoneWorld.bounds.y, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
       this.roomRenderer?.renderWorld(this.zoneWorld, {
@@ -329,6 +341,7 @@ export class RoomGameScene extends Phaser.Scene {
         showBuildGrid: true,
         waypointRooms: waypointRoomId ? new Set([waypointRoomId]) : new Set(),
       });
+      this.configureVisionWorld();
       return;
     }
     const zoneMap = this.worldMap.zones[zone - 1];
@@ -348,6 +361,7 @@ export class RoomGameScene extends Phaser.Scene {
       showBuildGrid: zone === 1,
       waypointRooms: waypointRoomId ? new Set([waypointRoomId]) : new Set(),
     });
+    this.configureVisionWorld();
   }
 
   update(time: number, delta: number): void {
@@ -356,10 +370,24 @@ export class RoomGameScene extends Phaser.Scene {
     if (this.ended) return;
     const safeDeltaMs = Math.min(100, Math.max(0, delta));
 
-    if (this.options.networked) {
+    if (this.usesAuthoritativeRuntime()) {
+      if (this.options.runtimeMode === "editor-core") {
+        const aim = this.aimAngle();
+        const input = {
+          x: Number(this.keys.D?.isDown) - Number(this.keys.A?.isDown),
+          y: Number(this.keys.S?.isDown) - Number(this.keys.W?.isDown),
+          aim,
+          buttons: Number(this.keys.Q?.isDown) | (Number(this.keys.E?.isDown) << 1) | (Number(this.keys.SPACE?.isDown) << 2),
+        };
+        const localFrame = localCoreSession.tick(safeDeltaMs, input);
+        this.localAim = localFrame.inputFrame.aim;
+        this.localMoving = Math.hypot(localFrame.inputFrame.x, localFrame.inputFrame.y) > 0.01;
+        this.syncNetworkState(localFrame.snapshot);
+        this.handleWorldFrame(localFrame.frame);
+      }
       this.updateNetworkTransforms();
       const aim = this.aimAngle();
-      colyseusTransport.setAim(aim);
+      if (this.options.runtimeMode !== "editor-core") colyseusTransport.setAim(aim);
       this.roomRenderer.updateHeroPose(this.player, aim, false, time);
       this.snapshotAccumulator += safeDeltaMs;
       if (this.snapshotAccumulator >= 120) {
@@ -400,7 +428,7 @@ export class RoomGameScene extends Phaser.Scene {
 
   /** Server snapshots are the only simulation source while networked. */
   public syncNetworkState(snapshot: NetworkWorldSnapshot): void {
-    if (!this.options.networked || this.ended) return;
+    if (!this.usesAuthoritativeRuntime() || this.ended) return;
     this.latestNetwork = snapshot;
     const local = snapshot.players.find((member) => member.isLocal)
       ?? snapshot.players.find((member) => member.userId === this.options.userId);
@@ -427,7 +455,7 @@ export class RoomGameScene extends Phaser.Scene {
   }
 
   private handleWorldFrame(frame: WorldFrame): void {
-    if (!this.options.networked || this.ended) return;
+    if (!this.usesAuthoritativeRuntime() || this.ended) return;
     this.transformBuffer.push(frame);
     const snapshot = this.latestNetwork;
     const localState = snapshot?.players.find((member) => member.isLocal)
@@ -435,7 +463,7 @@ export class RoomGameScene extends Phaser.Scene {
     const authoritative = frame.players.find((player) => player.id === this.options.userId || player.id === localState?.userId);
     if (!snapshot || !localState || !authoritative) return;
     let reconciled = { x: authoritative.x, y: authoritative.y, roomId: authoritative.roomId };
-    for (const input of colyseusTransport.unacknowledgedInputs) {
+    for (const input of this.options.runtimeMode === "editor-core" ? [] : colyseusTransport.unacknowledgedInputs) {
       reconciled = predictPlayerTransform({
         ...reconciled,
         heroClass: localState.heroClass,
@@ -447,7 +475,8 @@ export class RoomGameScene extends Phaser.Scene {
     const visualX = this.player.x;
     const visualY = this.player.y;
     const error = Math.hypot(visualX - reconciled.x, visualY - reconciled.y);
-    const hardSnap = authoritative.roomId !== this.localPrediction?.roomId
+    const hardSnap = this.options.runtimeMode === "editor-core"
+      || authoritative.roomId !== this.localPrediction?.roomId
       || (authoritative.flags & 1) !== 0
       || error > 96;
     this.localPrediction = reconciled;
@@ -503,25 +532,25 @@ export class RoomGameScene extends Phaser.Scene {
       if (member.isLocal || member.userId === this.options.userId) continue;
       const sprite = this.remotePlayers.get(member.userId);
       const transform = this.transformBuffer.sample(member.userId);
-      if (!sprite || !transform) continue;
-      const point = clampToWorld(this.zoneWorld.bounds, transform.x, transform.y);
-      const visible = this.sharesNetworkVisionZone(localState.roomId, transform.roomId)
+      if (!sprite) continue;
+      const resolved = transform ?? member;
+      const point = clampToWorld(this.zoneWorld.bounds, resolved.x, resolved.y);
+      const visible = this.sharesNetworkVisionZone(localState.roomId, resolved.roomId)
         && shouldRenderPartyMember(
           { ...member, x: point.x, y: point.y },
           this.player,
         );
       sprite.setPosition(point.x, point.y).setVisible(visible);
-      this.roomRenderer.updateHeroPose(sprite, transform.aim, Math.hypot(transform.vx, transform.vy) > 1, now);
+      this.roomRenderer.updateHeroPose(sprite, transform?.aim ?? 0, transform ? Math.hypot(transform.vx, transform.vy) > 1 : false, now);
     }
     for (const enemy of snapshot.enemies) {
       const sprite = this.networkEnemies.get(enemy.id);
       const transform = this.transformBuffer.sample(enemy.id);
-      if (!sprite || !transform) continue;
-      const point = clampToWorld(this.zoneWorld.bounds, transform.x, transform.y);
-      const visible = this.transformBuffer.isFresh(enemy.id)
-        && enemy.alive
-        && this.sharesNetworkVisionZone(localState.roomId, transform.roomId)
-        && isWithinPlayerVision(this.player, point);
+      if (!sprite) continue;
+      const resolved = transform ?? enemy;
+      const point = clampToWorld(this.zoneWorld.bounds, resolved.x, resolved.y);
+      const visible = enemy.alive
+        && this.sharesNetworkVisionZone(localState.roomId, resolved.roomId);
       sprite.setPosition(point.x, point.y).setVisible(visible);
     }
   }
@@ -530,7 +559,7 @@ export class RoomGameScene extends Phaser.Scene {
     if (!this.input.keyboard) return;
     this.keys = this.input.keyboard.addKeys("W,A,S,D,Q,E,SPACE,B") as typeof this.keys;
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
-      if (!this.options.networked && this.buildMode) this.tryBuildAt(pointer.worldX, pointer.worldY);
+      if (!this.usesAuthoritativeRuntime() && this.buildMode) this.tryBuildAt(pointer.worldX, pointer.worldY);
     });
   }
 
@@ -1316,25 +1345,31 @@ export class RoomGameScene extends Phaser.Scene {
 
   private handleCommand(command: GameCommand): void {
     if (command.type === "choose-upgrade") {
-      if (this.options.networked) {
+      if (this.options.runtimeMode === "editor-core") {
+        const draftId = this.latestNetwork?.localUpgradeDraft?.draftId;
+        if (draftId) localCoreSession.chooseUpgrade(draftId, command.upgradeId);
+      } else if (this.options.networked) {
         const draftId = this.latestNetwork?.localUpgradeDraft?.draftId;
         if (draftId) colyseusTransport.chooseUpgrade(draftId, command.upgradeId);
       } else {
         this.chooseUpgrade(command.upgradeId);
       }
     } else if (command.type === "set-build-mode") {
-      if (!this.options.networked && this.isLocalBuildRoom() && isInsideBuildBounds(this.player.x, this.player.y)) {
+      if (!this.usesAuthoritativeRuntime() && this.isLocalBuildRoom() && isInsideBuildBounds(this.player.x, this.player.y)) {
         this.buildMode = command.buildMode;
       }
     } else if (command.type === "travel") {
-      if (this.options.networked) colyseusTransport.requestTravel(command.waypointId, command.destinationId);
+      if (this.options.runtimeMode === "editor-core") localCoreSession.requestTravel(command.waypointId, command.destinationId);
+      else if (this.options.networked) colyseusTransport.requestTravel(command.waypointId, command.destinationId);
       else this.requestWaypointAction(this.isNearGateWaypoint() ? "advance" : "recall");
     } else if (command.type === "interact") {
-      if (this.options.networked) colyseusTransport.interact(command.targetId);
+      if (this.options.runtimeMode === "editor-core") localCoreSession.interact(command.targetId);
+      else if (this.options.networked) colyseusTransport.interact(command.targetId);
     } else if (command.type === "return-base") {
-      if (this.options.networked) colyseusTransport.requestRecall();
+      if (this.options.runtimeMode === "editor-core") localCoreSession.recall();
+      else if (this.options.networked) colyseusTransport.requestRecall();
       else if (this.localPhase !== "boss") this.requestWaypointAction("recall");
-    } else if (command.type === "enter-boss" && !this.options.networked && this.currentZone === 3 && this.isNearGateWaypoint()) {
+    } else if (command.type === "enter-boss" && !this.usesAuthoritativeRuntime() && this.currentZone === 3 && this.isNearGateWaypoint()) {
       this.requestWaypointAction("advance");
     }
   }
@@ -1410,8 +1445,7 @@ export class RoomGameScene extends Phaser.Scene {
       const sprite = this.networkEnemies.get(enemy.id) ?? this.roomRenderer.createEnemy(kind, enemy.x, enemy.y);
       if (!this.networkEnemies.has(enemy.id)) this.networkEnemies.set(enemy.id, sprite);
       const visible = enemy.alive
-        && this.sharesNetworkVisionZone(local.roomId, enemy.roomId)
-        && isWithinPlayerVision(local, enemy);
+        && this.sharesNetworkVisionZone(local.roomId, enemy.roomId);
 
       let hpBar = this.networkEnemyHpBars.get(enemy.id);
       if (!hpBar) {
@@ -1482,7 +1516,8 @@ export class RoomGameScene extends Phaser.Scene {
           const lastRequestedAt = this.networkDropRequests.get(drop.id) ?? -Infinity;
           if (this.time.now - lastRequestedAt < 750) return;
           this.networkDropRequests.set(drop.id, this.time.now);
-          colyseusTransport.equip(drop.id);
+          if (this.options.runtimeMode === "editor-core") localCoreSession.equip(drop.id);
+          else colyseusTransport.equip(drop.id);
           this.message = `${drop.rarity === "mythic" ? "신화" : "전설"} 개인 장비 교체를 요청했습니다.`;
           this.emitSnapshot();
         });
@@ -1493,7 +1528,7 @@ export class RoomGameScene extends Phaser.Scene {
   }
 
   private emitSnapshot(): void {
-    const snapshot = this.options.networked ? this.createNetworkGameSnapshot() : this.createLocalGameSnapshot();
+    const snapshot = this.usesAuthoritativeRuntime() ? this.createNetworkGameSnapshot() : this.createLocalGameSnapshot();
     gameBridge.emit("snapshot", snapshot);
   }
 
@@ -1616,7 +1651,7 @@ export class RoomGameScene extends Phaser.Scene {
       rooms: roomMap,
     });
     return {
-      worldMode: "procedural",
+      worldMode: this.options.runtimeMode === "editor-core" ? "editor" : "procedural",
       running: phase !== "ended",
       phase,
       phaseLabel: PHASE_LABELS[phase],
@@ -1826,6 +1861,7 @@ export class RoomGameScene extends Phaser.Scene {
   }
 
   private cleanup(): void {
+    if (this.options.runtimeMode === "editor-core") localCoreSession.stop();
     this.commandDisconnect?.();
     this.networkDisconnect?.();
     this.worldFrameDisconnect?.();
@@ -1849,6 +1885,20 @@ export class RoomGameScene extends Phaser.Scene {
     this.networkDropRequests.clear();
     this.visionFog?.destroy();
     this.roomRenderer?.destroy();
+  }
+
+  private usesAuthoritativeRuntime(): boolean {
+    return this.options.runtimeMode === "editor-core"
+      || this.options.runtimeMode === "server"
+      || Boolean(this.options.networked);
+  }
+
+  private configureVisionWorld(): void {
+    if (!this.visionFog || !this.zoneWorld) return;
+    const revision = this.zoneWorld.wallSegments
+      .map((segment) => `${segment.x1},${segment.y1},${segment.x2},${segment.y2}`)
+      .join("|");
+    this.visionFog.setWorld(this.zoneWorld.wallSegments, revision);
   }
 }
 

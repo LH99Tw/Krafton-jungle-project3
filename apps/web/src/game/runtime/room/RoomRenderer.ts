@@ -7,6 +7,7 @@ import { HERO_SPRITE_SCALE, heroFrameForPose } from "../../client/render/heroSpr
 import {
   BUILD_BOUNDS,
   ROOM_VIEW,
+  wallEnvelopeRects,
   type RenderableRoom,
   type RenderWorldRoom,
   type RenderZoneWorld,
@@ -42,6 +43,7 @@ const ROOM_NAMES: Record<RenderableRoom["type"], string> = {
 
 export class RoomRenderer {
   private roomObjects: Phaser.GameObjects.GameObject[] = [];
+  private roomMasks: Phaser.Display.Masks.GeometryMask[] = [];
   private readonly enemyPatternObjects = new Map<string, { key: string; graphics: Phaser.GameObjects.Graphics }>();
   private crosshair!: Phaser.GameObjects.Image;
 
@@ -67,23 +69,33 @@ export class RoomRenderer {
     const graphics = this.track(this.scene.add.graphics().setDepth(-18));
     const zone = world.rooms[0]?.room.zone ?? 1;
 
-    // Outer void + wall backdrop covering the whole world bounds.
-    graphics.fillStyle(0x0a0d0b, 1).fillRect(
+    // Pure black void. Only a half-tile envelope around rooms and corridors
+    // receives terrain, making the rest read as intentionally nonexistent.
+    const voidBackdrop = this.track(this.scene.add.graphics().setDepth(-40));
+    voidBackdrop.fillStyle(0x000000, 1).fillRect(
       world.bounds.x - 60,
       world.bounds.y - 60,
       world.bounds.width + 120,
       world.bounds.height + 120,
     );
+    const wallMaskShape = this.track(this.scene.make.graphics({}, false));
+    wallMaskShape.fillStyle(0xffffff, 1);
+    for (const rect of wallEnvelopeRects(world.walkable)) {
+      wallMaskShape.fillRect(rect.x, rect.y, rect.width, rect.height);
+    }
+    const wallMask = wallMaskShape.createGeometryMask();
+    this.roomMasks.push(wallMask);
     this.track(this.scene.add.tileSprite(
       world.bounds.x + world.bounds.width / 2,
       world.bounds.y + world.bounds.height / 2,
       world.bounds.width,
       world.bounds.height,
       `zone-${zone}-blocked`,
-    ).setAlpha(0.86).setDepth(-30));
-    graphics.fillStyle(palette.wall, 0.22).fillRect(world.bounds.x, world.bounds.y, world.bounds.width, world.bounds.height);
-
-    this.drawBlockedCells(world, palette.accent);
+    ).setAlpha(0.86).setDepth(-30).setMask(wallMask));
+    const wallTint = this.track(this.scene.add.graphics().setDepth(-29));
+    wallTint.fillStyle(palette.wall, 0.22)
+      .fillRect(world.bounds.x, world.bounds.y, world.bounds.width, world.bounds.height)
+      .setMask(wallMask);
 
     // Paved corridors connecting rooms.
     for (const corridor of world.corridors) this.drawWalkway(graphics, corridor, zone, palette.accent);
@@ -119,15 +131,6 @@ export class RoomRenderer {
           .setAlpha(placement.alpha)
           .setDepth(1));
       }
-    }
-  }
-
-  private drawBlockedCells(world: RenderZoneWorld, accent: number): void {
-    const barrier = this.track(this.scene.add.graphics().setDepth(-18));
-    for (const rect of world.blockedCells) {
-      barrier.fillStyle(0x050706, 0.28).fillRect(rect.x, rect.y, rect.width, rect.height);
-      barrier.lineStyle(18, 0x111713, 0.98).strokeRect(rect.x + 9, rect.y + 9, rect.width - 18, rect.height - 18);
-      barrier.lineStyle(4, accent, 0.3).strokeRect(rect.x + 22, rect.y + 22, rect.width - 44, rect.height - 44);
     }
   }
 
@@ -474,6 +477,8 @@ export class RoomRenderer {
   private clearRoom(): void {
     for (const pattern of this.enemyPatternObjects.values()) pattern.graphics.destroy();
     this.enemyPatternObjects.clear();
+    for (const mask of this.roomMasks) mask.destroy();
+    this.roomMasks = [];
     for (const object of this.roomObjects) object.destroy();
     this.roomObjects = [];
   }

@@ -1,9 +1,13 @@
 import { buildEditorGeometry } from "./editorGeometry";
 
 export const EDITOR_MAP_STORAGE_KEY = "five-days:local-map:v1";
+export const EDITOR_MIN_COORDINATE = -128;
+export const EDITOR_MAX_COORDINATE = 127;
 
-export type EditorRoomType = "start" | "empty" | "resource" | "static-monster" | "gate" | "boss";
+export type EditorRoomType = "start" | "empty" | "resource" | "static-monster" | "hidden-monster" | "gate" | "boss";
 export type EditorAssetTheme = "forest" | "marsh" | "wastes";
+export type EditorPortSide = "north" | "east" | "south" | "west";
+export type EditorConnectionPort = { side: EditorPortSide; offset: number };
 
 export type EditorRoom = {
   id: string;
@@ -20,6 +24,10 @@ export type EditorConnection = {
   id: string;
   from: string;
   to: string;
+  /** Optional for backwards compatibility with maps saved before custom doors. */
+  fromPort?: EditorConnectionPort;
+  /** Optional for backwards compatibility with maps saved before custom doors. */
+  toPort?: EditorConnectionPort;
 };
 
 export type EditorMapDefinition = {
@@ -57,8 +65,22 @@ export function validateEditorMap(map: EditorMapDefinition): string[] {
   if (!map.rooms.some((room) => room.type === "gate")) failures.push("몬스터 게이트를 하나 이상 배치해 주세요.");
   const ids = new Set(map.rooms.map((room) => room.id));
   if (ids.size !== map.rooms.length) failures.push("방 ID가 중복되었습니다.");
+  if (map.rooms.some((room) => (
+    !Number.isInteger(room.x)
+    || !Number.isInteger(room.y)
+    || room.x < EDITOR_MIN_COORDINATE
+    || room.y < EDITOR_MIN_COORDINATE
+    || room.x + room.width - 1 > EDITOR_MAX_COORDINATE
+    || room.y + room.height - 1 > EDITOR_MAX_COORDINATE
+  ))) failures.push(`방 좌표는 크기를 포함해 ${EDITOR_MIN_COORDINATE}..${EDITOR_MAX_COORDINATE} 셀 안에 있어야 합니다.`);
   if (map.connections.some((connection) => connection.from === connection.to || !ids.has(connection.from) || !ids.has(connection.to))) {
     failures.push("유효하지 않은 통로가 있습니다.");
+  }
+  for (const connection of map.connections) {
+    const from = map.rooms.find((room) => room.id === connection.from);
+    const to = map.rooms.find((room) => room.id === connection.to);
+    if (connection.fromPort && (!from || !isValidEditorPort(from, connection.fromPort))) failures.push(`통로 “${connection.id}”의 시작 출입구가 방 범위를 벗어났습니다.`);
+    if (connection.toPort && (!to || !isValidEditorPort(to, connection.toPort))) failures.push(`통로 “${connection.id}”의 도착 출입구가 방 범위를 벗어났습니다.`);
   }
   const connectionPairs = map.connections.map((connection) => [connection.from, connection.to].sort().join("|"));
   if (new Set(connectionPairs).size !== connectionPairs.length) failures.push("같은 두 방을 잇는 중복 통로가 있습니다.");
@@ -88,7 +110,29 @@ export function cloneEditorMap(map: EditorMapDefinition): EditorMapDefinition {
   return {
     ...map,
     rooms: map.rooms.map((room) => ({ ...room })),
-    connections: map.connections.map((connection) => ({ ...connection })),
+    connections: map.connections.map((connection) => ({
+      ...connection,
+      fromPort: connection.fromPort ? { ...connection.fromPort } : undefined,
+      toPort: connection.toPort ? { ...connection.toPort } : undefined,
+    })),
+  };
+}
+
+export function editorPortSpan(room: EditorRoom, side: EditorPortSide): number {
+  return side === "north" || side === "south" ? room.width : room.height;
+}
+
+export function isValidEditorPort(room: EditorRoom, port: EditorConnectionPort): boolean {
+  return ["north", "east", "south", "west"].includes(port.side)
+    && Number.isInteger(port.offset)
+    && port.offset >= 0
+    && port.offset < editorPortSpan(room, port.side);
+}
+
+export function clampEditorPort(room: EditorRoom, port: EditorConnectionPort): EditorConnectionPort {
+  return {
+    side: port.side,
+    offset: Math.max(0, Math.min(editorPortSpan(room, port.side) - 1, Math.round(port.offset))),
   };
 }
 
