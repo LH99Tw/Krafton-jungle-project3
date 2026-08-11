@@ -1,4 +1,4 @@
-import type { GridPosition, RoomId, ZoneMap } from "./map";
+import type { GridPosition } from "./map";
 
 /**
  * Continuous ("semi-seamless") world layout for a zone.
@@ -10,10 +10,10 @@ import type { GridPosition, RoomId, ZoneMap } from "./map";
  * across discrete screens. Room/zone/waypoint logic is unchanged.
  */
 
-export const WORLD_ROOM_WIDTH = 1_280;
-export const WORLD_ROOM_HEIGHT = 720;
+const WORLD_ROOM_WIDTH = 1_280;
+const WORLD_ROOM_HEIGHT = 720;
 /** Gap between adjacent room cells; this becomes the corridor thickness. */
-export const WORLD_CORRIDOR = 360;
+const WORLD_CORRIDOR = 360;
 
 export type WorldRect = Readonly<{ x: number; y: number; width: number; height: number }>;
 
@@ -36,11 +36,6 @@ export function roomWorldCenter(position: GridPosition): Readonly<{ x: number; y
 /** Dedicated world rectangle for the final boss arena. */
 export function bossWorldRect(): WorldRect {
   return { x: 5 * (WORLD_ROOM_WIDTH + WORLD_CORRIDOR), y: 0, width: WORLD_ROOM_WIDTH, height: WORLD_ROOM_HEIGHT };
-}
-
-export function bossWorldCenter(): Readonly<{ x: number; y: number }> {
-  const rect = bossWorldRect();
-  return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 };
 }
 
 /**
@@ -83,7 +78,7 @@ function pointInRect(x: number, y: number, rect: WorldRect): boolean {
 }
 
 /** True when the world point is on a walkable surface (room or corridor). */
-export function isWalkablePoint(rects: readonly WorldRect[], x: number, y: number): boolean {
+function isWalkablePoint(rects: readonly WorldRect[], x: number, y: number): boolean {
   for (const rect of rects) if (pointInRect(x, y, rect)) return true;
   return false;
 }
@@ -156,7 +151,7 @@ export function roomContainingPoint(
   return null;
 }
 
-export type GridRoomLike = Readonly<{
+type GridRoomLike = Readonly<{
   id: string;
   gridX: number;
   gridY: number;
@@ -187,29 +182,9 @@ export function buildWorldFromRooms(
   return { rects, grid, bossRect };
 }
 
-/**
- * Builds the walkable rect list + grid lookup for a zone map, optionally
- * including the boss arena.
- */
-export function buildZoneWorld(
-  zoneMap: ZoneMap,
-  includeBoss: boolean,
-): { rects: WorldRect[]; grid: Map<string, GridPosition>; bossRect: WorldRect } {
-  return buildWorldFromRooms(
-    zoneMap.rooms.map((room) => ({ id: room.id, gridX: room.x, gridY: room.y, connections: room.connections })),
-    includeBoss,
-  );
-}
-
 /** Parses a `zone-N:x,y` room id back into grid coordinates. */
 export function roomIdToGrid(roomId: string): GridPosition | null {
   const match = /^zone-\d+:(-?\d+),(-?\d+)$/.exec(roomId);
   if (!match) return null;
   return { x: Number(match[1]), y: Number(match[2]) };
-}
-
-export function roomWorldCenterById(roomId: RoomId): Readonly<{ x: number; y: number }> {
-  const grid = roomIdToGrid(roomId);
-  if (!grid) return roomWorldCenter({ x: 0, y: 0 });
-  return roomWorldCenter(grid);
 }

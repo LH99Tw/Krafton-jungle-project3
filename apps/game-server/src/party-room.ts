@@ -55,8 +55,8 @@ import {
 
 const FINALIZE_ATTEMPT_TIMEOUT_MS = 3_000;
 const FINALIZE_RETRY_DELAYS_MS = [250, 750] as const;
-export const SIMULATION_STEP_MS = 1000 / 60;
-export const WORLD_FRAME_INTERVAL_TICKS = 2;
+const SIMULATION_STEP_MS = 1000 / 60;
+const WORLD_FRAME_INTERVAL_TICKS = 2;
 export const INPUT_LEASE_MS = 100;
 const MAX_CATCH_UP_TICKS = 4;
 const KEYFRAME_INTERVAL_MS = 500;
@@ -72,7 +72,7 @@ export class OperationTimeoutError extends Error {
   }
 }
 
-export type BoundedRetryOptions = {
+type BoundedRetryOptions = {
   attemptTimeoutMs: number;
   retryDelaysMs: readonly number[];
   sleep?: (delayMs: number) => Promise<void>;

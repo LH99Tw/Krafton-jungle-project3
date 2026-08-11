@@ -24,8 +24,8 @@ import {
 } from "@five-days/protocol";
 
 export const PROTOCOL_VERSION = GAME_PROTOCOL_VERSION;
-export const GAME_TICKET_ISSUER = "five-days-web";
-export const GAME_TICKET_AUDIENCE = "five-days-game-server";
+const GAME_TICKET_ISSUER = "five-days-web";
+const GAME_TICKET_AUDIENCE = "five-days-game-server";
 
 export type OAuthState = {
   state: string;

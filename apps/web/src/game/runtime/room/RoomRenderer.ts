@@ -4,7 +4,6 @@ import { CLASS_DEFINITIONS } from "../../content/classes";
 import type { HeroClassId } from "../../domain/types";
 import { createGameTextures } from "../../client/render/createTextures";
 import {
-  BASE_CORE,
   BUILD_BOUNDS,
   ROOM_VIEW,
   type RenderableRoom,

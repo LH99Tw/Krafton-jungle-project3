@@ -97,12 +97,12 @@ export function configuredOrigins(): Set<string> {
   return new Set((process.env.ALLOWED_ORIGINS ?? "").split(",").map((value) => value.trim()).filter(Boolean));
 }
 
-export function validateOrigin(origin: string | undefined): void {
+function validateOrigin(origin: string | undefined): void {
   if (!origin && process.env.NODE_ENV !== "production") return;
   if (!origin || !configuredOrigins().has(origin)) throw new ServerError(403, "허용되지 않은 Origin입니다.");
 }
 
-export function clientIp(context: AuthContext): string {
+function clientIp(context: AuthContext): string {
   const raw = context.headers["x-forwarded-for"];
   const value = Array.isArray(raw) ? raw.at(-1) : raw;
   const candidate = value?.split(",").at(-1)?.trim() ?? "unknown";
