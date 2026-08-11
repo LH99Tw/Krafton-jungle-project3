@@ -167,7 +167,9 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     if (!viewer || !gameServerUrl || recoveryAttempted.current || autoStartOptions) return;
     recoveryAttempted.current = true;
     const recovery = readRunRecovery(viewer.userId);
-    if (recovery) void beginRun(recovery.options, recovery.roomId);
+    if (!recovery) return;
+    const timeoutId = window.setTimeout(() => void beginRun(recovery.options, recovery.roomId), 0);
+    return () => window.clearTimeout(timeoutId);
   }, [autoStartOptions, beginRun, gameServerUrl, viewer]);
 
   useEffect(() => {
