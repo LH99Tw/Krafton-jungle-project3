@@ -1,4 +1,14 @@
+import { PLAYER_VISION_RADIUS } from "@five-days/protocol";
+
 export const MAX_VISION_REVEAL_SOURCES = 8;
+
+export function isWithinPlayerVision(
+  viewer: Readonly<{ x: number; y: number }>,
+  candidate: Readonly<{ x: number; y: number }>,
+  radius = PLAYER_VISION_RADIUS,
+): boolean {
+  return Math.hypot(candidate.x - viewer.x, candidate.y - viewer.y) <= radius;
+}
 
 export type VisionRevealSource = {
   id: string;

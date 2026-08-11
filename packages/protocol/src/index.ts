@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 export const PROTOCOL_VERSION = 4;
+export const PLAYER_VISION_RADIUS = 800;
 export const PARTY_ROOM = "party_room";
 export const LOBBY_ROOM = "lobby_room";
 export const GLOBAL_CHAT_ROOM = "global_chat";

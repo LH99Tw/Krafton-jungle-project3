@@ -52,6 +52,7 @@ import {
   bossWorldRect,
   buildWorldFromRooms,
   corridorRectBetween,
+  isWalkableLine,
   resolveWalkablePoint,
   roomContainingPoint,
   roomWorldCenter,
@@ -436,7 +437,7 @@ export class GameCore {
   damageEnemy(userId: string, enemyId: string, rawDamage?: number): boolean {
     const player = this.players.get(userId);
     const enemy = this.enemies.get(enemyId);
-    if (!player || !enemy || !player.alive || !enemy.alive || player.roomId !== enemy.roomId) return false;
+    if (!player || !enemy || !player.alive || !enemy.alive || !this.hasPlayerLineOfSight(player, enemy)) return false;
     const damage = Math.max(1, Math.round(rawDamage ?? this.calculateAttackDamage(player, enemy)));
     enemy.hp = Math.max(0, enemy.hp - damage);
     enemy.lastHitBy = userId;
@@ -653,7 +654,7 @@ export class GameCore {
 
   private enemiesInAttackCone(player: CorePlayer, range: number, coneHalfAngle: number): CoreEnemy[] {
     return [...this.enemies.values()]
-      .filter((enemy) => enemy.alive && enemy.roomId === player.roomId)
+      .filter((enemy) => enemy.alive && this.hasPlayerLineOfSight(player, enemy))
       .map((enemy) => ({
         enemy,
         distance: Math.hypot(enemy.x - player.x, enemy.y - player.y),
@@ -665,6 +666,19 @@ export class GameCore {
       .filter(({ distance, angularError }) => distance <= range && angularError <= coneHalfAngle)
       .sort((left, right) => left.distance - right.distance || left.enemy.id.localeCompare(right.enemy.id))
       .map(({ enemy }) => enemy);
+  }
+
+  private hasPlayerLineOfSight(player: CorePlayer, enemy: CoreEnemy): boolean {
+    if (enemy.roomId === player.roomId) return true;
+    const playerRoom = this.rooms.get(player.roomId);
+    const enemyRoom = this.rooms.get(enemy.roomId);
+    const zoneWorld = playerRoom ? this.zoneWorlds.get(playerRoom.zone) : null;
+    return Boolean(
+      playerRoom
+      && enemyRoom?.zone === playerRoom.zone
+      && zoneWorld
+      && isWalkableLine(zoneWorld.rects, player.x, player.y, enemy.x, enemy.y)
+    );
   }
 
   private killEnemy(killer: CorePlayer, enemy: CoreEnemy): void {

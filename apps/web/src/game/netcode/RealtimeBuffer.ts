@@ -7,16 +7,17 @@ import {
   roomContainingPoint,
   roomIdToGrid,
 } from "@five-days/game-core";
-import { transformFlags, type InputFrame, type TransformSample, type WorldFrame } from "@five-days/protocol";
+import { PLAYER_VISION_RADIUS, transformFlags, type InputFrame, type TransformSample, type WorldFrame } from "@five-days/protocol";
 import type { HeroClassId, RoomMapCell } from "../domain/types";
+import { isWithinPlayerVision } from "../runtime/room/vision";
 
 type TimedTransform = TransformSample & { serverTime: number };
 
 export function shouldRenderPartyMember(
-  member: { connected: boolean; roomId: string },
-  localRoomId: string,
+  member: { connected: boolean; x: number; y: number },
+  viewer: { x: number; y: number },
 ): boolean {
-  return member.connected && member.roomId === localRoomId;
+  return member.connected && isWithinPlayerVision(viewer, member, PLAYER_VISION_RADIUS);
 }
 
 export class RealtimeTransformBuffer {

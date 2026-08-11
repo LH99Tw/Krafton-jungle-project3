@@ -1,3 +1,5 @@
+import { buildEditorGeometry } from "./editorGeometry";
+
 export const EDITOR_MAP_STORAGE_KEY = "five-days:local-map:v1";
 
 export type EditorRoomType = "start" | "empty" | "resource" | "static-monster" | "gate" | "boss";
@@ -58,6 +60,8 @@ export function validateEditorMap(map: EditorMapDefinition): string[] {
   if (map.connections.some((connection) => connection.from === connection.to || !ids.has(connection.from) || !ids.has(connection.to))) {
     failures.push("유효하지 않은 통로가 있습니다.");
   }
+  const connectionPairs = map.connections.map((connection) => [connection.from, connection.to].sort().join("|"));
+  if (new Set(connectionPairs).size !== connectionPairs.length) failures.push("같은 두 방을 잇는 중복 통로가 있습니다.");
   const start = map.rooms.find((room) => room.type === "start");
   if (start) {
     const graph = new Map(map.rooms.map((room) => [room.id, [] as string[]]));
@@ -76,6 +80,7 @@ export function validateEditorMap(map: EditorMapDefinition): string[] {
     }
     if (visited.size !== map.rooms.length) failures.push("모든 방이 시작 방과 통로로 연결되어야 합니다.");
   }
+  failures.push(...buildEditorGeometry(map, { cellWidth: 1, cellHeight: 1, corridorWidth: 0.5 }).errors);
   return failures;
 }
 

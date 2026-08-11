@@ -92,6 +92,8 @@ export class RoomRenderer {
       this.drawWorldRoom(graphics, entry, palette, options, options.decorSeed);
     }
 
+    if (world.wallSegments.length > 0) this.drawAutomaticWalls(graphics, world.wallSegments, palette.accent);
+
     // Procedural terrain decor (bushes/rocks) for map-template variety.
     this.drawWorldDecor(world, options.decorSeed);
   }
@@ -183,6 +185,15 @@ export class RoomRenderer {
       graphics.lineBetween(corridor.x, corridor.y, corridor.x, corridor.y + corridor.height);
       graphics.lineBetween(corridor.x + corridor.width, corridor.y, corridor.x + corridor.width, corridor.y + corridor.height);
     }
+  }
+
+  private drawAutomaticWalls(graphics: Phaser.GameObjects.Graphics, walls: RenderZoneWorld["wallSegments"], accent: number): void {
+    graphics.lineStyle(24, 0x080b09, 0.98);
+    for (const wall of walls) graphics.lineBetween(wall.x1, wall.y1, wall.x2, wall.y2);
+    graphics.lineStyle(12, 0x29362d, 1);
+    for (const wall of walls) graphics.lineBetween(wall.x1, wall.y1, wall.x2, wall.y2);
+    graphics.lineStyle(2, accent, 0.55);
+    for (const wall of walls) graphics.lineBetween(wall.x1, wall.y1, wall.x2, wall.y2);
   }
 
   private drawWorldRoom(

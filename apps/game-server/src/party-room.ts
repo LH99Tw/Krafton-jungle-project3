@@ -2,9 +2,10 @@ import { Client, matchMaker, Room, ServerError, type AuthContext } from "@colyse
 import { StateView } from "@colyseus/schema";
 import { type GameTicketClaims } from "@five-days/auth";
 import { createMatch, finalizeMatch } from "@five-days/db/repositories";
-import { corridorRectBetween, GameCore, type CoreRoomId } from "@five-days/game-core";
+import { GameCore, type CoreRoomId } from "@five-days/game-core";
 import {
   PARTY_ROOM,
+  PLAYER_VISION_RADIUS,
   PROTOCOL_VERSION,
   clientCommandSchema,
   inputFrameSchema,
@@ -800,19 +801,12 @@ export class PartyRoom extends Room<PartyRoomState> {
     viewer: { roomId: string; x: number; y: number },
     candidate: { roomId: string; x: number; y: number },
   ): boolean {
-    if (candidate.roomId === viewer.roomId) return true;
-    const room = this.core.rooms.get(viewer.roomId as CoreRoomId);
-    if (!room) return false;
-    for (const connectedRoomId of room.connections) {
-      const connected = this.core.rooms.get(connectedRoomId);
-      if (!connected) continue;
-      const corridor = corridorRectBetween(
-        { x: room.gridX, y: room.gridY },
-        { x: connected.gridX, y: connected.gridY },
-      );
-      if (corridor && pointInRect(candidate.x, candidate.y, corridor)) return true;
+    const viewerRoom = this.core.rooms.get(viewer.roomId as CoreRoomId);
+    const candidateRoom = this.core.rooms.get(candidate.roomId as CoreRoomId);
+    if (candidate.roomId !== viewer.roomId && (!viewerRoom || !candidateRoom || viewerRoom.zone !== candidateRoom.zone)) {
+      return false;
     }
-    return false;
+    return Math.hypot(candidate.x - viewer.x, candidate.y - viewer.y) <= PLAYER_VISION_RADIUS;
   }
 
   private updateClientViews(): void {
@@ -1019,10 +1013,6 @@ export class PartyRoom extends Room<PartyRoomState> {
     window.count += 1;
     return window.count <= 90;
   }
-}
-
-function pointInRect(x: number, y: number, rect: { x: number; y: number; width: number; height: number }): boolean {
-  return x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
 }
 
 export function consumeGameTicket(

@@ -83,6 +83,35 @@ test("server auto attack picks the nearest enemy inside the cursor cone", () => 
   assert.equal(outsideCone.hp, outsideCone.maxHp);
 });
 
+test("server attacks across an open corridor but not through the surrounding wall", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "corridor-attack", minimumPlayers: 1 });
+  const player = core.addPlayer({ userId: "p1", displayName: "궁수", heroClass: "archer" });
+  core.setReady(player.userId, true);
+  const start = core.rooms.get(player.roomId)!;
+  const right = [...core.rooms.values()].find((room) => (
+    room.zone === start.zone && room.gridX === start.gridX + 1 && room.gridY === start.gridY
+  ))!;
+  const startRect = roomWorldRect({ x: start.gridX, y: start.gridY });
+  const rightRect = roomWorldRect({ x: right.gridX, y: right.gridY });
+  player.x = startRect.x + startRect.width - 10;
+  player.y = startRect.y + startRect.height / 2;
+  player.aim = 0;
+
+  const throughCorridor = enemy("through-corridor", right.id, rightRect.x + 10, player.y);
+  const behindWall = enemy("behind-wall", right.id, rightRect.x + 10, rightRect.y + 100);
+  core.enemies.clear();
+  core.enemies.set(throughCorridor.id, throughCorridor);
+  core.enemies.set(behindWall.id, behindWall);
+
+  assert.equal(core.performAutoAttack(player.userId)?.id, throughCorridor.id);
+  assert.ok(throughCorridor.hp < throughCorridor.maxHp);
+  throughCorridor.alive = false;
+  player.autoAttackCooldown = 0;
+  player.aim = Math.atan2(behindWall.y - player.y, behindWall.x - player.x);
+  assert.equal(core.performAutoAttack(player.userId), null);
+  assert.equal(behindWall.hp, behindWall.maxHp);
+});
+
 test("static enemies chase, animate an attack sequence, and stay in their spawn room", () => {
   const core = startedCore("static-behavior");
   const player = core.players.get("p1")!;

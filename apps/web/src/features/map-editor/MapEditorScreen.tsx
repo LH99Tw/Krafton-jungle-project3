@@ -11,6 +11,7 @@ import {
   type EditorRoom,
   type EditorRoomType,
 } from "@/src/game/domain/mapEditor";
+import { buildEditorGeometry } from "@/src/game/domain/editorGeometry";
 
 const CELL = 50;
 const ROOM_TYPES: Array<{ type: EditorRoomType; label: string; mark: string }> = [
@@ -47,10 +48,21 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
   const [tool, setTool] = useState<Tool>("select");
   const [placementType, setPlacementType] = useState<EditorRoomType>("empty");
   const [selectedId, setSelectedId] = useState<string>(() => map.rooms[0]?.id ?? "");
+  const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   const [connectionStart, setConnectionStart] = useState<string | null>(null);
+  const [hoveredRoomId, setHoveredRoomId] = useState<string | null>(null);
   const dragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
   const failures = useMemo(() => validateEditorMap(map), [map]);
   const selected = map.rooms.find((room) => room.id === selectedId) ?? null;
+  const selectedConnection = map.connections.find((connection) => connection.id === selectedConnectionId) ?? null;
+  const geometry = useMemo(() => buildEditorGeometry(map, { cellWidth: CELL, cellHeight: CELL, corridorWidth: 24 }), [map]);
+  const selectedRoute = geometry.routes.find((route) => route.connectionId === selectedConnectionId) ?? null;
+  const previewRoute = useMemo(() => {
+    if (tool !== "connect" || !connectionStart || !hoveredRoomId || connectionStart === hoveredRoomId) return null;
+    const previewId = "__preview__";
+    const previewMap = { ...map, connections: [...map.connections, { id: previewId, from: connectionStart, to: hoveredRoomId }] };
+    return buildEditorGeometry(previewMap, { cellWidth: CELL, cellHeight: CELL, corridorWidth: 24 }).routes.find((route) => route.connectionId === previewId) ?? null;
+  }, [connectionStart, hoveredRoomId, map, tool]);
 
   useEffect(() => {
     window.localStorage.setItem(EDITOR_MAP_STORAGE_KEY, JSON.stringify(map));
@@ -75,12 +87,14 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
     };
     setMap((current) => ({ ...current, rooms: [...current.rooms, room] }));
     setSelectedId(id);
+    setSelectedConnectionId(null);
     setTool("select");
   };
 
   const connectRoom = (roomId: string) => {
     if (!connectionStart) {
       setConnectionStart(roomId);
+      setSelectedConnectionId(null);
       return;
     }
     if (connectionStart === roomId) return setConnectionStart(null);
@@ -96,12 +110,17 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
     setConnectionStart(null);
   };
 
+  const selectConnection = (connectionId: string) => {
+    setSelectedConnectionId(connectionId);
+    setSelectedId("");
+    setTool("select");
+    setConnectionStart(null);
+  };
+
   const pointInSvg = (event: React.PointerEvent<SVGSVGElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     return { x: (event.clientX - rect.left) * 1300 / rect.width, y: (event.clientY - rect.top) * 700 / rect.height };
   };
-
-  const roomCenter = (room: EditorRoom) => ({ x: (room.x + room.width / 2) * CELL, y: (room.y + room.height / 2) * CELL });
 
   return (
     <main className="map-editor-screen">
@@ -146,13 +165,18 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
               <filter id="room-shadow"><feDropShadow dx="0" dy="10" stdDeviation="10" floodOpacity=".55" /></filter>
             </defs>
             <rect width="1300" height="700" fill="url(#editor-grid-large)" pointerEvents="none" />
-            {map.connections.map((connection) => {
-              const from = map.rooms.find((room) => room.id === connection.from);
-              const to = map.rooms.find((room) => room.id === connection.to);
-              if (!from || !to) return null;
-              const a = roomCenter(from); const b = roomCenter(to);
-              return <g key={connection.id} className="editor-corridor"><path d={`M ${a.x} ${a.y} L ${b.x} ${b.y}`} /><path d={`M ${a.x} ${a.y} L ${b.x} ${b.y}`} /></g>;
+            {geometry.routes.map((route) => {
+              const path = polylinePath(route.points);
+              const connection = map.connections.find((candidate) => candidate.id === route.connectionId);
+              const fromName = map.rooms.find((room) => room.id === connection?.from)?.name ?? "방";
+              const toName = map.rooms.find((room) => room.id === connection?.to)?.name ?? "방";
+              return <g key={route.connectionId} role="button" tabIndex={0} aria-label={`통로: ${fromName} ↔ ${toName}`} className={`editor-corridor ${selectedConnectionId === route.connectionId ? "selected" : ""}`} onClick={(event) => { event.stopPropagation(); selectConnection(route.connectionId); }} onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
+                selectConnection(route.connectionId);
+              }}><path className="corridor-wall" d={path} /><path className="corridor-floor" d={path} /><path className="corridor-center" d={path} /><path className="corridor-hit" d={path} /></g>;
             })}
+            {previewRoute && <g className="editor-corridor preview" pointerEvents="none"><path className="corridor-wall" d={polylinePath(previewRoute.points)} /><path className="corridor-floor" d={polylinePath(previewRoute.points)} /><path className="corridor-center" d={polylinePath(previewRoute.points)} /></g>}
             {map.rooms.map((room) => {
               const info = ROOM_TYPES.find((item) => item.type === room.type)!;
               const isSelected = selectedId === room.id;
@@ -160,6 +184,7 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
               return <g key={room.id} className={`editor-room ${isSelected ? "selected" : ""} ${isConnectionStart ? "connecting" : ""}`} transform={`translate(${room.x * CELL} ${room.y * CELL})`} onPointerDown={(event) => {
                 event.stopPropagation();
                 setSelectedId(room.id);
+                setSelectedConnectionId(null);
                 if (tool === "connect") return connectRoom(room.id);
                 if (tool !== "select") return;
                 const svg = event.currentTarget.ownerSVGElement;
@@ -169,7 +194,7 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
                 const x = (event.clientX - rect.left) * 1300 / rect.width;
                 const y = (event.clientY - rect.top) * 700 / rect.height;
                 dragRef.current = { id: room.id, offsetX: x - room.x * CELL, offsetY: y - room.y * CELL };
-              }}>
+              }} onPointerEnter={() => setHoveredRoomId(room.id)} onPointerLeave={() => setHoveredRoomId((current) => current === room.id ? null : current)}>
                 <rect className="room-shadow" width={room.width * CELL} height={room.height * CELL} rx="10" filter="url(#room-shadow)" />
                 <rect className="room-surface" width={room.width * CELL} height={room.height * CELL} rx="8" fill={`url(#asset-${room.asset})`} />
                 <rect className="room-frame" x="5" y="5" width={room.width * CELL - 10} height={room.height * CELL - 10} rx="5" />
@@ -179,13 +204,29 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
                 {isSelected ? <><path className="selected-corner" d={`M 0 20 V 0 H 20 M ${room.width * CELL - 20} 0 H ${room.width * CELL} V 20 M ${room.width * CELL} ${room.height * CELL - 20} V ${room.height * CELL} H ${room.width * CELL - 20} M 20 ${room.height * CELL} H 0 V ${room.height * CELL - 20}`} /></> : null}
               </g>;
             })}
+            <g className="editor-auto-walls" pointerEvents="none">
+              {geometry.wallSegments.map((wall, index) => <g key={`${wall.x1}:${wall.y1}:${index}`}><line className="wall-base" x1={wall.x1} y1={wall.y1} x2={wall.x2} y2={wall.y2} /><line className="wall-cap" x1={wall.x1} y1={wall.y1} x2={wall.x2} y2={wall.y2} /></g>)}
+            </g>
           </svg>
           <div className="editor-mode-hint">{tool === "room" ? "캔버스를 클릭해 방을 배치하세요" : tool === "connect" ? connectionStart ? "연결할 두 번째 방을 선택하세요" : "통로의 시작 방을 선택하세요" : "방을 드래그해 이동하세요"}</div>
         </section>
 
         <aside className="editor-inspector" aria-label="선택 항목 속성">
-          <div className="editor-section-title"><span>INSPECT</span><strong>방 속성</strong></div>
-          {selected ? <>
+          <div className="editor-section-title"><span>INSPECT</span><strong>{selectedConnection ? "통로 속성" : "방 속성"}</strong></div>
+          {selectedConnection ? <>
+            <div className="corridor-inspector-mark">⌁</div>
+            <dl className="corridor-inspector-data">
+              <div><dt>시작 방</dt><dd>{map.rooms.find((room) => room.id === selectedConnection.from)?.name ?? "-"}</dd></div>
+              <div><dt>도착 방</dt><dd>{map.rooms.find((room) => room.id === selectedConnection.to)?.name ?? "-"}</dd></div>
+              <div><dt>직교 길이</dt><dd>{selectedRoute ? `${Math.round(selectedRoute.length)}px` : "경로 없음"}</dd></div>
+              <div><dt>꺾임</dt><dd>{selectedRoute ? `${selectedRoute.bends}회` : "-"}</dd></div>
+            </dl>
+            <p className={selectedRoute ? "corridor-route-ok" : "corridor-route-error"}>{selectedRoute ? "✓ 대각선 없는 자동 경로" : "× 다른 방이나 통로를 피할 경로가 없습니다."}</p>
+            <button type="button" className="delete-room" onClick={() => {
+              setMap((current) => ({ ...current, connections: current.connections.filter((connection) => connection.id !== selectedConnection.id) }));
+              setSelectedConnectionId(null);
+            }}>선택한 통로 삭제</button>
+          </> : selected ? <>
             <label>이름<input value={selected.name} maxLength={24} onChange={(event) => updateRoom(selected.id, { name: event.target.value })} /></label>
             <label>방 종류<select value={selected.type} onChange={(event) => updateRoom(selected.id, { type: event.target.value as EditorRoomType })}>{ROOM_TYPES.map((item) => <option key={item.type} value={item.type}>{item.label}</option>)}</select></label>
             <div className="inspector-size"><label>가로 <input type="number" min="2" max="6" value={selected.width} onChange={(event) => updateRoom(selected.id, { width: clampSize(event.target.value) })} /></label><label>세로 <input type="number" min="2" max="5" value={selected.height} onChange={(event) => updateRoom(selected.id, { height: clampSize(event.target.value, 5) })} /></label></div>
@@ -209,4 +250,8 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
 
 function clampSize(value: string, max = 6): number {
   return Math.max(2, Math.min(max, Number(value) || 2));
+}
+
+function polylinePath(points: readonly { x: number; y: number }[]): string {
+  return points.map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`).join(" ");
 }

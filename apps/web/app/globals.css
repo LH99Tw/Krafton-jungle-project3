@@ -100,13 +100,27 @@ body {
 .editor-workspace::before { content:""; position:absolute; inset:0; pointer-events:none; z-index:2; box-shadow:inset 0 0 80px rgba(0,0,0,.76); }
 .editor-workspace svg { display:block; width:max(100%,1300px); height:max(100%,700px); touch-action:none; user-select:none; }
 .editor-ruler { position:sticky; top:0; left:0; z-index:3; height:22px; min-width:1300px; padding:0 24px; display:flex; justify-content:space-between; align-items:center; pointer-events:none; background:rgba(9,11,10,.88); border-bottom:1px solid rgba(199,170,103,.14); color:#4f554e; font:7px ui-monospace,monospace; }
-.editor-corridor path:first-child { stroke:#080a09; stroke-width:28; stroke-linecap:round; }
-.editor-corridor path:last-child { stroke:#77705b; stroke-width:13; stroke-linecap:round; stroke-dasharray:2 8; opacity:.7; }
+.editor-corridor { cursor:pointer; }
+.editor-corridor:focus { outline:none; }
+.editor-corridor:focus .corridor-floor { stroke:#d3b870; filter:drop-shadow(0 0 7px rgba(199,170,103,.42)); }
+.editor-corridor path { fill:none; stroke-linecap:square; stroke-linejoin:round; }
+.editor-corridor .corridor-wall { stroke:#050706; stroke-width:38; }
+.editor-corridor .corridor-floor { stroke:#625e4f; stroke-width:24; transition:stroke .16s,filter .16s; }
+.editor-corridor .corridor-center { stroke:#aaa077; stroke-width:2; stroke-dasharray:3 8; opacity:.7; pointer-events:none; }
+.editor-corridor .corridor-hit { stroke:transparent; stroke-width:48; pointer-events:stroke; }
+.editor-corridor:hover .corridor-floor,.editor-corridor.selected .corridor-floor { stroke:#b89b5e; filter:drop-shadow(0 0 6px rgba(199,170,103,.36)); }
+.editor-corridor.selected .corridor-center { stroke:#fff0b2; stroke-width:3; animation:forge-route-flow .8s linear infinite; }
+.editor-corridor.preview { opacity:.58; }
+.editor-corridor.preview .corridor-wall { stroke:#14231a; }
+.editor-corridor.preview .corridor-floor { stroke:#76b38a; }
+.editor-corridor.preview .corridor-center { stroke:#d5ffe0; animation:forge-route-flow .8s linear infinite; }
+.editor-auto-walls .wall-base { stroke:#030504; stroke-width:11; stroke-linecap:square; }
+.editor-auto-walls .wall-cap { stroke:#344239; stroke-width:6; stroke-linecap:square; filter:drop-shadow(0 2px 2px #000); }
 .editor-room { cursor:grab; }
 .editor-room:active { cursor:grabbing; }
 .editor-room .room-shadow { fill:#050605; }
 .editor-room .room-surface { stroke:#625a46; stroke-width:2; transition:stroke .16s,filter .16s; }
-.editor-room .room-frame { fill:rgba(8,10,8,.42); stroke:rgba(225,211,170,.27); stroke-width:1; }
+.editor-room .room-frame { fill:rgba(8,10,8,.42); stroke:none; }
 .editor-room .room-mark { fill:#d2b76e; font:18px Georgia,serif; }
 .editor-room .room-name { fill:#eee7d5; font:600 13px Georgia,"Noto Serif KR",serif; paint-order:stroke; stroke:#080a09; stroke-width:3; }
 .editor-room .room-meta { fill:#b0aa98; font:8px ui-monospace,monospace; paint-order:stroke; stroke:#080a09; stroke-width:3; }
@@ -132,8 +146,13 @@ body {
 .editor-validation ul { margin:0; padding-left:16px; color:#b6847e; font-size:9px; line-height:1.7; }
 .reset-map { margin-top:16px; border-color:#30322d; background:#0b0d0b; color:#74766e; }
 .inspector-empty { color:#6f726c; font-size:10px; }
+.corridor-inspector-mark { width:42px; height:42px; display:grid; place-items:center; margin:3px 0 13px; border:1px solid #8c784d; color:#e5ca84; background:#211b10; font-size:22px; }
+.corridor-inspector-data dd { max-width:132px; overflow:hidden; color:#d2cab4; text-align:right; text-overflow:ellipsis; white-space:nowrap; }
+.corridor-route-ok { margin:0 0 14px; color:#82b68e; font:9px ui-monospace,monospace; }
+.corridor-route-error { margin:0 0 14px; color:#c5827c; font:9px/1.55 ui-monospace,monospace; }
 @keyframes forge-connection { to { stroke-dashoffset:-26; } }
-@media (prefers-reduced-motion:reduce) { .editor-room.connecting .room-surface { animation:none; } }
+@keyframes forge-route-flow { to { stroke-dashoffset:-22; } }
+@media (prefers-reduced-motion:reduce) { .editor-room.connecting .room-surface,.editor-corridor .corridor-center { animation:none; } }
 
 button,
 textarea,

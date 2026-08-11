@@ -165,9 +165,14 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
 
   useEffect(() => {
     if (!viewer || !gameServerUrl || recoveryAttempted.current || autoStartOptions) return;
-    recoveryAttempted.current = true;
     const recovery = readRunRecovery(viewer.userId);
-    if (recovery) void beginRun(recovery.options, recovery.roomId);
+    if (!recovery) return;
+    const timer = window.setTimeout(() => {
+      if (recoveryAttempted.current) return;
+      recoveryAttempted.current = true;
+      void beginRun(recovery.options, recovery.roomId);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [autoStartOptions, beginRun, gameServerUrl, viewer]);
 
   useEffect(() => {
@@ -227,8 +232,12 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
 
   useEffect(() => {
     if (!viewer || !autoStartOptions || autoStartAttempted.current) return;
-    autoStartAttempted.current = true;
-    void beginRun(autoStartOptions);
+    const timer = window.setTimeout(() => {
+      if (autoStartAttempted.current) return;
+      autoStartAttempted.current = true;
+      void beginRun(autoStartOptions);
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [autoStartOptions, beginRun, viewer]);
 
   const createLobby = useCallback(async (options: { roomName: string; sessionMode: "prototype" | "full"; difficulty: "easy" | "normal" | "hard" }) => {

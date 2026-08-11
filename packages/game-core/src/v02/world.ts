@@ -84,6 +84,27 @@ function isWalkablePoint(rects: readonly WorldRect[], x: number, y: number): boo
   return false;
 }
 
+/** True when the straight segment remains inside rooms or their corridors. */
+export function isWalkableLine(
+  rects: readonly WorldRect[],
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+): boolean {
+  const distance = Math.hypot(toX - fromX, toY - fromY);
+  const steps = Math.max(1, Math.ceil(distance / 12));
+  for (let step = 0; step <= steps; step += 1) {
+    const progress = step / steps;
+    if (!isWalkablePoint(
+      rects,
+      fromX + (toX - fromX) * progress,
+      fromY + (toY - fromY) * progress,
+    )) return false;
+  }
+  return true;
+}
+
 /**
  * Clamps a desired movement target onto the walkable surface, preferring to
  * slide along walls/corridor edges (axis-separated resolution).

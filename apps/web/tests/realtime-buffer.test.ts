@@ -94,8 +94,9 @@ test("local prediction normalizes diagonal input before applying class speed", (
   assert.ok(Math.abs(predicted.y - 360) < 10);
 });
 
-test("remote party visibility follows reliable room and connection state", () => {
-  assert.equal(shouldRenderPartyMember({ connected: true, roomId: "forest:0" }, "forest:0"), true);
-  assert.equal(shouldRenderPartyMember({ connected: false, roomId: "forest:0" }, "forest:0"), false);
-  assert.equal(shouldRenderPartyMember({ connected: true, roomId: "forest:1" }, "forest:0"), false);
+test("remote party visibility follows the player vision radius and connection state", () => {
+  const viewer = { x: 0, y: 0 };
+  assert.equal(shouldRenderPartyMember({ connected: true, x: 800, y: 0 }, viewer), true);
+  assert.equal(shouldRenderPartyMember({ connected: false, x: 100, y: 0 }, viewer), false);
+  assert.equal(shouldRenderPartyMember({ connected: true, x: 801, y: 0 }, viewer), false);
 });

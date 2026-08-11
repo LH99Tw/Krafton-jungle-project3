@@ -202,21 +202,30 @@ test("unreliable input sequence does not reject a reliable command", () => {
   assert.equal(ready, true);
 });
 
-test("player AOI includes the current room and its corridor but not the adjacent room interior", () => {
+test("player AOI follows the shared vision radius across rooms in the same zone", () => {
   const roomA = {
     id: "forest:0",
+    zone: 1,
     gridX: 0,
     gridY: 0,
     connections: ["forest:1"],
   };
   const roomB = {
     id: "forest:1",
+    zone: 1,
     gridX: 1,
     gridY: 0,
     connections: ["forest:0"],
   };
+  const roomC = {
+    id: "forest:2",
+    zone: 2,
+    gridX: 0,
+    gridY: 0,
+    connections: [],
+  };
   const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
-  harness.core = { rooms: new Map([[roomA.id, roomA], [roomB.id, roomB]]) };
+  harness.core = { rooms: new Map([[roomA.id, roomA], [roomB.id, roomB], [roomC.id, roomC]]) };
   const isPlayerInAoi = (PartyRoom.prototype as unknown as {
     isPlayerInAoi(
       this: PartyRoom,
@@ -233,12 +242,17 @@ test("player AOI includes the current room and its corridor but not the adjacent
   }), true);
   assert.equal(isPlayerInAoi.call(harness as unknown as PartyRoom, viewer, {
     roomId: roomB.id,
-    x: 1_400,
+    x: 1_440,
     y: 360,
   }), true);
   assert.equal(isPlayerInAoi.call(harness as unknown as PartyRoom, viewer, {
     roomId: roomB.id,
-    x: 1_800,
+    x: 1_441,
+    y: 360,
+  }), false);
+  assert.equal(isPlayerInAoi.call(harness as unknown as PartyRoom, viewer, {
+    roomId: roomC.id,
+    x: 700,
     y: 360,
   }), false);
 });

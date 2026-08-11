@@ -42,11 +42,13 @@ import { editorThemeZone } from "../../domain/mapEditor";
 import { ProgressionModel } from "../../systems/ProgressionModel";
 import { colyseusTransport } from "../../transport/ColyseusTransport";
 import { predictPlayerTransform, RealtimeTransformBuffer, shouldRenderPartyMember } from "../../netcode/RealtimeBuffer";
+import { aimAngleBetween } from "../../netcode/aim";
 import { gameBridge, type GameCommand } from "../GameBridge";
 import {
   BASE_CORE,
   buildEditorRenderWorld,
   buildRenderWorld,
+  clipWalkableLine,
   clampToWalkable,
   clampToWorld,
   isInsideBuildBounds,
@@ -57,9 +59,11 @@ import {
 } from "./layout";
 import { PlayerVisionFog } from "./PlayerVisionFog";
 import { RoomRenderer, classColor } from "./RoomRenderer";
-import type { VisionRevealSource } from "./vision";
+import { isWithinPlayerVision, type VisionRevealSource } from "./vision";
 
 type LocalEnemyKind = "static" | "hidden" | "gate" | "invader" | "boss";
+const PLAYER_COLLISION_RADIUS = 14;
+const ENEMY_COLLISION_RADIUS = 12;
 
 type LocalEnemy = {
   id: string;
@@ -147,6 +151,8 @@ export class RoomGameScene extends Phaser.Scene {
   private worldFrameDisconnect?: () => void;
   private localInputDisconnect?: () => void;
   private enemies: LocalEnemy[] = [];
+  private lastWalkablePlayerPosition: { x: number; y: number } | null = null;
+  private readonly lastWalkableEnemyPositions = new Map<string, { x: number; y: number }>();
   private drops: LocalDrop[] = [];
   private structures: LocalStructure[] = [];
   private readonly remotePlayers = new Map<string, Phaser.Physics.Arcade.Sprite>();
@@ -258,6 +264,7 @@ export class RoomGameScene extends Phaser.Scene {
     });
     const startCenter = this.zoneWorld.rooms.find((entry) => entry.room.id === this.currentRoomId)?.center ?? { x: 0, y: 0 };
     this.player = this.roomRenderer.createHero(this.options.heroClass, startCenter.x, startCenter.y);
+    this.lastWalkablePlayerPosition = { ...startCenter };
     this.player.setVisible(!this.options.networked);
     this.configureCamera();
     this.visionFog = new PlayerVisionFog(this);
@@ -339,6 +346,9 @@ export class RoomGameScene extends Phaser.Scene {
 
     if (this.options.networked) {
       this.updateNetworkTransforms();
+      const aim = this.aimAngle();
+      colyseusTransport.setAim(aim);
+      this.roomRenderer.updateHeroPose(this.player, aim, false, time);
       this.snapshotAccumulator += safeDeltaMs;
       if (this.snapshotAccumulator >= 120) {
         this.snapshotAccumulator = 0;
@@ -398,8 +408,8 @@ export class RoomGameScene extends Phaser.Scene {
       this.renderedNetworkRoomKey = roomKey;
       this.renderNetworkRoom(snapshot, local);
     }
-    this.syncNetworkPlayers(snapshot.players, local.roomId);
-    this.syncNetworkEnemies(snapshot, local.roomId);
+    this.syncNetworkPlayers(snapshot.players, local);
+    this.syncNetworkEnemies(snapshot, local);
     this.syncNetworkDrops(snapshot, local.roomId);
     this.emitSnapshot();
   }
@@ -480,14 +490,23 @@ export class RoomGameScene extends Phaser.Scene {
       const transform = this.transformBuffer.sample(member.userId);
       if (!sprite || !transform) continue;
       const point = clampToWorld(this.zoneWorld.bounds, transform.x, transform.y);
-      sprite.setPosition(point.x, point.y).setVisible(shouldRenderPartyMember(member, localState.roomId));
+      const visible = this.sharesNetworkVisionZone(localState.roomId, transform.roomId)
+        && shouldRenderPartyMember(
+          { ...member, x: point.x, y: point.y },
+          this.player,
+        );
+      sprite.setPosition(point.x, point.y).setVisible(visible);
     }
     for (const enemy of snapshot.enemies) {
       const sprite = this.networkEnemies.get(enemy.id);
       const transform = this.transformBuffer.sample(enemy.id);
       if (!sprite || !transform) continue;
       const point = clampToWorld(this.zoneWorld.bounds, transform.x, transform.y);
-      sprite.setPosition(point.x, point.y).setVisible(this.transformBuffer.isFresh(enemy.id) && enemy.alive);
+      const visible = this.transformBuffer.isFresh(enemy.id)
+        && enemy.alive
+        && this.sharesNetworkVisionZone(localState.roomId, transform.roomId)
+        && isWithinPlayerVision(this.player, point);
+      sprite.setPosition(point.x, point.y).setVisible(visible);
     }
   }
 
@@ -520,7 +539,7 @@ export class RoomGameScene extends Phaser.Scene {
     if (!keepPosition) {
       const center = this.zoneWorld.rooms.find((entry) => entry.room.id === room.id)?.center
         ?? { x: 0, y: 0 };
-      this.player.setPosition(center.x, center.y);
+      this.setLocalPlayerPosition(center.x, center.y);
     }
     this.player.setVisible(true).setActive(true).setVelocity(0);
 
@@ -595,14 +614,16 @@ export class RoomGameScene extends Phaser.Scene {
       patternActive: false,
     };
     this.enemies.push(enemy);
+    this.lastWalkableEnemyPositions.set(enemy.id, { x, y });
     if (kind === "boss") this.boss = enemy;
     return enemy;
   }
 
   private updateLocalPlayer(time: number): void {
     if (!this.player.active) return;
-    const anchorX = this.player.x;
-    const anchorY = this.player.y;
+    const anchor = this.lastWalkablePlayerPosition ?? { x: this.player.x, y: this.player.y };
+    const clamped = clampToWalkable(this.zoneWorld.walkable, this.player.x, this.player.y, anchor.x, anchor.y, PLAYER_COLLISION_RADIUS);
+    this.setLocalPlayerPosition(clamped.x, clamped.y);
     const x = Number(this.keys.D?.isDown) - Number(this.keys.A?.isDown);
     const y = Number(this.keys.S?.isDown) - Number(this.keys.W?.isDown);
     const movement = new Phaser.Math.Vector2(x, y).normalize().scale(this.progression.stats.moveSpeed);
@@ -615,8 +636,6 @@ export class RoomGameScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this.keys.SPACE) && time >= this.dashReadyAt) this.useDash(aim);
     if (Phaser.Input.Keyboard.JustDown(this.keys.B) && this.localPhase !== "boss") this.requestWaypointAction("recall");
 
-    const clamped = clampToWalkable(this.zoneWorld.walkable, this.player.x, this.player.y, anchorX, anchorY);
-    this.player.setPosition(clamped.x, clamped.y);
     if (!this.isLocalBuildRoom() || !isInsideBuildBounds(this.player.x, this.player.y)) this.buildMode = null;
     this.updateLocalRoomPresence();
   }
@@ -677,6 +696,7 @@ export class RoomGameScene extends Phaser.Scene {
         angle: Phaser.Math.Angle.Between(this.player.x, this.player.y, enemy.sprite.x, enemy.sprite.y),
       }))
       .filter(({ distance, angle }) => distance <= range && Math.abs(Phaser.Math.Angle.Wrap(angle - aimAngle)) <= this.aimConeHalfAngle())
+      .filter(({ enemy }) => this.hasLineOfSight(this.player.x, this.player.y, enemy.sprite.x, enemy.sprite.y))
       .sort((left, right) => left.distance - right.distance || left.enemy.id.localeCompare(right.enemy.id))
       .map(({ enemy }) => enemy);
   }
@@ -707,12 +727,16 @@ export class RoomGameScene extends Phaser.Scene {
     if (skill === "q") this.qReadyAt = this.time.now + definition.cooldownMs * (1 - cooldownReduction);
     else this.eReadyAt = this.time.now + definition.cooldownMs * (1 - cooldownReduction);
     const damage = Math.round(this.effectiveAttack() * (skill === "q" ? 2.1 : 1.65) * this.progression.stats.skillPower);
-    const targetX = this.player.x + Math.cos(aim) * 125;
-    const targetY = this.player.y + Math.sin(aim) * 125;
+    const desiredX = this.player.x + Math.cos(aim) * 125;
+    const desiredY = this.player.y + Math.sin(aim) * 125;
+    const clippedTarget = clipWalkableLine(this.zoneWorld.walkable, this.player.x, this.player.y, desiredX, desiredY);
+    const targetX = clippedTarget.x;
+    const targetY = clippedTarget.y;
     const radius = 120 * (1 + (this.progression.stacks.get("area-power") ?? 0) * 0.12 + (this.progression.has("mage-nova") ? 0.55 : 0));
     for (const enemy of this.enemies) {
       if (!enemy.sprite.active) continue;
       if (Phaser.Math.Distance.Between(targetX, targetY, enemy.sprite.x, enemy.sprite.y) > radius) continue;
+      if (!this.hasLineOfSight(targetX, targetY, enemy.sprite.x, enemy.sprite.y)) continue;
       this.damageEnemy(enemy, damage);
       if (this.progression.has("swordsman-rupture")) this.localVulnerableUntil.set(enemy.id, this.time.now + 3_000);
       if (this.progression.has("archer-mark")) this.localMarkedUntil.set(enemy.id, this.time.now + 5_000);
@@ -724,25 +748,28 @@ export class RoomGameScene extends Phaser.Scene {
   private useDash(aim: number): void {
     this.dashReadyAt = this.time.now + 5000;
     const body = this.player.body as Phaser.Physics.Arcade.Body;
+    const start = this.lastWalkablePlayerPosition ?? { x: this.player.x, y: this.player.y };
     const direction = new Phaser.Math.Vector2(body.velocity.x, body.velocity.y);
     if (direction.lengthSq() < 1) direction.setToPolar(aim, 1);
     direction.normalize().scale(145);
     const point = clampToWalkable(
       this.zoneWorld.walkable,
-      this.player.x + direction.x,
-      this.player.y + direction.y,
-      this.player.x,
-      this.player.y,
+      start.x + direction.x,
+      start.y + direction.y,
+      start.x,
+      start.y,
+      PLAYER_COLLISION_RADIUS,
     );
-    this.player.setPosition(point.x, point.y).setAlpha(0.35);
+    this.setLocalPlayerPosition(point.x, point.y);
+    this.player.setAlpha(0.35);
     this.time.delayedCall(220, () => this.player.active && this.player.setAlpha(1));
   }
 
   private updateEnemies(time: number): void {
     for (const enemy of this.enemies) {
       if (!enemy.sprite.active) continue;
-      const anchorX = enemy.sprite.x;
-      const anchorY = enemy.sprite.y;
+      const anchor = this.lastWalkableEnemyPositions.get(enemy.id)
+        ?? { x: enemy.sprite.x, y: enemy.sprite.y };
       if (enemy.kind === "gate" || enemy.kind === "boss") enemy.sprite.setVelocity(0);
       const playerDistance = Phaser.Math.Distance.Between(enemy.sprite.x, enemy.sprite.y, this.player.x, this.player.y);
       if (enemy.kind === "static") {
@@ -751,14 +778,15 @@ export class RoomGameScene extends Phaser.Scene {
         else if (playerDistance > 34) this.physics.moveTo(enemy.sprite, this.player.x, this.player.y, enemy.speed);
         else {
           enemy.sprite.setVelocity(0);
-          if (time - enemy.lastAttackAt >= 900) {
+          if (this.hasLineOfSight(enemy.sprite.x, enemy.sprite.y, this.player.x, this.player.y) && time - enemy.lastAttackAt >= 900) {
             enemy.lastAttackAt = time;
             this.roomRenderer.showEnemyMeleeAttack(enemy.sprite, this.player.x, this.player.y);
             this.damagePlayer(enemy.damage);
           }
         }
-        const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchorX, anchorY);
+        const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchor.x, anchor.y, ENEMY_COLLISION_RADIUS);
         enemy.sprite.setPosition(clamped.x, clamped.y);
+        this.lastWalkableEnemyPositions.set(enemy.id, clamped);
         continue;
       }
       if (["hidden", "gate", "boss"].includes(enemy.kind)) {
@@ -783,6 +811,9 @@ export class RoomGameScene extends Phaser.Scene {
             this.damageBase(enemy.damage);
           }
         } else this.physics.moveTo(enemy.sprite, BASE_CORE.x, BASE_CORE.y, enemy.speed);
+        const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchor.x, anchor.y, ENEMY_COLLISION_RADIUS);
+        enemy.sprite.setPosition(clamped.x, clamped.y);
+        this.lastWalkableEnemyPositions.set(enemy.id, clamped);
         continue;
       }
 
@@ -792,12 +823,13 @@ export class RoomGameScene extends Phaser.Scene {
         this.physics.moveTo(enemy.sprite, enemy.spawnX, enemy.spawnY, enemy.speed);
       }
 
-      if (playerDistance <= 34 && time - enemy.lastAttackAt >= 850) {
+      if (playerDistance <= 34 && time - enemy.lastAttackAt >= 850 && this.hasLineOfSight(enemy.sprite.x, enemy.sprite.y, this.player.x, this.player.y)) {
         enemy.lastAttackAt = time;
         this.damagePlayer(enemy.damage);
       }
-      const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchorX, anchorY);
+      const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchor.x, anchor.y, ENEMY_COLLISION_RADIUS);
       enemy.sprite.setPosition(clamped.x, clamped.y);
+      this.lastWalkableEnemyPositions.set(enemy.id, clamped);
     }
   }
 
@@ -824,7 +856,7 @@ export class RoomGameScene extends Phaser.Scene {
           return forward >= 0 && forward <= config.range && perpendicular <= 18;
         });
       }
-      if (hit) this.damagePlayer(enemy.damage);
+      if (hit && this.hasLineOfSight(enemy.sprite.x, enemy.sprite.y, this.player.x, this.player.y)) this.damagePlayer(enemy.damage);
       enemy.patternIndex += 1;
       enemy.patternActive = false;
     });
@@ -845,6 +877,7 @@ export class RoomGameScene extends Phaser.Scene {
     const x = enemy.sprite.x;
     const y = enemy.sprite.y;
     enemy.sprite.disableBody(true, true);
+    this.lastWalkableEnemyPositions.delete(enemy.id);
     this.roomRenderer.updateEnemyPattern(enemy.id, patternTier(enemy.kind), "fan", "idle", enemy.patternIndex, x, y, false);
     this.stats.kills += 1;
     this.gold += enemy.rewardGold;
@@ -1007,7 +1040,7 @@ export class RoomGameScene extends Phaser.Scene {
     this.physics.world.setBounds(0, 0, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
     this.cameras.main.setBounds(0, 0, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
     this.roomRenderer.renderWorld(this.zoneWorld, { decorSeed: this.runSeed, showBuildGrid: false, waypointRooms: new Set() });
-    this.player.setPosition(640, 580);
+    this.setLocalPlayerPosition(640, 580);
     this.spawnEnemy("boss", 640, 300, 3);
     this.message = "마왕전 개시 · 조준점 방향으로 공격을 집중하세요.";
   }
@@ -1028,6 +1061,7 @@ export class RoomGameScene extends Phaser.Scene {
     if (respawnAt === undefined || time < respawnAt || this.enemies.some((enemy) => enemy.sprite.active)) return;
     for (const enemy of this.enemies) enemy.sprite.destroy();
     this.enemies = [];
+    this.lastWalkableEnemyPositions.clear();
     this.staticRespawnAt.delete(room.id);
     this.clearedRooms.delete(room.id);
     this.spawnRoomContent(room);
@@ -1145,6 +1179,7 @@ export class RoomGameScene extends Phaser.Scene {
         .filter((enemy) => enemy.sprite.active)
         .map((enemy) => ({ enemy, distance: Phaser.Math.Distance.Between(structure.sprite.x, structure.sprite.y, enemy.sprite.x, enemy.sprite.y) }))
         .filter(({ distance }) => distance <= 270 + structure.level * 35)
+        .filter(({ enemy }) => this.hasLineOfSight(structure.sprite.x, structure.sprite.y, enemy.sprite.x, enemy.sprite.y))
         .sort((left, right) => left.distance - right.distance)[0]?.enemy;
       if (!target) continue;
       this.roomRenderer.showAttack(structure.sprite.x, structure.sprite.y, target.sprite.x, target.sprite.y, 0xa9e8cf);
@@ -1234,7 +1269,14 @@ export class RoomGameScene extends Phaser.Scene {
     this.renderZoneWorld(zone, waypointActive ? local.roomId : undefined);
   }
 
-  private syncNetworkPlayers(players: PartyMemberSnapshot[], localRoomId: string): void {
+  private sharesNetworkVisionZone(viewerRoomId: string, candidateRoomId: string): boolean {
+    if (viewerRoomId === candidateRoomId) return true;
+    const viewerZone = this.latestNetwork?.rooms.find((room) => room.id === viewerRoomId)?.zone;
+    const candidateZone = this.latestNetwork?.rooms.find((room) => room.id === candidateRoomId)?.zone;
+    return viewerZone !== undefined && viewerZone === candidateZone;
+  }
+
+  private syncNetworkPlayers(players: PartyMemberSnapshot[], local: PartyMemberSnapshot): void {
     const activeIds = new Set(players.map((member) => member.userId));
     for (const [userId, sprite] of this.remotePlayers) {
       if (!activeIds.has(userId)) {
@@ -1252,13 +1294,17 @@ export class RoomGameScene extends Phaser.Scene {
         this.localPrediction = { x: member.x, y: member.y, roomId: member.roomId };
         sprite.setPosition(member.x, member.y);
       }
-      sprite.setVisible(isLocal || shouldRenderPartyMember(member, localRoomId)).setActive(member.connected);
+      const visible = isLocal || (
+        this.sharesNetworkVisionZone(local.roomId, member.roomId)
+        && shouldRenderPartyMember(member, local)
+      );
+      sprite.setVisible(visible).setActive(member.connected);
       sprite.setAlpha(isLocal ? 1 : 0.82);
       this.roomRenderer.updateHeroPose(sprite, member.aim, false, performance.now());
     }
   }
 
-  private syncNetworkEnemies(snapshot: NetworkWorldSnapshot, localRoomId: string): void {
+  private syncNetworkEnemies(snapshot: NetworkWorldSnapshot, local: PartyMemberSnapshot): void {
     const enemies = snapshot.enemies;
     const activeIds = new Set(enemies.map((enemy) => enemy.id));
     for (const [id, sprite] of this.networkEnemies) {
@@ -1277,8 +1323,11 @@ export class RoomGameScene extends Phaser.Scene {
             : enemy.kind === "invader" || enemy.behavior === "invader" ? "invader" : "static";
       const sprite = this.networkEnemies.get(enemy.id) ?? this.roomRenderer.createEnemy(kind, enemy.x, enemy.y);
       if (!this.networkEnemies.has(enemy.id)) this.networkEnemies.set(enemy.id, sprite);
+      const visible = enemy.alive
+        && this.sharesNetworkVisionZone(local.roomId, enemy.roomId)
+        && isWithinPlayerVision(local, enemy);
       const previousHp = this.networkEnemyHp.get(enemy.id);
-      if (previousHp !== undefined && enemy.hp < previousHp && enemy.roomId === localRoomId) {
+      if (previousHp !== undefined && enemy.hp < previousHp && visible) {
         const attacker = snapshot.players
           .filter((member) => member.alive && member.roomId === enemy.roomId)
           .map((member) => ({
@@ -1292,7 +1341,6 @@ export class RoomGameScene extends Phaser.Scene {
         this.roomRenderer.showImpact(enemy.x, enemy.y, 30, 0xffffff);
       }
       this.networkEnemyHp.set(enemy.id, enemy.hp);
-      const visible = enemy.roomId === localRoomId && enemy.alive;
       const previousAttackSequence = this.networkEnemyAttackSequence.get(enemy.id);
       if (previousAttackSequence !== undefined && enemy.attackSequence > previousAttackSequence && visible) {
         const target = snapshot.players.find((member) => member.userId === enemy.targetId);
@@ -1588,10 +1636,16 @@ export class RoomGameScene extends Phaser.Scene {
     for (const drop of this.drops) drop.object.destroy();
     for (const drop of this.networkDrops.values()) drop.destroy();
     this.enemies = [];
+    this.lastWalkableEnemyPositions.clear();
     this.drops = [];
     this.networkDrops.clear();
     this.networkDropRequests.clear();
     this.boss = null;
+  }
+
+  private setLocalPlayerPosition(x: number, y: number): void {
+    this.player.setPosition(x, y);
+    this.lastWalkablePlayerPosition = { x, y };
   }
 
   private allLocalRooms(): readonly LocalMapRoom[] {
@@ -1640,7 +1694,12 @@ export class RoomGameScene extends Phaser.Scene {
 
   private aimAngle(): number {
     const pointer = this.input.activePointer;
-    return Phaser.Math.Angle.Between(this.player.x, this.player.y, pointer.worldX, pointer.worldY);
+    const worldPointer = this.cameras.main.getWorldPoint(pointer.x, pointer.y);
+    return aimAngleBetween(this.player, worldPointer);
+  }
+
+  private hasLineOfSight(fromX: number, fromY: number, toX: number, toY: number): boolean {
+    return clipWalkableLine(this.zoneWorld.walkable, fromX, fromY, toX, toY).clear;
   }
 
   private aimConeHalfAngle(): number {

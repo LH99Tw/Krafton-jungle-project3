@@ -1,11 +1,11 @@
 import * as Phaser from "phaser";
+import { PLAYER_VISION_RADIUS } from "@five-days/protocol";
 import {
   selectVisionRevealSources,
   type VisionRevealSource,
 } from "./vision";
 
 const PLAYER_SOURCE_ID = "player";
-const PLAYER_VISION_RADIUS = 800;
 const FOG_DEPTH = 180;
 const FOG_WORLD_SIZE = 100_000;
 const FOG_EDGE_INNER_SCALE = 0.94;

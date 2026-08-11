@@ -11,6 +11,7 @@ import {
   type RoomOptions,
   type TransportMode,
 } from "@five-days/protocol";
+import { normalizeAimAngle } from "../netcode/aim";
 import { applyCellRanges, decodeMask } from "@five-days/game-core";
 import type {
   HeroClassId,
@@ -182,7 +183,6 @@ export class ColyseusTransport {
   private inputTimer: ReturnType<typeof setInterval> | null = null;
   private readonly pressed = new Set<string>();
   private aim = 0;
-  private latestPointerClient: { x: number; y: number } | null = null;
   private cleanupInput: (() => void) | null = null;
   private readonly stateListeners = new Set<StateListener>();
   private readonly eventListeners = new Set<EventListener>();
@@ -442,16 +442,10 @@ export class ColyseusTransport {
     };
     const onKeyUp = (event: KeyboardEvent) => this.pressed.delete(event.code);
     const clearPressed = () => this.pressed.clear();
-    const onPointerMove = (event: PointerEvent) => {
-      this.latestPointerClient = { x: event.clientX, y: event.clientY };
-      this.updateAimFromLatestPointer();
-    };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", clearPressed);
-    window.addEventListener("pointermove", onPointerMove);
     this.inputTimer = setInterval(() => {
-      this.updateAimFromLatestPointer();
       const x = Number(this.pressed.has("KeyD")) - Number(this.pressed.has("KeyA"));
       const y = Number(this.pressed.has("KeyS")) - Number(this.pressed.has("KeyW"));
       const buttons =
@@ -465,8 +459,12 @@ export class ColyseusTransport {
       window.removeEventListener("keydown", onKeyDown);
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", clearPressed);
-      window.removeEventListener("pointermove", onPointerMove);
     };
+  }
+
+  /** Phaser owns the camera transform, so it supplies the authoritative local aim. */
+  setAim(angle: number): void {
+    if (Number.isFinite(angle)) this.aim = normalizeAimAngle(angle);
   }
 
   private sendInputFrame(payload: Pick<InputFrame, "x" | "y" | "aim" | "buttons">): void {
@@ -556,23 +554,6 @@ export class ColyseusTransport {
     } catch {
       // Already closed.
     }
-  }
-
-  private updateAimFromLatestPointer(): void {
-    if (!this.latestPointerClient) return;
-    const canvas = document.querySelector<HTMLCanvasElement>(".game-canvas canvas");
-    const bounds = canvas?.getBoundingClientRect();
-    const localPlayer = this.latestState?.players.find((player) => player.isLocal);
-    const originX = bounds && canvas && localPlayer
-      ? bounds.left + localPlayer.x * (bounds.width / Math.max(1, canvas.width))
-      : bounds ? bounds.left + bounds.width / 2 : window.innerWidth / 2;
-    const originY = bounds && canvas && localPlayer
-      ? bounds.top + localPlayer.y * (bounds.height / Math.max(1, canvas.height))
-      : bounds ? bounds.top + bounds.height / 2 : window.innerHeight / 2;
-    this.aim = Math.atan2(
-      this.latestPointerClient.y - originY,
-      this.latestPointerClient.x - originX,
-    );
   }
 
   private handleState(state: PartyStateLike): void {
