@@ -31,7 +31,7 @@ type EnemyKind = "static" | "hidden" | "gate" | "invader" | "boss";
 const ENEMY_LOOK = {
   static: { texture: "enemy-skeleton-0", depth: 12, radius: 11 },
   invader: { texture: "enemy-skeleton-0", depth: 12, radius: 11 },
-  hidden: { texture: "enemy-elite", depth: 12, radius: 18 },
+  hidden: { texture: "enemy-demon-midboss-0", depth: 16, radius: 64 },
   gate: { texture: "gate", depth: 12, radius: 26 },
   boss: { texture: "boss", depth: 18, radius: 48 },
 } as const;
@@ -358,14 +358,48 @@ export class RoomRenderer {
     hero.setScale(HERO_SPRITE_SCALE);
   }
 
+  applyDemonHoverMotion(enemy: Phaser.GameObjects.Sprite): void {
+    if (enemy.getData("hasHoverMotion")) return;
+    enemy.setData("hasHoverMotion", true);
+
+    const baseScaleX = enemy.scaleX;
+    const baseScaleY = enemy.scaleY;
+
+    // Wing-flapping breathing & Y-float hover motion
+    this.scene.tweens.add({
+      targets: enemy,
+      scaleY: baseScaleY * 1.05,
+      scaleX: baseScaleX * 0.96,
+      displayOriginY: enemy.displayOriginY + 9,
+      duration: 850,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+
+    // Subtle side sway
+    this.scene.tweens.add({
+      targets: enemy,
+      angle: 2.2,
+      duration: 1350,
+      yoyo: true,
+      repeat: -1,
+      ease: "Sine.easeInOut",
+    });
+  }
+
   createEnemy(kind: EnemyKind, x: number, y: number): Phaser.Physics.Arcade.Sprite {
     const look = ENEMY_LOOK[kind];
-    const isSkeleton = kind === "static" || kind === "invader" || kind === "hidden";
-    const textureKey = isSkeleton ? "enemy-skeleton-0" : look.texture;
+    const hasAsset = kind === "hidden" && this.scene.textures.exists("enemy-demon-midboss-asset");
+    const textureKey = kind === "hidden"
+      ? (hasAsset ? "enemy-demon-midboss-asset" : "enemy-demon-midboss-0")
+      : (kind === "static" || kind === "invader" ? "enemy-skeleton-0" : look.texture);
 
     const enemy = this.scene.physics.add.sprite(x, y, textureKey).setDepth(look.depth);
+    if (hasAsset) enemy.setDisplaySize(192, 192);
     (enemy.body as Phaser.Physics.Arcade.Body).setCircle(look.radius);
     if (kind === "gate" || kind === "boss") enemy.setImmovable(true);
+    if (kind === "hidden") this.applyDemonHoverMotion(enemy);
     return enemy;
   }
 
@@ -373,20 +407,26 @@ export class RoomRenderer {
   acquireNetworkEnemy(kind: EnemyKind, x: number, y: number): Phaser.GameObjects.Sprite {
     const pool = this.networkEnemyPool.get(kind);
     const enemy = pool?.pop() ?? this.scene.add.sprite(x, y, ENEMY_LOOK[kind].texture);
-    const textureKey = kind === "static" || kind === "invader" || kind === "hidden"
-      ? "enemy-skeleton-0"
-      : ENEMY_LOOK[kind].texture;
-    return enemy
+    const hasAsset = kind === "hidden" && this.scene.textures.exists("enemy-demon-midboss-asset");
+    const textureKey = kind === "hidden"
+      ? (hasAsset ? "enemy-demon-midboss-asset" : "enemy-demon-midboss-0")
+      : (kind === "static" || kind === "invader" ? "enemy-skeleton-0" : ENEMY_LOOK[kind].texture);
+    enemy
       .setTexture(textureKey)
       .setPosition(x, y)
       .setDepth(ENEMY_LOOK[kind].depth)
       .setAlpha(1)
       .setVisible(true)
       .setActive(true);
+    if (hasAsset) enemy.setDisplaySize(192, 192);
+    if (kind === "hidden") this.applyDemonHoverMotion(enemy);
+    return enemy;
   }
 
   releaseNetworkEnemy(kind: EnemyKind, enemy: Phaser.GameObjects.Sprite): void {
     this.scene.tweens.killTweensOf(enemy);
+    enemy.setData("hasHoverMotion", false);
+    enemy.setAngle(0);
     enemy.setScale(1).setVisible(false).setActive(false).setPosition(-10_000, -10_000);
     const pool = this.networkEnemyPool.get(kind) ?? [];
     if (pool.length < NETWORK_ENEMY_POOL_LIMIT[kind]) {
@@ -413,7 +453,13 @@ export class RoomRenderer {
 
     const normalized = (angle + 360) % 360;
     const snapAngle = (Math.round(normalized / 45) * 45) % 360;
-    if (kind === "static" || kind === "invader" || kind === "hidden") {
+    if (kind === "hidden") {
+      if (this.scene.textures.exists("enemy-demon-midboss-asset")) {
+        sprite.setTexture("enemy-demon-midboss-asset").setDisplaySize(192, 192);
+      } else {
+        sprite.setTexture(`enemy-demon-midboss-${snapAngle}`);
+      }
+    } else if (kind === "static" || kind === "invader") {
       sprite.setTexture(`enemy-skeleton-${snapAngle}`);
     } else {
       sprite.setAngle(angle);

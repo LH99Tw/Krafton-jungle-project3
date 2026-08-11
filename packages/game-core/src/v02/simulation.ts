@@ -252,7 +252,7 @@ const ENEMY_RULES: Readonly<Record<Exclude<CoreEnemyKind, "invader" | "boss">, {
   gold: number;
 }>> = {
   static: { hp: 34, damage: 7, speed: 72, attackRange: 38, xp: 18, gold: 5 },
-  hidden: { hp: 110, damage: 14, speed: 82, attackRange: 155, xp: 54, gold: 18 },
+  hidden: { hp: 450, damage: 16, speed: 78, attackRange: 165, xp: 120, gold: 45 },
   gate: { hp: 190, damage: 18, speed: 55, attackRange: 250, xp: 75, gold: 24 },
 };
 
