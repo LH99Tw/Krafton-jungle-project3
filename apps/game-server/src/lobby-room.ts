@@ -156,6 +156,11 @@ export class GameLobbyRoom extends Room<LobbyRoomState, LobbyMetadata> {
         difficulty: this.state.difficulty,
         protocolVersion: PROTOCOL_VERSION,
         allowedUserIds: humans.map((player) => player.userId),
+        aiPlayers: players.filter((player) => player.isAi).map((player) => ({
+          userId: player.userId,
+          displayName: player.displayName,
+          heroClass: player.heroClass as "swordsman" | "archer" | "mage",
+        })),
         minimumPlayers: humans.length,
         lobbyRoomId: this.roomId,
       });

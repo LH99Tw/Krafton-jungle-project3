@@ -6,6 +6,7 @@ import {
   GameCore,
   ROOM_HEIGHT,
   ROOM_WIDTH,
+  roomWorldCenter,
   roomWorldRect,
   waypointId,
   type CoreEnemy,
@@ -279,6 +280,58 @@ test("recall rejects a split quorum and allows returning from an unlocked gate w
   assert.equal(core.activeTravel?.destinationId, waypointId(core.maps.zones[0].startRoomId, "start"));
   for (let index = 0; index < 50; index += 1) core.update(0.1);
   assert.ok([...core.players.values()].every((player) => player.roomId === core.maps.zones[0].startRoomId));
+});
+
+test("hidden enemies attack players from range", () => {
+  const core = startedCore("hidden-ranged");
+  const player = core.players.get("p1")!;
+  const hidden = [...core.enemies.values()].find((candidate) => candidate.kind === "hidden")!;
+  core.movePlayerToRoom(player.userId, hidden.roomId);
+  player.x = hidden.x;
+  player.y = hidden.y;
+  core.setConnected(player.userId, false);
+  const hpBefore = player.hp;
+  for (let index = 0; index < 60; index += 1) core.update(0.1);
+  assert.ok(player.hp < hpBefore, "hidden enemy should damage the player over time");
+});
+
+test("boss pattern volley damages players inside the boss room", () => {
+  const core = startedCore("boss-pattern");
+  core.day = 3;
+  assert.equal(core.startBoss(), true);
+  const boss = [...core.enemies.values()].find((candidate) => candidate.kind === "boss")!;
+  core.movePlayerToRoom("p1", BOSS_ROOM_ID);
+  const hpBefore = core.players.get("p1")!.hp;
+  for (let index = 0; index < 70; index += 1) core.update(0.1);
+  assert.ok(core.players.get("p1")!.hp < hpBefore, "boss volley should damage the player");
+  assert.equal(boss.alive, true);
+});
+
+test("gates spawn invaders during the day (dynamic field pressure)", () => {
+  const core = startedCore("day-spawn");
+  for (let index = 0; index < 140; index += 1) core.update(0.1);
+  assert.ok([...core.enemies.values()].some((candidate) => candidate.kind === "invader"), "an invader should spawn from a gate");
+});
+
+test("solo AI companions: defender guards base, follower is driven toward the leader", () => {
+  const core = startedCore("ai-follow");
+  core.addPlayer({ userId: "ai:1", displayName: "수호자", heroClass: "swordsman" });
+  core.addPlayer({ userId: "ai:2", displayName: "동행", heroClass: "archer" });
+  const defender = core.players.get("ai:1")!;
+  const follower = core.players.get("ai:2")!;
+  const human = core.players.get("p1")!;
+  assert.equal(defender.aiRole, "defender");
+  assert.equal(follower.aiRole, "follower");
+
+  core.movePlayerToRoom(human.userId, core.maps.zones[0].gateRoomId);
+  const baseCenter = roomWorldCenter({ x: 0, y: 4 });
+  const followerInitial = { x: follower.x, y: follower.y };
+  for (let index = 0; index < 80; index += 1) core.update(0.1);
+  const defenderNearBase = Math.hypot(defender.x - baseCenter.x, defender.y - baseCenter.y) < 400;
+  const followerMoved = Math.hypot(follower.x - followerInitial.x, follower.y - followerInitial.y) > 1;
+  const followerDriven = follower.inputX !== 0 || follower.inputY !== 0;
+  assert.ok(defenderNearBase, "defender AI should guard the base room");
+  assert.ok(followerMoved || followerDriven, "follower AI should be actively driven toward the leader");
 });
 
 function startedCore(seed: string): GameCore {
