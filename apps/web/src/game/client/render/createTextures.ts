@@ -119,6 +119,74 @@ export function createGameTextures(scene: Phaser.Scene): void {
     },
   ];
 
+  // Clean 8-directional transparent pixel art skeleton textures
+  const SKELETON_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315] as const;
+  SKELETON_ANGLES.forEach((angle) => {
+    specs.push({
+      key: `enemy-skeleton-${angle}`,
+      width: 32,
+      height: 32,
+      draw: (g) => {
+        const rad = (angle * Math.PI) / 180;
+        const dirX = Math.round(Math.cos(rad));
+        const dirY = Math.round(Math.sin(rad));
+
+        // Ground shadow
+        g.fillStyle(0x000000, 0.35).fillEllipse(16, 28, 20, 7);
+
+        // Stepping bone legs
+        const step = Math.round(dirX * 3);
+        g.fillStyle(0xdedede).fillRect(11 - step, 20, 3, 7);
+        g.fillStyle(0xb5b5b5).fillRect(10 - step, 26, 4, 2);
+        g.fillStyle(0xdedede).fillRect(18 + step, 20, 3, 7);
+        g.fillStyle(0xb5b5b5).fillRect(18 + step, 26, 4, 2);
+
+        // Spine
+        g.fillStyle(0x999999).fillRect(14, 18, 4, 3);
+
+        // Ribcage
+        g.fillStyle(0xe6e6e6).fillRect(12, 11, 8, 7);
+        g.fillStyle(0x7c7c7c)
+          .fillRect(14, 12, 4, 1)
+          .fillRect(14, 14, 4, 1)
+          .fillRect(14, 16, 4, 1);
+
+        // Wooden Shield
+        const shieldX = 7 + dirX * 3;
+        const shieldY = 11 + dirY * 2;
+        g.fillStyle(0x4a3425).fillRect(shieldX, shieldY, 7, 9);
+        g.fillStyle(0x8c6239).fillRect(shieldX + 1, shieldY + 1, 5, 7);
+        g.fillStyle(0xc49a45).fillRect(shieldX + 3, shieldY + 3, 2, 2);
+
+        // Bone Sword
+        const swordX = 22 + dirX * 2;
+        const swordY = 8 + dirY * 2;
+        g.fillStyle(0xc0c0c0).fillRect(swordX, swordY, 2, 10);
+        g.fillStyle(0x808080).fillRect(swordX - 2, swordY + 8, 6, 2);
+
+        // Skull Head
+        g.fillStyle(0xf5f5f5).fillRect(11 + dirX, 3 + dirY, 10, 9);
+        g.fillStyle(0xd9d9d9).fillRect(12 + dirX, 2 + dirY, 8, 2);
+
+        // Crimson Glowing Eye Sockets
+        const eyeX1 = 12 + Math.max(-2, Math.min(2, dirX * 2));
+        const eyeX2 = 17 + Math.max(-2, Math.min(2, dirX * 2));
+        const eyeY = 6 + Math.max(-2, Math.min(2, dirY * 2));
+
+        if (angle !== 180) {
+          g.fillStyle(0x220505).fillRect(eyeX1, eyeY, 3, 3).fillRect(eyeX2, eyeY, 3, 3);
+          g.fillStyle(0xff1133).fillRect(eyeX1 + 1, eyeY + 1, 1, 1).fillRect(eyeX2 + 1, eyeY + 1, 1, 1);
+        } else {
+          g.fillStyle(0xcccccc).fillRect(12, 5, 8, 6);
+        }
+
+        // Skull Jaw
+        g.fillStyle(0xcccccc).fillRect(13 + dirX, 11 + dirY, 6, 2);
+        g.fillStyle(0x333333).fillRect(14 + dirX, 12 + dirY, 1, 1).fillRect(16 + dirX, 12 + dirY, 1, 1);
+      },
+    });
+  });
+
   specs.forEach((spec) => {
     if (scene.textures.exists(spec.key)) return;
     const graphics = scene.make.graphics({ x: 0, y: 0 }, false);

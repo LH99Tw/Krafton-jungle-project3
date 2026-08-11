@@ -23,8 +23,8 @@ const ZONE_COLORS = {
 type EnemyKind = "static" | "hidden" | "gate" | "invader" | "boss";
 
 const ENEMY_LOOK = {
-  static: { texture: "enemy-grunt", depth: 12, radius: 11 },
-  invader: { texture: "enemy-runner", depth: 12, radius: 11 },
+  static: { texture: "enemy-skeleton-0", depth: 12, radius: 11 },
+  invader: { texture: "enemy-skeleton-0", depth: 12, radius: 11 },
   hidden: { texture: "enemy-elite", depth: 12, radius: 18 },
   gate: { texture: "gate", depth: 12, radius: 26 },
   boss: { texture: "boss", depth: 18, radius: 48 },
@@ -54,8 +54,28 @@ export class RoomRenderer {
     this.createVegetationFrames();
     this.createEnvironmentFrames();
     this.createCrosshairTexture();
+    this.createSkeletonAnimations();
     this.crosshair = this.scene.add.image(640, 360, "medieval-crosshair").setDepth(200).setScrollFactor(0);
     this.scene.game.canvas.style.cursor = "none";
+  }
+
+  private createSkeletonAnimations(): void {
+    if (!this.scene.textures.exists("skeleton-8dir-walk")) return;
+    const SKELETON_ANGLES = [0, 45, 90, 135, 180, 225, 270, 315] as const;
+    SKELETON_ANGLES.forEach((angle, rowIndex) => {
+      const animKey = `skeleton-walk-${angle}`;
+      if (!this.scene.anims.exists(animKey)) {
+        this.scene.anims.create({
+          key: animKey,
+          frames: this.scene.anims.generateFrameNumbers("skeleton-8dir-walk", {
+            start: rowIndex * 8,
+            end: rowIndex * 8 + 7,
+          }),
+          frameRate: 10,
+          repeat: -1,
+        });
+      }
+    });
   }
 
   /**
@@ -324,10 +344,32 @@ export class RoomRenderer {
 
   createEnemy(kind: EnemyKind, x: number, y: number): Phaser.Physics.Arcade.Sprite {
     const look = ENEMY_LOOK[kind];
-    const enemy = this.scene.physics.add.sprite(x, y, look.texture).setDepth(look.depth);
+    const isSkeleton = kind === "static" || kind === "invader" || kind === "hidden";
+    const textureKey = isSkeleton ? "enemy-skeleton-0" : look.texture;
+
+    const enemy = this.scene.physics.add.sprite(x, y, textureKey).setDepth(look.depth);
     (enemy.body as Phaser.Physics.Arcade.Body).setCircle(look.radius);
     if (kind === "gate" || kind === "boss") enemy.setImmovable(true);
     return enemy;
+  }
+
+  updateEnemyPose(sprite: Phaser.Physics.Arcade.Sprite, kind: string): void {
+    if (!sprite.active || !sprite.body) return;
+    const body = sprite.body as Phaser.Physics.Arcade.Body;
+    const vx = body.velocity.x;
+    const vy = body.velocity.y;
+    const speedSq = vx * vx + vy * vy;
+
+    if (speedSq > 4) {
+      const angle = Phaser.Math.RadToDeg(Math.atan2(vy, vx));
+      const normalized = (angle + 360) % 360;
+      const snapAngle = (Math.round(normalized / 45) * 45) % 360;
+      if (kind === "static" || kind === "invader" || kind === "hidden") {
+        sprite.setTexture(`enemy-skeleton-${snapAngle}`);
+      } else {
+        sprite.setAngle(angle);
+      }
+    }
   }
 
   createDrop(x: number, y: number, rarity: "legendary" | "mythic"): Phaser.GameObjects.Container {

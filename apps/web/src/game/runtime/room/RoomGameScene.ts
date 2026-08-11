@@ -268,6 +268,11 @@ export class RoomGameScene extends Phaser.Scene {
     this.load.image("zone-1-blocked", "/Asset/zone-1-blocked-forest.png");
     this.load.image("zone-2-blocked", "/Asset/zone-2-blocked-marsh.png");
     this.load.image("zone-3-blocked", "/Asset/zone-3-blocked-wastes.png");
+
+    this.load.spritesheet("skeleton-8dir-walk", "/images/skeleton_8dir_walk.png", {
+      frameWidth: 128,
+      frameHeight: 128,
+    });
   }
 
   create(): void {
@@ -886,6 +891,7 @@ export class RoomGameScene extends Phaser.Scene {
         const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchor.x, anchor.y, ENEMY_COLLISION_RADIUS);
         enemy.sprite.setPosition(clamped.x, clamped.y);
         this.lastWalkableEnemyPositions.set(enemy.id, clamped);
+        this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind);
         this.updateLocalEnemyHpBar(enemy);
         continue;
       }
@@ -895,11 +901,13 @@ export class RoomGameScene extends Phaser.Scene {
         const config = enemyPatternConfig(patternTier(enemy.kind));
         const interval = (config.telegraphSeconds + config.cooldownSeconds) * 1_000;
         if (!enemy.patternActive && time - enemy.lastShotAt >= interval) this.fireLocalEnemyPattern(enemy, time);
+        this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind);
         this.updateLocalEnemyHpBar(enemy);
         continue;
       }
       if (!enemy.engaged) {
         enemy.sprite.setVelocity(0);
+        this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind);
         this.updateLocalEnemyHpBar(enemy);
         continue;
       }
@@ -916,6 +924,7 @@ export class RoomGameScene extends Phaser.Scene {
         const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchor.x, anchor.y, ENEMY_COLLISION_RADIUS);
         enemy.sprite.setPosition(clamped.x, clamped.y);
         this.lastWalkableEnemyPositions.set(enemy.id, clamped);
+        this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind);
         this.updateLocalEnemyHpBar(enemy);
         continue;
       }
@@ -923,7 +932,11 @@ export class RoomGameScene extends Phaser.Scene {
       if (playerDistance <= 470) {
         this.physics.moveTo(enemy.sprite, this.player.x, this.player.y, enemy.speed);
       } else {
-        this.physics.moveTo(enemy.sprite, enemy.spawnX, enemy.spawnY, enemy.speed);
+        const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchor.x, anchor.y, ENEMY_COLLISION_RADIUS);
+        enemy.sprite.setPosition(clamped.x, clamped.y);
+        this.lastWalkableEnemyPositions.set(enemy.id, clamped);
+        this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind);
+        this.updateLocalEnemyHpBar(enemy);
       }
 
       if (playerDistance <= 34 && time - enemy.lastAttackAt >= 850 && this.hasLineOfSight(enemy.sprite.x, enemy.sprite.y, this.player.x, this.player.y)) {
@@ -933,6 +946,7 @@ export class RoomGameScene extends Phaser.Scene {
       const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchor.x, anchor.y, ENEMY_COLLISION_RADIUS);
       enemy.sprite.setPosition(clamped.x, clamped.y);
       this.lastWalkableEnemyPositions.set(enemy.id, clamped);
+      this.roomRenderer.updateEnemyPose(enemy.sprite, enemy.kind);
       this.updateLocalEnemyHpBar(enemy);
     }
   }
