@@ -22,12 +22,8 @@ jobs:
           node-version: 22.22.3
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm audit --prod --audit-level moderate
       - run: pnpm map:check
-      - run: pnpm lint
-      - run: pnpm typecheck
-      - run: pnpm test
-      - run: pnpm build
+      - run: pnpm verify
         env:
           APP_ORIGIN: http://localhost:3000
           GAME_SERVER_PUBLIC_URL: ws://localhost:2567

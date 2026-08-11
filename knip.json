@@ -1,0 +1,15 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "ignore": [
+    "apps/web/src/features/game/DisabledEditorCoreWorld.ts",
+    "apps/web/src/features/game/DisabledLocalCoreSession.ts",
+    "apps/web/src/features/game/DisabledMapEditorScreen.tsx"
+  ],
+  "workspaces": {
+    "apps/game-server": {
+      "ignoreDependencies": [
+        "@fails-components/webtransport-transport-http3-quiche"
+      ]
+    }
+  }
+}

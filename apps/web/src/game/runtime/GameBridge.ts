@@ -24,7 +24,7 @@ type BridgeEvents = {
 type BridgeEventName = keyof BridgeEvents;
 type Listener<T> = (payload: T) => void;
 
-export class GameBridge {
+class GameBridge {
   private readonly target = new EventTarget();
   private commandHandler: ((command: GameCommand) => void) | null = null;
 

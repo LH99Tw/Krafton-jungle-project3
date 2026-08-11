@@ -1,7 +1,7 @@
 import type { NextResponse } from "next/server";
 
 export const CSRF_COOKIE = "fdm_csrf";
-export const OAUTH_COOKIE = "fdm_oauth_state";
+const OAUTH_COOKIE = "fdm_oauth_state";
 
 export function sessionCookieName(): string {
   return process.env.NODE_ENV === "production" ? "__Host-fdm_session" : "fdm_session";

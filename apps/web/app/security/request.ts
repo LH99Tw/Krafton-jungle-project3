@@ -15,8 +15,8 @@ const registryKey = Symbol.for("five-days.web-security-registry");
 const globalSecurity = globalThis as typeof globalThis & { [registryKey]?: SecurityRegistry };
 const registry = globalSecurity[registryKey] ??= { buckets: new Map(), lastCleanupAt: 0 };
 
-export class PayloadTooLargeError extends Error {}
-export class InvalidJsonError extends Error {}
+class PayloadTooLargeError extends Error {}
+class InvalidJsonError extends Error {}
 
 export function clientIp(request: Request): string {
   return clientIpFromHeaders(request.headers);
@@ -77,7 +77,7 @@ export function rateLimited(retryAfterSeconds: number): Response {
   );
 }
 
-export function allowedOrigins(): Set<string> {
+function allowedOrigins(): Set<string> {
   return new Set(
     (process.env.ALLOWED_ORIGINS ?? process.env.APP_ORIGIN ?? "http://localhost:3000")
       .split(",")

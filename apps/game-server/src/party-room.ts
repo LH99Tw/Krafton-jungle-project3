@@ -37,7 +37,6 @@ import {
   PLAYER_TRANSFORM_VIEW,
   PlayerState,
   RoomState,
-  StructureState,
   UpgradeChoiceState,
   WaypointState,
 } from "./state";

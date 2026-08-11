@@ -48,7 +48,7 @@ export class GlobalChatRoom extends Room {
     const parsed = lobbyChatSchema.safeParse(raw);
     const userId = client.userData?.userId as string | undefined;
     const displayName = client.userData?.displayName as string | undefined;
-    if (!parsed.success || !userId || !displayName || /[<>\u0000-\u001f\u007f]/.test(parsed.success ? parsed.data.message : "")) {
+    if (!parsed.success || !userId || !displayName) {
       recordProtocolViolation(client, "INVALID_CHAT");
       return this.error(client, "INVALID_CHAT", "메시지는 1~180자의 일반 텍스트만 사용할 수 있습니다.");
     }

@@ -15,9 +15,7 @@ export {
   oauthCookieName,
   sessionCookieName,
 } from "./cookies";
-export const SessionUnavailable = Symbol("SessionUnavailable");
-
-export type SessionUser = UserRecord & { accountType: "member" | "guest" };
+type SessionUser = UserRecord & { accountType: "member" | "guest" };
 
 export type SessionState =
   | { status: "authenticated"; user: SessionUser }
@@ -45,12 +43,6 @@ export async function getSessionState(): Promise<SessionState> {
   }
 }
 
-export async function getSessionUser(): Promise<SessionUser | null> {
-  const state = await getSessionState();
-  if (state.status === "unavailable") throw SessionUnavailable;
-  return state.status === "authenticated" ? state.user : null;
-}
-
 export async function getCsrfToken(): Promise<string | null> {
   const cookieStore = await cookies();
   return cookieStore.get(csrfCookieName())?.value
@@ -68,7 +60,7 @@ export async function validateMutationRequest(request: Request): Promise<boolean
   return hasAllowedOrigin(request, true);
 }
 
-export async function requestId(): Promise<string> {
+async function requestId(): Promise<string> {
   const supplied = (await headers()).get("x-request-id");
   return supplied && /^[a-zA-Z0-9._:-]{1,64}$/.test(supplied) ? supplied : crypto.randomUUID();
 }
