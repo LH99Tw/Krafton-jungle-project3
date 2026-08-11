@@ -3,11 +3,13 @@ WORKDIR /workspace
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patches patches
+COPY apps/game-server/package.json apps/game-server/package.json
 COPY apps/web/package.json apps/web/package.json
 COPY packages/auth/package.json packages/auth/package.json
 COPY packages/db/package.json packages/db/package.json
+COPY packages/game-core/package.json packages/game-core/package.json
 COPY packages/protocol/package.json packages/protocol/package.json
-RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @five-days/web... install --frozen-lockfile
 
 FROM deps AS builder
 COPY . .
