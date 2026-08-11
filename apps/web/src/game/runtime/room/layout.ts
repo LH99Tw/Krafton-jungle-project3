@@ -2,6 +2,7 @@ import {
   boundsOf,
   buildWorldFromRooms,
   corridorRectsBetween,
+  resolveWalkablePoint,
   roomWorldCenter,
   roomWorldRect,
   type WorldRect,
@@ -149,4 +150,19 @@ export function clampToWorld(bounds: WorldRect, x: number, y: number, padding = 
     x: Math.max(bounds.x + padding, Math.min(bounds.x + bounds.width - padding, x)),
     y: Math.max(bounds.y + padding, Math.min(bounds.y + bounds.height - padding, y)),
   };
+}
+
+/**
+ * Keeps a point on the walkable surface (rooms + corridors). Prevents the
+ * player/enemies from walking through walls — only adjacent corridors are
+ * passable, matching the server's authoritative movement.
+ */
+export function clampToWalkable(
+  walkable: readonly WorldRect[],
+  x: number,
+  y: number,
+  previousX: number,
+  previousY: number,
+): { x: number; y: number } {
+  return resolveWalkablePoint(walkable, x, y, previousX, previousY);
 }

@@ -34,6 +34,7 @@ import { gameBridge, type GameCommand } from "../GameBridge";
 import {
   BASE_CORE,
   buildRenderWorld,
+  clampToWalkable,
   clampToWorld,
   isInsideBuildBounds,
   snapToBuildGrid,
@@ -396,6 +397,8 @@ export class RoomGameScene extends Phaser.Scene {
 
   private updateLocalPlayer(time: number): void {
     if (!this.player.active) return;
+    const anchorX = this.player.x;
+    const anchorY = this.player.y;
     const x = Number(this.keys.D?.isDown) - Number(this.keys.A?.isDown);
     const y = Number(this.keys.S?.isDown) - Number(this.keys.W?.isDown);
     const movement = new Phaser.Math.Vector2(x, y).normalize().scale(this.progression.stats.moveSpeed);
@@ -408,7 +411,7 @@ export class RoomGameScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this.keys.SPACE) && time >= this.dashReadyAt) this.useDash(aim);
     if (Phaser.Input.Keyboard.JustDown(this.keys.B) && this.localPhase !== "boss") this.requestWaypointAction("recall");
 
-    const clamped = clampToWorld(this.zoneWorld.bounds, this.player.x, this.player.y);
+    const clamped = clampToWalkable(this.zoneWorld.walkable, this.player.x, this.player.y, anchorX, anchorY);
     this.player.setPosition(clamped.x, clamped.y);
     if (!this.isLocalBuildRoom() || !isInsideBuildBounds(this.player.x, this.player.y)) this.buildMode = null;
     this.updateLocalRoomPresence();
@@ -496,7 +499,13 @@ export class RoomGameScene extends Phaser.Scene {
     const direction = new Phaser.Math.Vector2(body.velocity.x, body.velocity.y);
     if (direction.lengthSq() < 1) direction.setToPolar(aim, 1);
     direction.normalize().scale(145);
-    const point = clampToWorld(this.zoneWorld.bounds, this.player.x + direction.x, this.player.y + direction.y);
+    const point = clampToWalkable(
+      this.zoneWorld.walkable,
+      this.player.x + direction.x,
+      this.player.y + direction.y,
+      this.player.x,
+      this.player.y,
+    );
     this.player.setPosition(point.x, point.y).setAlpha(0.35);
     this.time.delayedCall(220, () => this.player.active && this.player.setAlpha(1));
   }
@@ -504,6 +513,8 @@ export class RoomGameScene extends Phaser.Scene {
   private updateEnemies(time: number): void {
     for (const enemy of this.enemies) {
       if (!enemy.sprite.active) continue;
+      const anchorX = enemy.sprite.x;
+      const anchorY = enemy.sprite.y;
       if (enemy.kind === "gate" || enemy.kind === "boss") enemy.sprite.setVelocity(0);
       if (!enemy.engaged) {
         enemy.sprite.setVelocity(0);
@@ -540,7 +551,7 @@ export class RoomGameScene extends Phaser.Scene {
         enemy.lastAttackAt = time;
         this.damagePlayer(enemy.damage);
       }
-      const clamped = clampToWorld(this.zoneWorld.bounds, enemy.sprite.x, enemy.sprite.y, 22);
+      const clamped = clampToWalkable(this.zoneWorld.walkable, enemy.sprite.x, enemy.sprite.y, anchorX, anchorY);
       enemy.sprite.setPosition(clamped.x, clamped.y);
     }
   }

@@ -1,4 +1,5 @@
 import * as Phaser from "phaser";
+import { createSeededRandom, type RandomSource } from "@five-days/game-core";
 import { CLASS_DEFINITIONS } from "../../content/classes";
 import type { HeroClassId } from "../../domain/types";
 import { createGameTextures } from "../../client/render/createTextures";
@@ -114,6 +115,50 @@ export class RoomRenderer {
     // Rooms.
     for (const entry of world.rooms) {
       this.drawWorldRoom(graphics, entry, palette, options);
+    }
+
+    // Procedural terrain decor (bushes/rocks) for map-template variety.
+    this.drawWorldDecor(graphics, world);
+  }
+
+  /**
+   * Procedural decor foundation for map templates: deterministic bushes and
+   * rocks scattered along walls and room perimeters. Real bush/rock image
+   * assets can replace these primitives later; placement stays seeded.
+   */
+  private drawWorldDecor(graphics: Phaser.GameObjects.Graphics, world: RenderZoneWorld): void {
+    const seed = world.rooms[0]?.room.zone ?? 1;
+    const random = createSeededRandom(`world-decor:${seed}:${world.rooms.length}`);
+    for (const entry of world.rooms) {
+      const { rect } = entry;
+      const inset = 30;
+      // Scatter decor along the room walls (non-walkable area sits outside the rect).
+      for (let index = 0; index < 6; index += 1) {
+        const side = random.integer(4);
+        const t = 0.08 + random.next() * 0.84;
+        const isBush = random.next() > 0.45;
+        const size = 10 + random.next() * 22;
+        let x = rect.x;
+        let y = rect.y;
+        if (side === 0) { x = rect.x + rect.width * t; y = rect.y - inset * (0.5 + random.next()); }
+        else if (side === 1) { x = rect.x + rect.width * t; y = rect.y + rect.height + inset * (0.5 + random.next()); }
+        else if (side === 2) { x = rect.x - inset * (0.5 + random.next()); y = rect.y + rect.height * t; }
+        else { x = rect.x + rect.width + inset * (0.5 + random.next()); y = rect.y + rect.height * t; }
+        this.drawDecorProp(graphics, x, y, size, isBush, random);
+      }
+    }
+  }
+
+  private drawDecorProp(graphics: Phaser.GameObjects.Graphics, x: number, y: number, size: number, isBush: boolean, random: RandomSource): void {
+    if (isBush) {
+      graphics.fillStyle(0x2f5d3a, 0.95).fillCircle(x, y, size);
+      graphics.fillStyle(0x417c49, 0.9).fillCircle(x - size * 0.25, y - size * 0.2, size * 0.62);
+      graphics.fillStyle(0x55995a, 0.7).fillCircle(x - size * 0.3, y - size * 0.3, size * 0.4);
+    } else {
+      const rx = size;
+      const ry = size * (0.7 + random.next() * 0.3);
+      graphics.fillStyle(0x3a4047, 0.95).fillRoundedRect(x - rx, y - ry / 2, rx * 2, ry, 6);
+      graphics.fillStyle(0x535b63, 0.85).fillRoundedRect(x - rx + 3, y - ry / 2 + 2, rx * 2 - 6, ry - 4, 5);
     }
   }
 
