@@ -56,6 +56,11 @@ type PlayerStateLike = {
   moveSpeed?: number;
   qCooldown?: number;
   eCooldown?: number;
+  skillSequence?: number;
+  lastSkillId?: string;
+  skillTargetX?: number;
+  skillTargetY?: number;
+  skillRadius?: number;
   damage?: number;
   bossDamage?: number;
   kills?: number;
@@ -495,9 +500,7 @@ class ColyseusTransport {
       const x = Number(this.pressed.has("KeyD")) - Number(this.pressed.has("KeyA"));
       const y = Number(this.pressed.has("KeyS")) - Number(this.pressed.has("KeyW"));
       const buttons =
-        Number(this.pressed.has("KeyQ")) |
-        (Number(this.pressed.has("KeyE")) << 1) |
-        (Number(this.pressed.has("Space")) << 2);
+        Number(this.pressed.has("Space"));
       this.sendInputFrame({ x, y, aim: this.aim, buttons });
     }, 1000 / 60);
 
@@ -634,6 +637,11 @@ class ColyseusTransport {
       equipment: equipmentSummaries(player.equipment),
       qCooldown: player.qCooldown ?? 0,
       eCooldown: player.eCooldown ?? 0,
+      skillSequence: player.skillSequence ?? 0,
+      lastSkillId: player.lastSkillId === "q" || player.lastSkillId === "e" || player.lastSkillId === "dash" ? player.lastSkillId : "",
+      skillTargetX: player.skillTargetX ?? 0,
+      skillTargetY: player.skillTargetY ?? 0,
+      skillRadius: player.skillRadius ?? 0,
       combatStats: {
         attackDamage: player.attackDamage ?? 0,
         defense: player.defense ?? 0,
