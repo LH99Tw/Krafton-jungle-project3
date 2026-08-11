@@ -336,6 +336,8 @@ export class RoomRenderer {
   createHero(classId: HeroClassId, x: number, y: number, alpha = 1): Phaser.Physics.Arcade.Sprite {
     const hero = this.scene.physics.add.sprite(x, y, `hero-${classId}`);
     hero.setData("facingDirection", DEFAULT_HERO_FACING);
+    hero.setData("heroWasMoving", false);
+    hero.setData("heroWalkStartedAt", 0);
     hero.setDepth(20).setAlpha(alpha).setScale(HERO_SPRITE_SCALE);
     (hero.body as Phaser.Physics.Arcade.Body).setCircle(11, 3, 7);
     return hero;
@@ -345,8 +347,13 @@ export class RoomRenderer {
     const previous = (hero.getData("facingDirection") as HeroFacingDirection | undefined) ?? DEFAULT_HERO_FACING;
     const facing = heroFacingForMovement(previous, movementX, movementY);
     const moving = Math.hypot(movementX, movementY) > 0.001;
+    const wasMoving = Boolean(hero.getData("heroWasMoving"));
+    if (moving && !wasMoving) hero.setData("heroWalkStartedAt", time);
+    const walkStartedAt = Number(hero.getData("heroWalkStartedAt") ?? time);
+    const animationElapsedMs = moving ? Math.max(0, time - walkStartedAt) : 0;
     hero.setData("facingDirection", facing);
-    hero.setFrame(heroFrameForPose(facing, moving, time)).setRotation(0);
+    hero.setData("heroWasMoving", moving);
+    hero.setFrame(heroFrameForPose(facing, moving, animationElapsedMs)).setRotation(0);
     if (time < Number(hero.getData("attackPoseUntil") ?? 0)) return;
     hero.setScale(HERO_SPRITE_SCALE);
   }

@@ -22,7 +22,8 @@ test("runtime preloads four-direction hero sheets and selects a movement-facing 
   assert.match(scene, /endFrame: HERO_TOTAL_FRAME_COUNT - 1/);
   assert.match(renderer, /`hero-\$\{classId\}`/);
   assert.match(renderer, /heroFacingForMovement\(previous, movementX, movementY\)/);
-  assert.match(renderer, /setFrame\(heroFrameForPose\(facing, moving, time\)\)/);
+  assert.match(renderer, /if \(moving && !wasMoving\) hero\.setData\("heroWalkStartedAt", time\)/);
+  assert.match(renderer, /setFrame\(heroFrameForPose\(facing, moving, animationElapsedMs\)\)/);
   assert.doesNotMatch(generatedTextures, /key: "hero-/);
 });
 

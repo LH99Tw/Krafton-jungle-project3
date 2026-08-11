@@ -34,11 +34,14 @@ test("diagonal and idle movement preserve the last cardinal facing", () => {
   assert.equal(heroFacingForMovement("left", 0, 0), "left");
 });
 
-test("uses idle, left-foot, and right-foot rows without changing direction", () => {
+test("cycles walk1, idle, walk2, and idle without changing direction", () => {
   assert.equal(heroFrameForPose("right", false, 0), 1);
   assert.equal(heroFrameForPose("right", true, 0), 5);
-  assert.equal(heroFrameForPose("right", true, HERO_WALK_PHASE_DURATION_MS), 9);
-  assert.equal(heroFrameForPose("right", true, HERO_WALK_PHASE_DURATION_MS * 2), 5);
+  assert.equal(heroFrameForPose("right", true, HERO_WALK_PHASE_DURATION_MS), 1);
+  assert.equal(heroFrameForPose("right", true, HERO_WALK_PHASE_DURATION_MS * 2), 9);
+  assert.equal(heroFrameForPose("right", true, HERO_WALK_PHASE_DURATION_MS * 3), 1);
+  assert.equal(heroFrameForPose("right", true, HERO_WALK_PHASE_DURATION_MS * 4), 5);
+  assert.equal(heroFrameForPose("right", true, -1), 5);
 });
 
 test("sprite assets match the expected RGBA 4 by 3 grid", () => {

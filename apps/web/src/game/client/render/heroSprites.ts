@@ -49,9 +49,13 @@ export function heroFacingForMovement(
 }
 
 /** Rows are ordered IDLE, LEFT FOOT WALK, RIGHT FOOT WALK. */
-export function heroFrameForPose(facing: HeroFacingDirection, moving: boolean, time: number): number {
+export function heroFrameForPose(facing: HeroFacingDirection, moving: boolean, animationElapsedMs: number): number {
   const direction = HERO_DIRECTION_FRAMES[facing];
   if (!moving) return direction;
-  const walkRow = Math.floor(time / HERO_WALK_PHASE_DURATION_MS) % 2 === 0 ? 1 : 2;
+
+  // A neutral pose between footfalls prevents the two extreme walk poses from
+  // reading as a hop: WALK1 -> IDLE -> WALK2 -> IDLE -> WALK1.
+  const phase = Math.floor(Math.max(0, animationElapsedMs) / HERO_WALK_PHASE_DURATION_MS) % 4;
+  const walkRow = phase === 0 ? 1 : phase === 2 ? 2 : 0;
   return walkRow * HERO_DIRECTION_COUNT + direction;
 }
