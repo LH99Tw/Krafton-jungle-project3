@@ -616,21 +616,35 @@ export class GameCore {
 
   private autoSkillTarget(player: CorePlayer, skillId: AutoSkillId): CoreEnemy | null {
     const definition = autoSkillDefinition(player.heroClass, skillId);
-    return [...this.enemies.values()]
-      .filter((enemy) => enemy.alive && Math.hypot(enemy.x - player.x, enemy.y - player.y) <= definition.range)
-      .filter((enemy) => this.hasPlayerLineOfSight(player, enemy))
-      .sort((left, right) => {
-        const leftDistance = Math.hypot(left.x - player.x, left.y - player.y);
-        const rightDistance = Math.hypot(right.x - player.x, right.y - player.y);
-        return definition.targeting === "area"
-          ? this.skillClusterScore(right, definition) - this.skillClusterScore(left, definition) || leftDistance - rightDistance
-          : leftDistance - rightDistance || left.id.localeCompare(right.id);
-      })[0] ?? null;
+    const enemies = [...this.enemies.values()];
+    const rangeSquared = definition.range ** 2;
+    let best: CoreEnemy | null = null;
+    let bestScore = -Infinity;
+    let bestDistance = Infinity;
+    for (const enemy of enemies) {
+      if (!enemy.alive) continue;
+      const distanceSquared = (enemy.x - player.x) ** 2 + (enemy.y - player.y) ** 2;
+      if (distanceSquared > rangeSquared || !this.hasPlayerLineOfSight(player, enemy)) continue;
+      const distance = Math.sqrt(distanceSquared);
+      const score = definition.targeting === "area" ? this.skillClusterScore(enemy, definition, enemies) : 0;
+      if (score > bestScore || (score === bestScore && (distance < bestDistance
+        || (distance === bestDistance && (best === null || enemy.id < best.id))))) {
+        best = enemy;
+        bestScore = score;
+        bestDistance = distance;
+      }
+    }
+    return best;
   }
 
-  private skillClusterScore(anchor: CoreEnemy, definition: ReturnType<typeof autoSkillDefinition>): number {
-    return [...this.enemies.values()].filter((enemy) => enemy.alive
-      && Math.hypot(enemy.x - anchor.x, enemy.y - anchor.y) <= definition.radius).length;
+  private skillClusterScore(
+    anchor: CoreEnemy,
+    definition: ReturnType<typeof autoSkillDefinition>,
+    enemies: readonly CoreEnemy[],
+  ): number {
+    const radiusSquared = definition.radius ** 2;
+    return enemies.filter((enemy) => enemy.alive
+      && (enemy.x - anchor.x) ** 2 + (enemy.y - anchor.y) ** 2 <= radiusSquared).length;
   }
 
   castSkill(userId: string, skillId: "q" | "e" | "dash", aim: number): boolean {
