@@ -26,3 +26,42 @@ test("official world starts at the authored base and connects through the boss",
   }
   assert.equal(visited.has(OFFICIAL_WORLD.bossRoomId), true);
 });
+
+test("official monster-room enemies never leave their spawn room", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "official-static", minimumPlayers: 1, world: OFFICIAL_WORLD });
+  const player = core.addPlayer({ userId: "player", displayName: "Player", heroClass: "swordsman" });
+  core.setReady(player.userId, true);
+  const monster = [...core.enemies.values()].find((enemy) => enemy.kind === "static")!;
+  const spawnRoomId = monster.spawnRoomId;
+  core.movePlayerToRoom(player.userId, spawnRoomId);
+  for (let index = 0; index < 30; index += 1) core.update(0.1);
+  assert.equal(monster.roomId, spawnRoomId);
+  core.movePlayerToRoom(player.userId, OFFICIAL_WORLD.baseRoomId);
+  for (let index = 0; index < 120; index += 1) core.update(0.1);
+  assert.equal(monster.roomId, spawnRoomId);
+  assert.ok(Math.hypot(monster.x - monster.spawnX, monster.y - monster.spawnY) < 1);
+});
+
+test("an undiscovered official gate spawns invaders that pathfind to and damage the base", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "official-invader", minimumPlayers: 1, world: OFFICIAL_WORLD });
+  const player = core.addPlayer({ userId: "player", displayName: "Player", heroClass: "swordsman" });
+  core.setReady(player.userId, true);
+  core.setConnected(player.userId, false);
+  const gate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate")!;
+  assert.equal(core.discoveredRooms.has(gate.roomId), false);
+  const updateInvaderSpawning = (core as unknown as { updateInvaderSpawning(delta: number): void }).updateInvaderSpawning.bind(core);
+  updateInvaderSpawning(60 / 8);
+  const invader = [...core.enemies.values()].find((enemy) => enemy.kind === "invader")!;
+  assert.equal(invader.kind, "invader");
+  assert.equal(invader.spawnRoomId, gate.roomId);
+  assert.equal(invader.path[0], gate.roomId);
+  assert.equal(invader.path.at(-1), OFFICIAL_WORLD.baseRoomId);
+  assert.ok(invader.path.length > 1);
+
+  const baseHp = core.baseHp;
+  const updateInvaders = (core as unknown as { updateInvaders(delta: number): void }).updateInvaders.bind(core);
+  for (let index = 0; index < 1_200 && invader.alive; index += 1) updateInvaders(0.1);
+  assert.equal(invader.alive, false);
+  assert.equal(invader.roomId, OFFICIAL_WORLD.baseRoomId);
+  assert.ok(core.baseHp < baseHp);
+});

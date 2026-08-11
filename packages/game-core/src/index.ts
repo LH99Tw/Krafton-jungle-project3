@@ -1634,8 +1634,11 @@ export class GameCore {
 
   private authoredSpawnGate(): CoreEnemy | null {
     if (!this.authoredWorld) return null;
+    // Gate waves are a world threat, not an exploration reward. An authored
+    // gate must assault the base from the start even before players discover
+    // its room. Ordinary room monsters remain room-bound elsewhere.
     const gates = [...this.enemies.values()]
-      .filter((enemy) => enemy.kind === "gate" && enemy.alive && this.discoveredRooms.has(enemy.roomId))
+      .filter((enemy) => enemy.kind === "gate" && enemy.alive)
       .sort((left, right) => {
         const zoneDelta = (this.rooms.get(right.roomId)?.zone ?? 1) - (this.rooms.get(left.roomId)?.zone ?? 1);
         return zoneDelta || left.roomId.localeCompare(right.roomId);

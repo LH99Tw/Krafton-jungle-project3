@@ -38,6 +38,9 @@ test("disc pathfinding routes a distant follower around an L-shaped wall", () =>
 });
 
 test("a distant AI follower recovers through terrain when direct steering is blocked", () => {
+  const startRoomId = "editor:start" as const;
+  const targetRoomId = "editor:target" as const;
+  const bossRoomId = "editor:boss" as const;
   const startRect = { x: 0, y: 240, width: 120, height: 120 };
   const targetRect = { x: 720, y: 240, width: 120, height: 120 };
   const bossRect = { x: 1_000, y: 0, width: 120, height: 120 };
@@ -50,22 +53,22 @@ test("a distant AI follower recovers through terrain when direct steering is blo
     kind: "authored",
     id: "ai-recovery-test",
     rooms: [
-      { id: "start", zone: 1, kind: "start", rect: startRect, mapX: 0, mapY: 1, connections: ["target"], depth: 0 },
-      { id: "target", zone: 1, kind: "empty", rect: targetRect, mapX: 2, mapY: 1, connections: ["start"], depth: 1 },
-      { id: "boss", zone: 3, kind: "boss", rect: bossRect, mapX: 4, mapY: 0, connections: [], depth: 2 },
+      { id: startRoomId, zone: 1, kind: "start", rect: startRect, mapX: 0, mapY: 1, connections: [targetRoomId], depth: 0 },
+      { id: targetRoomId, zone: 1, kind: "empty", rect: targetRect, mapX: 2, mapY: 1, connections: [startRoomId], depth: 1 },
+      { id: bossRoomId, zone: 3, kind: "boss", rect: bossRect, mapX: 4, mapY: 0, connections: [], depth: 2 },
     ],
     connections: [{
       id: "u-bend",
-      from: "start",
-      to: "target",
+      from: startRoomId,
+      to: targetRoomId,
       floorRects: connectionRects,
       points: [],
       portal: { x: 720, y: 260 },
     }],
     walkable: [startRect, targetRect, bossRect, ...connectionRects],
     bounds: { x: 0, y: 0, width: 1_120, height: 360 },
-    baseRoomId: "start",
-    bossRoomId: "boss",
+    baseRoomId: startRoomId,
+    bossRoomId,
     gateRoomIds: [],
   };
   const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "ai-recovery", minimumPlayers: 1, world });
@@ -73,10 +76,12 @@ test("a distant AI follower recovers through terrain when direct steering is blo
   core.setReady(human.userId, true);
   core.addPlayer({ userId: "ai:defender", displayName: "수호자", heroClass: "swordsman" });
   const follower = core.addPlayer({ userId: "ai:follower", displayName: "동료", heroClass: "archer" });
-  core.movePlayerToRoom(human.userId, "target");
+  follower.x = 60;
+  follower.y = 300;
+  core.movePlayerToRoom(human.userId, targetRoomId);
 
   for (let step = 0; step < 300; step += 1) core.update(0.05);
 
-  assert.equal(follower.roomId, "target", `follower stopped at ${follower.x},${follower.y}`);
+  assert.equal(follower.roomId, targetRoomId, `follower stopped at ${follower.x},${follower.y}`);
   assert.ok(Math.hypot(human.x - follower.x, human.y - follower.y) <= 240);
 });
