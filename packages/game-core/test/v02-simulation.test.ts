@@ -81,10 +81,70 @@ test("server auto attack picks the nearest enemy inside the cursor cone", () => 
   assert.equal(core.performAutoAttack("p1")?.id, near.id);
   assert.equal(player.attackCount, 1);
   assert.equal(player.lastAttackTargetId, near.id);
+  assert.equal(player.lastAttackCritical, false);
   assert.ok(near.hp < near.maxHp);
   assert.equal(near.aggroed, true);
   assert.equal(far.hp, far.maxHp);
   assert.equal(outsideCone.hp, outsideCone.maxHp);
+});
+
+test("server auto attack falls back to the nearest in-range enemy outside the cursor cone", () => {
+  const core = startedCore("fallback-target");
+  const player = core.players.get("p1")!;
+  player.x = 100;
+  player.y = 100;
+  player.aim = 0;
+  const behind = enemy("behind", player.roomId, 20, 100);
+  core.enemies.clear();
+  core.enemies.set(behind.id, behind);
+
+  assert.equal(core.performAutoAttack(player.userId)?.id, behind.id);
+  assert.ok(behind.hp < behind.maxHp);
+});
+
+test("server auto attack accepts an enemy exactly overlapping the player", () => {
+  const core = startedCore("overlap-target");
+  const player = core.players.get("p1")!;
+  player.aim = Math.PI;
+  const overlap = enemy("overlap", player.roomId, player.x, player.y);
+  core.enemies.clear();
+  core.enemies.set(overlap.id, overlap);
+
+  assert.equal(core.performAutoAttack(player.userId)?.id, overlap.id);
+});
+
+test("combat attack events retain target coordinates after a lethal same-tick cleanup", () => {
+  const core = startedCore("attack-event-after-retire");
+  const player = core.players.get("p1")!;
+  player.aim = 0;
+  const target = enemy("lethal-invader", player.roomId, player.x + 80, player.y);
+  target.behavior = "invader";
+  target.kind = "invader";
+  target.hp = 1;
+  core.enemies.clear();
+  core.enemies.set(target.id, target);
+
+  core.update(1 / 60);
+  assert.equal(core.enemies.has(target.id), false);
+  const [attack] = core.takeCombatAttackEvents();
+  assert.ok(attack);
+  assert.equal(attack.targetId, target.id);
+  assert.deepEqual({ x: attack.targetX, y: attack.targetY }, { x: target.x, y: target.y });
+});
+
+test("records whether the latest authoritative basic attack was critical", () => {
+  const core = startedCore("critical-attack-state");
+  const player = core.players.get("p1")!;
+  player.x = 100;
+  player.y = 100;
+  player.aim = 0;
+  player.upgrades = { ...player.upgrades, precision: 17 };
+  const target = enemy("critical-target", player.roomId, 180, 100);
+  core.enemies.clear();
+  core.enemies.set(target.id, target);
+
+  assert.equal(core.performAutoAttack(player.userId)?.id, target.id);
+  assert.equal(player.lastAttackCritical, true);
 });
 
 test("a skipped server interval advances combat clocks and resolves one bounded auto attack", () => {
@@ -635,27 +695,28 @@ test("boss pattern volley damages players inside the boss room", () => {
 
 test("a living gate spawns exactly 36 daytime and 120 nighttime invaders per phase", () => {
   const core = startedCore("day-spawn");
+  const spawnedOrQueued = () => core.liveInvaderCount + core.pendingInvaderCount;
   for (let index = 0; index < 300; index += 1) core.update(0.1);
   assert.equal(
-    [...core.enemies.values()].filter((candidate) => candidate.kind === "invader").length,
+    spawnedOrQueued(),
     10,
     "the first half of daytime should spawn only waves 1 through 4",
   );
   while (core.phase === "day") core.update(0.1);
   assert.equal(
-    [...core.enemies.values()].filter((candidate) => candidate.kind === "invader").length,
+    spawnedOrQueued(),
     36,
     "a living gate should spawn 36 invaders during the full daytime phase",
   );
   for (let index = 0; index < 125; index += 1) core.update(0.1);
   assert.equal(
-    [...core.enemies.values()].filter((candidate) => candidate.kind === "invader").length,
+    spawnedOrQueued(),
     71,
     "the first half of nighttime should add only 35 invaders",
   );
   while (core.phase === "night") core.update(0.1);
   assert.equal(
-    [...core.enemies.values()].filter((candidate) => candidate.kind === "invader").length,
+    spawnedOrQueued(),
     156,
     "a living gate should add 120 invaders during the full nighttime phase",
   );
@@ -694,6 +755,9 @@ test("invader waves preserve overflow without exceeding the live cap", () => {
 
   internals.enqueueInvaderWave(gate.id, 1, 8);
   internals.releaseOldestInvaderWave();
+  assert.equal(core.liveInvaderCount, 3);
+  assert.equal(core.pendingInvaderCount, 5);
+  internals.releaseOldestInvaderWave();
   assert.equal(core.liveInvaderCount, 5);
   assert.equal(core.pendingInvaderCount, 3);
   assert.equal(core.invaderCapHitCount, 1);
@@ -729,6 +793,56 @@ test("only one queued wave batch is released per spawn interval", () => {
   internals.releaseOldestInvaderWave();
   assert.equal(core.liveInvaderCount, 3);
   assert.equal(core.pendingInvaderCount, 4, "the second batch must wait for the next interval");
+});
+
+test("queued waves release no more than three invaders per 100ms", () => {
+  const core = startedCore("micro-spawn-cadence");
+  const gate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate" && core.rooms.get(enemy.roomId)?.zone === 1)!;
+  const internals = core as unknown as {
+    enqueueInvaderWave(gateEnemyId: string, zone: 1, count: number): void;
+  };
+  internals.enqueueInvaderWave(gate.id, 1, 9);
+
+  core.update(0.099);
+  assert.equal(core.liveInvaderCount, 0);
+  core.update(0.001);
+  assert.equal(core.liveInvaderCount, 3);
+  core.update(0.1);
+  assert.equal(core.liveInvaderCount, 6);
+  core.update(0.1);
+  assert.equal(core.liveInvaderCount, 9);
+  assert.equal(core.invaderWorkMetrics.microSpawned, 9);
+});
+
+test("a congested spawn slot remains a numeric queue instead of creating an overlapping object", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "congested-spawn", minimumPlayers: 1 });
+  const gate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate" && core.rooms.get(enemy.roomId)?.zone === 1)!;
+  const blocker = core.spawnInvader(1, gate.id);
+  const internals = core as unknown as {
+    invaderSpawnPosition(zone: 1, gateEnemy: CoreEnemy, spawnIndex: number): { x: number; y: number };
+    enqueueInvaderWave(gateEnemyId: string, zone: 1, count: number): void;
+    releaseOldestInvaderWave(): void;
+  };
+  const nextSlot = internals.invaderSpawnPosition(1, gate, 1);
+  blocker.x = nextSlot.x;
+  blocker.y = nextSlot.y;
+  internals.enqueueInvaderWave(gate.id, 1, 3);
+  internals.releaseOldestInvaderWave();
+  assert.equal(core.liveInvaderCount, 1);
+  assert.equal(core.pendingInvaderCount, 3);
+});
+
+test("runtime path replanning is limited to eight invaders per tick", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "replan-budget", minimumPlayers: 1 });
+  const invaders = Array.from({ length: 20 }, () => core.spawnInvader(1));
+  const internals = core as unknown as {
+    scheduleInvaderReplan(enemyId: string, allowRandom: boolean): void;
+    releasePendingInvaderReplans(playerTargets: ReadonlyMap<string, unknown>, playerRooms: ReadonlySet<string>): void;
+  };
+  for (const invader of invaders) internals.scheduleInvaderReplan(invader.id, false);
+  internals.releasePendingInvaderReplans(new Map<string, unknown>(), new Set<string>());
+  assert.equal(core.invaderWorkMetrics.completedReplans, 8);
+  assert.equal(core.invaderWorkMetrics.pendingReplans, 12);
 });
 
 test("destroyed gates cancel queued waves and pathological queues stay bounded", () => {
@@ -799,6 +913,22 @@ test("multirate invaders keep hot combat identical to the 60Hz reference", () =>
   assert.equal(multirate.player.hp, reference.player.hp);
   assert.equal(multirate.invader.attackSequence, reference.invader.attackSequence);
   assert.equal(sawHot, true);
+});
+
+test("same-room invaders at 900px stay Near while contact-range invaders are Combat", () => {
+  const core = startedCore("combat-near-tier");
+  const player = core.players.get("p1")!;
+  const invader = core.spawnInvader(1);
+  core.movePlayerToRoom(player.userId, invader.roomId);
+  player.x = invader.x + 900;
+  player.y = invader.y;
+  core.update(1 / 60);
+  assert.equal(core.invaderSimulationTiers.hot, 0);
+  assert.equal(core.invaderSimulationTiers.warm, 1);
+
+  player.x = invader.x + 400;
+  core.update(1 / 60);
+  assert.equal(core.invaderSimulationTiers.hot, 1);
 });
 
 test("cold multirate movement remains within the promised 100ms arrival error", () => {

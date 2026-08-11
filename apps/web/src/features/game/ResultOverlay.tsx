@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { CLASS_DEFINITIONS } from "@/src/game/content/classes";
 import type { GameResult, HeroClassId } from "@/src/game/domain/types";
 
@@ -19,18 +20,24 @@ export function ResultOverlay({
   onLobby: () => void;
   returnLabel?: string;
 }) {
+  const actionRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (result) actionRef.current?.focus();
+  }, [result]);
+
   if (!result) return null;
   const victory = result.state === "victory";
   const className = CLASS_DEFINITIONS[heroClass].name;
   const mvpTitle = result.stats.bossDamage > result.stats.damage * 0.5 ? "마왕의 천적" : result.stats.structuresBuilt >= 3 ? "기지의 설계자" : "원정대 에이스";
 
   return (
-    <div className="modal-backdrop result-backdrop" role="dialog" aria-modal="true" aria-labelledby="result-title">
+    <div className="modal-backdrop result-backdrop" role="alertdialog" aria-modal="true" aria-labelledby="result-title" aria-describedby="result-reason">
       <section className={`result-modal ${victory ? "is-victory" : "is-defeat"}`}>
         <span className="result-kicker">EXPEDITION REPORT · DAY {result.day}</span>
         <div className="result-emblem"><span>{victory ? "V" : "X"}</span></div>
         <h2 id="result-title">{victory ? "마왕 토벌 완료" : "원정 실패"}</h2>
-        <p>{result.reason}</p>
+        <p id="result-reason">{result.reason}</p>
         <div className="result-mvp"><small>YOUR TITLE</small><strong>{mvpTitle}</strong><span>{className} · 팀 전투력 {result.teamPower}</span></div>
         <dl className="result-stats">
           <div><dt>작전 시간</dt><dd>{formatElapsed(result.elapsed)}</dd></div>
@@ -41,7 +48,7 @@ export function ResultOverlay({
           <div><dt>시설 기여</dt><dd>{result.stats.structuresBuilt}</dd></div>
         </dl>
         <div className="result-actions">
-          <button type="button" className="primary-action" onClick={onLobby}>{returnLabel}</button>
+          <button ref={actionRef} type="button" className="primary-action" onClick={onLobby}>{returnLabel}</button>
         </div>
       </section>
     </div>

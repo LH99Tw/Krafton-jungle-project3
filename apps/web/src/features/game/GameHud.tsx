@@ -20,12 +20,14 @@ export function GameHud({
   onExit,
   upgradeChoices = [],
   onChoose = () => {},
+  terminal = false,
 }: {
   snapshot: GameSnapshot;
   heroClass: HeroClassId;
   onExit: () => void;
   upgradeChoices?: UpgradeChoice[];
   onChoose?: (id: UpgradeId) => void;
+  terminal?: boolean;
 }) {
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -52,19 +54,20 @@ export function GameHud({
       aim: 0,
       attackSequence: 0,
       attackTargetId: "",
+      attackCritical: false,
       isLocal: true,
       equipment: snapshot.equipment,
     }];
 
   useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.repeat) return;
+      if (event.key !== "Escape" || event.repeat || terminal) return;
       event.preventDefault();
       setSettingsOpen((open) => !open);
     };
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
-  }, []);
+  }, [terminal]);
 
   return (
     <div className="hud-root">
@@ -75,7 +78,7 @@ export function GameHud({
         remaining={snapshot.phaseRemaining}
       />
 
-      {inventoryOpen && (
+      {inventoryOpen && !terminal && (
         <div id="party-inventory" className="inventory-popup" role="dialog" aria-label="공유 인벤토리">
           <div className="inventory-popup-head">
             <span>PARTY INVENTORY · 공유 장비</span>
@@ -115,7 +118,7 @@ export function GameHud({
         upgradeDraftOpen={upgradeChoices.length > 0}
       />
 
-      {settingsOpen && (
+      {settingsOpen && !terminal && (
         <div className="modal-backdrop game-settings-backdrop" role="dialog" aria-modal="true" aria-labelledby="game-settings-title">
           <section className="game-settings-modal">
             <span>EXPEDITION MENU · ESC</span>
@@ -126,7 +129,7 @@ export function GameHud({
         </div>
       )}
 
-      <UpgradeDraft choices={upgradeChoices} onChoose={onChoose} />
+      <UpgradeDraft key={upgradeChoices.map((choice) => choice.id).join("|") || "no-upgrade"} choices={upgradeChoices} onChoose={onChoose} />
     </div>
   );
 }

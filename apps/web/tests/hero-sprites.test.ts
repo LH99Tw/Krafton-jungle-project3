@@ -9,6 +9,7 @@ import {
   HERO_SPRITE_PATHS,
   HERO_TOTAL_FRAME_COUNT,
   HERO_WALK_PHASE_DURATION_MS,
+  heroFacingForAim,
   heroFacingForMovement,
   heroFrameForPose,
 } from "../src/game/client/render/heroSprites";
@@ -33,6 +34,14 @@ test("diagonal and idle movement preserve the last cardinal facing", () => {
   const right = heroFacingForMovement(DEFAULT_HERO_FACING, 1, 0);
   assert.equal(heroFacingForMovement(right, 1, -1), "right", "D followed by D+W keeps right facing");
   assert.equal(heroFacingForMovement("left", 0, 0), "left");
+});
+
+test("snaps attack aim to the matching four-direction hero facing", () => {
+  assert.equal(heroFacingForAim(0), "right");
+  assert.equal(heroFacingForAim(Math.PI / 2), "down");
+  assert.equal(heroFacingForAim(Math.PI), "left");
+  assert.equal(heroFacingForAim(-Math.PI / 2), "up");
+  assert.equal(heroFacingForAim(Math.PI * 0.75), "left");
 });
 
 test("cycles walk1, idle, walk2, and idle without changing direction", () => {

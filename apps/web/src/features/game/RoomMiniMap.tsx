@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, type WheelEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type PointerEvent, type WheelEvent } from "react";
 import {
   cellIndexAt,
   computeVisibilityPolygon,
@@ -12,7 +12,7 @@ import type { MiniMapSnapshot, PartyMemberSnapshot } from "@/src/game/domain/typ
 
 const PLAYER_COLORS = ["#72e6bd", "#ff7f9f", "#85baff", "#f1ce70", "#c79cff", "#ff9f66"];
 const DYNAMIC_FRAME_MS = 1_000 / 30;
-const DEFAULT_VIEW: MiniMapView = { zoom: 1, offsetX: 0, offsetY: 0 };
+const DEFAULT_VIEW: MiniMapView = { zoom: 1, centerX: null, centerY: null };
 
 type RoomMiniMapProps = {
   minimap: MiniMapSnapshot | null;
@@ -29,6 +29,8 @@ function RoomMiniMapContent({ minimap, party, embed = false }: RoomMiniMapProps)
   const positionsRef = useRef(new Map<string, { x: number; y: number }>());
   const partyRef = useRef(party);
   const viewRef = useRef<MiniMapView>({ ...DEFAULT_VIEW });
+  const panRef = useRef<MiniMapPan | null>(null);
+  const [isPanning, setIsPanning] = useState(false);
   const percent = useMemo(() => minimap ? explorationPercent(minimap.geometry, minimap.explorationMask) : 0, [minimap]);
 
   useEffect(() => {
@@ -65,9 +67,10 @@ function RoomMiniMapContent({ minimap, party, embed = false }: RoomMiniMapProps)
       const height = Math.max(1, Math.round(rect.height * dpr));
       const currentParty = partyRef.current;
       const focus = minimapFocus(minimap, currentParty);
-      const focusSignature = focus ? `${Math.round(focus.x / 8)}:${Math.round(focus.y / 8)}` : "full";
       const view = viewRef.current;
-      const viewSignature = `${view.zoom.toFixed(4)}:${view.offsetX.toFixed(2)}:${view.offsetY.toFixed(2)}`;
+      const followsPlayer = view.centerX === null || view.centerY === null;
+      const focusSignature = followsPlayer && focus ? `${Math.round(focus.x / 8)}:${Math.round(focus.y / 8)}` : followsPlayer ? "full" : "manual";
+      const viewSignature = `${view.zoom.toFixed(4)}:${view.centerX?.toFixed(2) ?? "follow"}:${view.centerY?.toFixed(2) ?? "follow"}`;
       const partySignature = currentParty.map((member) => `${member.userId}:${member.connected ? 1 : 0}:${member.alive ? 1 : 0}:${member.roomId}:${member.x.toFixed(1)}:${member.y.toFixed(1)}`).join("|");
       const settled = currentParty.every((member) => {
         const position = positionsRef.current.get(member.userId);
@@ -122,16 +125,85 @@ function RoomMiniMapContent({ minimap, party, embed = false }: RoomMiniMapProps)
     const worldX = (cursorX - currentTransform.offsetX) / currentTransform.scale;
     const worldY = (cursorY - currentTransform.offsetY) / currentTransform.scale;
     const nextScale = baseTransform.scale * nextZoom;
-    const baseCenter = mapCenter(minimap, focus);
-    const nextCenterX = clamp(worldX - (cursorX - rect.width / 2) / nextScale, minimap.geometry.bounds.x, minimap.geometry.bounds.x + minimap.geometry.bounds.width);
-    const nextCenterY = clamp(worldY - (cursorY - rect.height / 2) / nextScale, minimap.geometry.bounds.y, minimap.geometry.bounds.y + minimap.geometry.bounds.height);
-    const next = { zoom: nextZoom, offsetX: nextCenterX - baseCenter.x, offsetY: nextCenterY - baseCenter.y };
-    viewRef.current = next;
+    const nextCenter = clampViewCenter(
+      worldX - (cursorX - rect.width / 2) / nextScale,
+      worldY - (cursorY - rect.height / 2) / nextScale,
+      nextScale,
+      rect.width,
+      rect.height,
+      minimap,
+    );
+    viewRef.current = { zoom: nextZoom, centerX: nextCenter.x, centerY: nextCenter.y };
+  };
+
+  const handlePointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (!minimap || event.button !== 1) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    panRef.current = { pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY };
+    setIsPanning(true);
+  };
+
+  const handlePointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    const pan = panRef.current;
+    const canvas = canvasRef.current;
+    if (!minimap || !canvas || !pan || pan.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const deltaX = event.clientX - pan.clientX;
+    const deltaY = event.clientY - pan.clientY;
+    pan.clientX = event.clientX;
+    pan.clientY = event.clientY;
+    const rect = canvas.getBoundingClientRect();
+    const current = viewRef.current;
+    const focus = minimapFocus(minimap, partyRef.current);
+    const currentTransform = mapTransform(rect.width, rect.height, minimap, focus, current);
+    const center = viewCenter(minimap, focus, current);
+    const nextCenter = clampViewCenter(
+      center.x - deltaX / currentTransform.scale,
+      center.y - deltaY / currentTransform.scale,
+      currentTransform.scale,
+      rect.width,
+      rect.height,
+      minimap,
+    );
+    viewRef.current = { ...current, centerX: nextCenter.x, centerY: nextCenter.y };
+  };
+
+  const finishPanning = (event: PointerEvent<HTMLDivElement>) => {
+    if (panRef.current?.pointerId !== event.pointerId) return;
+    panRef.current = null;
+    setIsPanning(false);
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  };
+
+  const resetView = () => {
+    panRef.current = null;
+    setIsPanning(false);
+    viewRef.current = { ...DEFAULT_VIEW };
   };
 
   const content = <>
-    <div className="minimap-canvas-frame" onWheel={handleWheel}>
-      <canvas ref={canvasRef} className="minimap-canvas" role="img" aria-label={`파티 공유 탐색 지도, ${Math.floor(percent)}% 탐색됨`} />
+    <div
+      className={`minimap-canvas-frame ${isPanning ? "is-panning" : ""}`}
+      onWheel={handleWheel}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={finishPanning}
+      onPointerCancel={finishPanning}
+      onAuxClick={(event) => event.preventDefault()}
+      onDoubleClick={resetView}
+      title="휠 버튼 드래그: 지도 이동 · 더블클릭: 내 위치로 복귀"
+    >
+      <canvas ref={canvasRef} className="minimap-canvas" role="img" aria-label={`파티 공유 탐색 지도, ${Math.floor(percent)}% 탐색됨. 휠 버튼을 누른 채 드래그하여 다른 지역을 볼 수 있습니다.`} />
+      <button
+        type="button"
+        className="minimap-reset-view"
+        aria-label="미니맵을 내 위치 중심의 기본 보기로 되돌리기"
+        title="기본 보기로 복귀"
+        onClick={(event) => { event.stopPropagation(); resetView(); }}
+      >
+        <span aria-hidden="true">⌖</span>
+      </button>
     </div>
   </>;
 
@@ -145,7 +217,8 @@ type Transform = Readonly<{
   toCanvas: (x: number, y: number) => { x: number; y: number };
 }>;
 
-type MiniMapView = Readonly<{ zoom: number; offsetX: number; offsetY: number }>;
+type MiniMapView = Readonly<{ zoom: number; centerX: number | null; centerY: number | null }>;
+type MiniMapPan = { pointerId: number; clientX: number; clientY: number };
 
 function fullMapScale(width: number, height: number, minimap: MiniMapSnapshot): number {
   const padding = 10;
@@ -158,18 +231,30 @@ function mapCenter(minimap: MiniMapSnapshot, focus: { x: number; y: number } | n
   return focus ?? { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
 }
 
+function viewCenter(minimap: MiniMapSnapshot, focus: { x: number; y: number } | null, view: MiniMapView): { x: number; y: number } {
+  return view.centerX === null || view.centerY === null ? mapCenter(minimap, focus) : { x: view.centerX, y: view.centerY };
+}
+
 function mapTransform(width: number, height: number, minimap: MiniMapSnapshot, focus: { x: number; y: number } | null = null, view: MiniMapView = DEFAULT_VIEW): Transform {
   const fullScale = fullMapScale(width, height, minimap);
   const baseScale = focus
     ? Math.min(fullScale * 4, Math.max(fullScale * 2.35, Math.min(width, height) / (minimap.geometry.visionRadius * 2.4)))
     : fullScale;
   const scale = baseScale * view.zoom;
-  const baseCenter = mapCenter(minimap, focus);
-  const centerX = baseCenter.x + view.offsetX;
-  const centerY = baseCenter.y + view.offsetY;
+  const { x: centerX, y: centerY } = viewCenter(minimap, focus, view);
   const offsetX = width / 2 - centerX * scale;
   const offsetY = height / 2 - centerY * scale;
   return { scale, offsetX, offsetY, toCanvas: (x, y) => ({ x: offsetX + x * scale, y: offsetY + y * scale }) };
+}
+
+function clampViewCenter(x: number, y: number, scale: number, width: number, height: number, minimap: MiniMapSnapshot): { x: number; y: number } {
+  const { bounds } = minimap.geometry;
+  const halfWorldWidth = Math.min(bounds.width / 2, width / Math.max(scale, 0.0001) / 2);
+  const halfWorldHeight = Math.min(bounds.height / 2, height / Math.max(scale, 0.0001) / 2);
+  return {
+    x: clamp(x, bounds.x + halfWorldWidth, bounds.x + bounds.width - halfWorldWidth),
+    y: clamp(y, bounds.y + halfWorldHeight, bounds.y + bounds.height - halfWorldHeight),
+  };
 }
 
 function surfacePath(minimap: MiniMapSnapshot, transform: Transform): Path2D {

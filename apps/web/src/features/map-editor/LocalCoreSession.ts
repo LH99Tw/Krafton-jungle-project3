@@ -101,6 +101,9 @@ export class LocalCoreSession {
       this.serverTick += 1;
       steps += 1;
     }
+    // Editor rendering recovers attacks from the snapshot sequence; drain the
+    // reliable server-only event queue so a long local playtest stays bounded.
+    core.takeCombatAttackEvents();
     this.minimapAccumulatorMs += Math.min(100, Math.max(0, deltaMs));
     if (this.minimapAccumulatorMs >= 100) {
       this.minimapAccumulatorMs %= 100;
@@ -297,6 +300,7 @@ function playerSnapshot(core: GameCore, player: CorePlayer, isLocal: boolean): P
     aim: player.aim,
     attackSequence: player.attackCount,
     attackTargetId: player.lastAttackTargetId ?? "",
+    attackCritical: player.lastAttackCritical,
     isLocal,
     equipment,
   };

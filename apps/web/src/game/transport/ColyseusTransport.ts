@@ -2,6 +2,7 @@ import { Client, type Room } from "colyseus.js";
 import {
   PARTY_ROOM,
   PROTOCOL_VERSION,
+  combatAttackEventSchema,
   fastLaneOfferSchema,
   minimapDeltaSchema,
   minimapInitSchema,
@@ -33,7 +34,18 @@ export type NetworkStatus = "idle" | "connecting" | "waiting" | "connected" | "r
 
 type TicketResponse = { token: string; expiresAt: string };
 type StateListener = (state: NetworkWorldSnapshot) => void;
-type EventListener = (event: { type: string; message?: string; code?: string; state?: string }) => void;
+type TransportEvent = {
+  type: string;
+  message?: string;
+  code?: string;
+  state?: string;
+  elapsed?: number;
+  day?: number;
+  level?: number;
+  teamPower?: number;
+  stats?: Partial<TeamStats>;
+};
+type EventListener = (event: TransportEvent) => void;
 
 type SchemaCollection<T> = {
   forEach(callback: (value: T, key: string | number) => void): void;
@@ -70,6 +82,7 @@ type PlayerStateLike = {
   aim?: number;
   attackSequence?: number;
   attackTargetId?: string;
+  attackCritical?: boolean;
   x?: number;
   y?: number;
   upgradeDraft?: {
@@ -343,14 +356,28 @@ class ColyseusTransport {
       if (!isCurrentRoom()) return;
       this.emitEvent({ type: "protocol-error", code: message.code });
     });
-    room.onMessage("result", (message: { state?: string; reason?: string }) => {
+    room.onMessage("result", (message: { state?: string; reason?: string; elapsed?: number; day?: number; level?: number; teamPower?: number; stats?: Partial<TeamStats> }) => {
       if (!isCurrentRoom()) return;
       this.terminal = true;
-      this.emitEvent({ type: "result", state: message.state, message: message.reason });
+      this.emitEvent({
+        type: "result",
+        state: message.state,
+        message: message.reason,
+        elapsed: message.elapsed,
+        day: message.day,
+        level: message.level,
+        teamPower: message.teamPower,
+        stats: message.stats,
+      });
     });
     room.onMessage("world.frame", (message: unknown) => {
       if (!isCurrentRoom()) return;
       this.handleWorldFrame(message);
+    });
+    room.onMessage("combat.attack", (message: unknown) => {
+      if (!isCurrentRoom()) return;
+      const parsed = combatAttackEventSchema.safeParse(message);
+      if (parsed.success) gameBridge.emit("combatAttack", parsed.data);
     });
     room.onMessage("minimap.init", (message: unknown) => {
       if (!isCurrentRoom()) return;
@@ -630,6 +657,7 @@ class ColyseusTransport {
       aim: player.aim ?? 0,
       attackSequence: player.attackSequence ?? 0,
       attackTargetId: player.attackTargetId ?? "",
+      attackCritical: player.attackCritical ?? false,
       isLocal: player.userId === this.localUserId,
       equipment: equipmentSummaries(player.equipment),
       qCooldown: player.qCooldown ?? 0,
@@ -808,7 +836,7 @@ class ColyseusTransport {
     this.stateListeners.forEach((listener) => listener(snapshot));
   }
 
-  private emitEvent(event: { type: string; message?: string; code?: string; state?: string }): void {
+  private emitEvent(event: TransportEvent): void {
     this.eventListeners.forEach((listener) => listener(event));
   }
 }

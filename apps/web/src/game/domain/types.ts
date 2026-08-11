@@ -80,6 +80,7 @@ export type PartyMemberSnapshot = {
   aim: number;
   attackSequence: number;
   attackTargetId: string;
+  attackCritical: boolean;
   isLocal: boolean;
   equipment: EquipmentSummary[];
   qCooldown?: number;

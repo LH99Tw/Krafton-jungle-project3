@@ -25,6 +25,12 @@ const counters = {
   retiredInvaders: 0,
   maxActiveInvaders: 0,
   maxPendingInvaders: 0,
+  microSpawnedInvaders: 0,
+  completedInvaderReplans: 0,
+  combatAttackEvents: 0,
+  compensatedAttacks: 0,
+  maxPendingInvaderReplans: 0,
+  maxOldestPendingWaveSeconds: 0,
 };
 
 type RoomInvaderMetrics = Readonly<{
@@ -36,6 +42,12 @@ type RoomInvaderMetrics = Readonly<{
   warm?: number;
   cold?: number;
   multirateEnabled?: boolean;
+  microSpawned?: number;
+  pendingReplans?: number;
+  completedReplans?: number;
+  oldestPendingWaveSeconds?: number;
+  combatAttackEvents?: number;
+  compensatedAttacks?: number;
 }>;
 
 const roomInvaderMetrics = new Map<string, RoomInvaderMetrics>();
@@ -70,6 +82,12 @@ export function recordRoomInvaderMetrics(roomId: string, metrics: RoomInvaderMet
   const previous = roomInvaderMetrics.get(roomId);
   counters.invaderCapHits += Math.max(0, metrics.capHits - (previous?.capHits ?? 0));
   counters.retiredInvaders += Math.max(0, metrics.retired - (previous?.retired ?? 0));
+  counters.microSpawnedInvaders += Math.max(0, (metrics.microSpawned ?? 0) - (previous?.microSpawned ?? 0));
+  counters.completedInvaderReplans += Math.max(0, (metrics.completedReplans ?? 0) - (previous?.completedReplans ?? 0));
+  counters.combatAttackEvents += Math.max(0, (metrics.combatAttackEvents ?? 0) - (previous?.combatAttackEvents ?? 0));
+  counters.compensatedAttacks += Math.max(0, (metrics.compensatedAttacks ?? 0) - (previous?.compensatedAttacks ?? 0));
+  counters.maxPendingInvaderReplans = Math.max(counters.maxPendingInvaderReplans, metrics.pendingReplans ?? 0);
+  counters.maxOldestPendingWaveSeconds = Math.max(counters.maxOldestPendingWaveSeconds, metrics.oldestPendingWaveSeconds ?? 0);
   roomInvaderMetrics.set(roomId, { ...metrics });
   const current = currentInvaderTotals();
   counters.maxActiveInvaders = Math.max(counters.maxActiveInvaders, current.active);
@@ -106,6 +124,18 @@ export function realtimeMetricsSnapshot(): object {
       retired: retiredInvaders,
       tiers: currentInvaders.tiers,
       multirateRooms: currentInvaders.multirateRooms,
+      work: {
+        microSpawned: counters.microSpawnedInvaders,
+        pendingReplans: currentInvaders.pendingReplans,
+        maxPendingReplans: counters.maxPendingInvaderReplans,
+        completedReplans: counters.completedInvaderReplans,
+        oldestPendingWaveSeconds: currentInvaders.oldestPendingWaveSeconds,
+        maxOldestPendingWaveSeconds: counters.maxOldestPendingWaveSeconds,
+      },
+      combat: {
+        attackEvents: counters.combatAttackEvents,
+        compensatedAttacks: counters.compensatedAttacks,
+      },
     },
     timings: Object.fromEntries(Object.entries(timingSamples).map(([stage, samples]) => [stage, timingSummary(samples)])),
     eventLoopDelay: {
@@ -122,6 +152,8 @@ function currentInvaderTotals(): {
   pending: number;
   tiers: { hot: number; warm: number; cold: number };
   multirateRooms: number;
+  pendingReplans: number;
+  oldestPendingWaveSeconds: number;
 } {
   return [...roomInvaderMetrics.values()].reduce((total, room) => ({
     active: total.active + room.active,
@@ -132,7 +164,9 @@ function currentInvaderTotals(): {
       cold: total.tiers.cold + (room.cold ?? 0),
     },
     multirateRooms: total.multirateRooms + (room.multirateEnabled ? 1 : 0),
-  }), { active: 0, pending: 0, tiers: { hot: 0, warm: 0, cold: 0 }, multirateRooms: 0 });
+    pendingReplans: total.pendingReplans + (room.pendingReplans ?? 0),
+    oldestPendingWaveSeconds: Math.max(total.oldestPendingWaveSeconds, room.oldestPendingWaveSeconds ?? 0),
+  }), { active: 0, pending: 0, tiers: { hot: 0, warm: 0, cold: 0 }, multirateRooms: 0, pendingReplans: 0, oldestPendingWaveSeconds: 0 });
 }
 
 function timingSummary(samples: readonly number[]): object {

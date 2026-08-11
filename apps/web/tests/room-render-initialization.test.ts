@@ -49,6 +49,15 @@ test("network enemies use a bounded render queue without client physics bodies",
   assert.doesNotMatch(renderer, /acquireNetworkEnemy[\s\S]*?physics\.add\.sprite/);
 });
 
+test("new enemies emerge from a client-rendered black floor shadow", () => {
+  const renderer = readFileSync(new URL("../src/game/runtime/room/RoomRenderer.ts", import.meta.url), "utf8");
+  assert.match(renderer, /playEnemyEmergence/);
+  assert.match(renderer, /setTint\(0x050505\)/);
+  assert.match(renderer, /setCrop\(0, frameHeight - revealedHeight, frameWidth, revealedHeight\)/);
+  assert.match(renderer, /add\.ellipse[\s\S]*?0x000000/);
+  assert.match(renderer, /if \(kind === "hidden"\) this\.applyDemonHoverMotion\(enemy\)/);
+});
+
 test("room transitions update dynamic waypoints without rebuilding the authored world", () => {
   const scene = readFileSync(new URL("../src/game/runtime/room/RoomGameScene.ts", import.meta.url), "utf8");
   const networkRender = scene.slice(
@@ -66,4 +75,17 @@ test("the server ready signal waits for Phaser renderer readiness", () => {
   assert.doesNotMatch(connectBody, /this\.send\("room\.ready"/);
   assert.match(transport, /markRendererReady\(\)[\s\S]*?this\.rendererReady = true/);
   assert.match(transport, /if \(!this\.room \|\| !this\.rendererReady \|\| this\.readySent\) return/);
+});
+
+test("network basic attacks render from reliable event coordinates after target removal", () => {
+  const scene = readFileSync(new URL("../src/game/runtime/room/RoomGameScene.ts", import.meta.url), "utf8");
+  const transport = readFileSync(new URL("../src/game/transport/ColyseusTransport.ts", import.meta.url), "utf8");
+  assert.match(transport, /room\.onMessage\("combat\.attack"/);
+  assert.match(transport, /combatAttackEventSchema\.safeParse\(message\)/);
+  assert.match(scene, /gameBridge\.on\("combatAttack", \(attack\) => this\.renderNetworkCombatAttack\(attack\)\)/);
+  assert.match(scene, /attack\.targetX,[\s\S]*?attack\.targetY/);
+  assert.doesNotMatch(
+    scene.slice(scene.indexOf("  private renderNetworkCombatAttack("), scene.indexOf("  private syncNetworkEnemies(")),
+    /snapshot\.enemies|networkEnemies\.get\(attack\.targetId\)/,
+  );
 });

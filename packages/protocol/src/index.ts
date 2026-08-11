@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const PROTOCOL_VERSION = 6;
+export const PROTOCOL_VERSION = 7;
 export const PLAYER_VISION_RADIUS = 800;
 export const PARTY_ROOM = "party_room";
 export const LOBBY_ROOM = "lobby_room";
@@ -102,6 +102,19 @@ export const worldFrameSchema = z.object({
   ackInputSeq: z.number().int().min(-1).max(Number.MAX_SAFE_INTEGER),
   players: z.array(transformSampleSchema).max(3),
   enemies: z.array(transformSampleSchema).max(512),
+}).strict();
+
+export const combatAttackEventSchema = z.object({
+  v: z.literal(PROTOCOL_VERSION),
+  sequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+  attackerId: networkIdSchema,
+  heroClass: heroClassSchema,
+  targetId: networkIdSchema,
+  targetX: z.number().finite(),
+  targetY: z.number().finite(),
+  aim: z.number().finite().min(-Math.PI * 2).max(Math.PI * 2),
+  critical: z.boolean(),
+  firedAt: z.number().finite().nonnegative(),
 }).strict();
 
 export const fastLaneOfferSchema = z.object({
@@ -260,6 +273,7 @@ export type PlayerInputCommand = z.infer<typeof playerInputSchema>;
 export type InputFrame = z.infer<typeof inputFrameSchema>;
 export type TransformSample = z.infer<typeof transformSampleSchema>;
 export type WorldFrame = z.infer<typeof worldFrameSchema>;
+export type CombatAttackEvent = z.infer<typeof combatAttackEventSchema>;
 export type FastLaneOffer = z.infer<typeof fastLaneOfferSchema>;
 export type TransportMode = z.infer<typeof transportModeSchema>;
 export type MiniMapPoint = z.infer<typeof minimapPointSchema>;

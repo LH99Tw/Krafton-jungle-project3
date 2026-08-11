@@ -35,6 +35,7 @@ test("official monster-room enemies never leave their spawn room", () => {
   const player = core.addPlayer({ userId: "player", displayName: "Player", heroClass: "swordsman" });
   core.setReady(player.userId, true);
   const monster = [...core.enemies.values()].find((enemy) => enemy.kind === "static")!;
+  monster.hp = monster.maxHp = 1_000_000;
   const spawnRoomId = monster.spawnRoomId;
   core.movePlayerToRoom(player.userId, spawnRoomId);
   for (let index = 0; index < 30; index += 1) core.update(0.1);
@@ -52,6 +53,7 @@ test("an undiscovered official gate spawns invaders that pathfind to and damage 
   core.setConnected(player.userId, false);
   const updateInvaderSpawning = (core as unknown as { updateInvaderSpawning(delta: number): void }).updateInvaderSpawning.bind(core);
   updateInvaderSpawning(60 / 8);
+  updateInvaderSpawning(0.1);
   const invader = [...core.enemies.values()].find((enemy) => enemy.kind === "invader")!;
   const gate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate" && enemy.roomId === invader.spawnRoomId)!;
   assert.equal(core.rooms.get(gate.roomId)?.zone, 1);
@@ -81,6 +83,7 @@ test("advancing to zone two stops zone-one waves and only uses the zone-two gate
   const waveInterval = 60 / 8;
 
   updateInvaderSpawning(waveInterval);
+  updateInvaderSpawning(0.1);
   const zoneOneInvaders = [...core.enemies.values()].filter((enemy) => enemy.kind === "invader");
   assert.ok(zoneOneInvaders.length > 0);
   assert.ok(zoneOneInvaders.every((enemy) => core.rooms.get(enemy.spawnRoomId)?.zone === 1));
@@ -90,6 +93,7 @@ test("advancing to zone two stops zone-one waves and only uses the zone-two gate
   assert.equal(core.currentZone, 2);
   const previousIds = new Set(zoneOneInvaders.map((enemy) => enemy.id));
   updateInvaderSpawning(waveInterval);
+  updateInvaderSpawning(0.1);
   const zoneTwoInvaders = [...core.enemies.values()].filter((enemy) => enemy.kind === "invader" && !previousIds.has(enemy.id));
   assert.ok(zoneTwoInvaders.length > 0);
   assert.ok(zoneTwoInvaders.every((enemy) => core.rooms.get(enemy.spawnRoomId)?.zone === 2));
@@ -98,6 +102,7 @@ test("advancing to zone two stops zone-one waves and only uses the zone-two gate
   assert.equal(core.currentZone, 2, "progression must not fall back to zone one after returning to base");
   const beforeReturnWave = new Set([...core.enemies.keys()]);
   updateInvaderSpawning(waveInterval);
+  updateInvaderSpawning(0.1);
   const afterReturnWave = [...core.enemies.values()].filter((enemy) => enemy.kind === "invader" && !beforeReturnWave.has(enemy.id));
   assert.ok(afterReturnWave.length > 0);
   assert.ok(afterReturnWave.every((enemy) => core.rooms.get(enemy.spawnRoomId)?.zone === 2));

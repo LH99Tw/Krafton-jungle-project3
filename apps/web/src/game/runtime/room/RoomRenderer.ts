@@ -4,8 +4,14 @@ import { CLASS_DEFINITIONS } from "../../content/classes";
 import type { HeroClassId } from "../../domain/types";
 import { createGameTextures } from "../../client/render/createTextures";
 import {
+  BASIC_ATTACK_SPRITES,
+  SWORDSMAN_SLASH_DIRECTIONS,
+  swordsmanSlashAnimationDirectionForAim,
+} from "../../client/render/attackEffectSprites";
+import {
   DEFAULT_HERO_FACING,
   HERO_SPRITE_SCALE,
+  heroFacingForAim,
   heroFacingForMovement,
   heroFrameForPose,
   type HeroFacingDirection,
@@ -43,6 +49,12 @@ const NETWORK_ENEMY_POOL_LIMIT: Record<EnemyKind, number> = {
   boss: 2,
 };
 
+const CRITICAL_ATTACK_COLORS: Record<HeroClassId, number> = {
+  swordsman: 0xd8f6ff,
+  archer: 0xff9d2e,
+  mage: 0xff4df0,
+};
+
 const ROOM_NAMES: Record<RenderableRoom["type"], string> = {
   start: "원정대 야영지",
   gate: "균열 관문",
@@ -66,11 +78,41 @@ export class RoomRenderer {
 
   create(): void {
     createGameTextures(this.scene);
+    this.createBasicAttackAnimations();
     this.createVegetationFrames();
     this.createEnvironmentFrames();
     this.createCrosshairTexture();
     this.crosshair = this.scene.add.image(640, 360, "medieval-crosshair").setDepth(200).setScrollFactor(0);
     this.scene.game.canvas.style.cursor = "none";
+  }
+
+  private createBasicAttackAnimations(): void {
+    const slash = BASIC_ATTACK_SPRITES.swordsman;
+    for (const [row, direction] of SWORDSMAN_SLASH_DIRECTIONS.entries()) {
+      const key = `${slash.animationKey}-${direction}`;
+      if (this.scene.anims.exists(key)) continue;
+      this.scene.anims.create({
+        key,
+        frames: this.scene.anims.generateFrameNumbers(slash.textureKey, {
+          start: row * slash.frameCount,
+          end: (row + 1) * slash.frameCount - 1,
+        }),
+        frameRate: slash.frameRate,
+        repeat: slash.repeat,
+      });
+    }
+    for (const sprite of [BASIC_ATTACK_SPRITES.archer, BASIC_ATTACK_SPRITES.mage]) {
+      if (this.scene.anims.exists(sprite.animationKey)) continue;
+      this.scene.anims.create({
+        key: sprite.animationKey,
+        frames: this.scene.anims.generateFrameNumbers(sprite.textureKey, {
+          start: 0,
+          end: sprite.frameCount - 1,
+        }),
+        frameRate: sprite.frameRate,
+        repeat: sprite.repeat,
+      });
+    }
   }
 
   /**
@@ -345,6 +387,10 @@ export class RoomRenderer {
 
   updateHeroPose(hero: Phaser.Physics.Arcade.Sprite, movementX: number, movementY: number, time: number): void {
     const previous = (hero.getData("facingDirection") as HeroFacingDirection | undefined) ?? DEFAULT_HERO_FACING;
+    if (time < Number(hero.getData("attackPoseUntil") ?? 0)) {
+      hero.setFrame(heroFrameForPose(previous, false, 0)).setRotation(0);
+      return;
+    }
     const facing = heroFacingForMovement(previous, movementX, movementY);
     const moving = Math.hypot(movementX, movementY) > 0.001;
     const wasMoving = Boolean(hero.getData("heroWasMoving"));
@@ -354,7 +400,6 @@ export class RoomRenderer {
     hero.setData("facingDirection", facing);
     hero.setData("heroWasMoving", moving);
     hero.setFrame(heroFrameForPose(facing, moving, animationElapsedMs)).setRotation(0);
-    if (time < Number(hero.getData("attackPoseUntil") ?? 0)) return;
     hero.setScale(HERO_SPRITE_SCALE);
   }
 
@@ -388,6 +433,62 @@ export class RoomRenderer {
     });
   }
 
+  private playEnemyEmergence(enemy: Phaser.GameObjects.Sprite, kind: EnemyKind): void {
+    const frameWidth = Math.max(1, enemy.frame.realWidth);
+    const frameHeight = Math.max(1, enemy.frame.realHeight);
+    const duration = kind === "boss" ? 680 : kind === "gate" || kind === "hidden" ? 560 : 420;
+    const shadowWidth = kind === "boss" ? 92 : kind === "gate" || kind === "hidden" ? 68 : 38;
+    const shadowHeight = kind === "boss" ? 22 : kind === "gate" || kind === "hidden" ? 17 : 10;
+    const reveal = { height: 1 };
+    const shadow = this.scene.add.ellipse(
+      enemy.x,
+      enemy.y + (kind === "boss" ? 22 : 12),
+      shadowWidth,
+      shadowHeight,
+      0x000000,
+      0.88,
+    ).setDepth(enemy.depth - 1).setScale(0.22, 0.5);
+
+    enemy
+      .setData("isEmerging", true)
+      .setData("hasHoverMotion", false)
+      .setAlpha(0.12)
+      .setTint(0x050505)
+      .setCrop(0, frameHeight - 1, frameWidth, 1);
+
+    this.scene.tweens.add({
+      targets: shadow,
+      scaleX: 1.22,
+      scaleY: 1,
+      alpha: 0,
+      duration: duration + 110,
+      ease: "Cubic.easeOut",
+      onComplete: () => shadow.destroy(),
+    });
+    this.scene.tweens.add({
+      targets: enemy,
+      alpha: 1,
+      duration: Math.min(260, duration),
+      ease: "Quad.easeOut",
+    });
+    this.scene.tweens.add({
+      targets: reveal,
+      height: frameHeight,
+      duration,
+      ease: "Cubic.easeOut",
+      onUpdate: () => {
+        if (!enemy.active) return;
+        const revealedHeight = Math.max(1, Math.min(frameHeight, reveal.height));
+        enemy.setCrop(0, frameHeight - revealedHeight, frameWidth, revealedHeight);
+      },
+      onComplete: () => {
+        if (!enemy.active) return;
+        enemy.setCrop().clearTint().setAlpha(1).setData("isEmerging", false);
+        if (kind === "hidden") this.applyDemonHoverMotion(enemy);
+      },
+    });
+  }
+
   createEnemy(kind: EnemyKind, x: number, y: number): Phaser.Physics.Arcade.Sprite {
     const look = ENEMY_LOOK[kind];
     const hasAsset = kind === "hidden" && this.scene.textures.exists("enemy-demon-midboss-asset");
@@ -399,7 +500,7 @@ export class RoomRenderer {
     if (hasAsset) enemy.setDisplaySize(192, 192);
     (enemy.body as Phaser.Physics.Arcade.Body).setCircle(look.radius);
     if (kind === "gate" || kind === "boss") enemy.setImmovable(true);
-    if (kind === "hidden") this.applyDemonHoverMotion(enemy);
+    this.playEnemyEmergence(enemy, kind);
     return enemy;
   }
 
@@ -419,15 +520,16 @@ export class RoomRenderer {
       .setVisible(true)
       .setActive(true);
     if (hasAsset) enemy.setDisplaySize(192, 192);
-    if (kind === "hidden") this.applyDemonHoverMotion(enemy);
+    this.playEnemyEmergence(enemy, kind);
     return enemy;
   }
 
   releaseNetworkEnemy(kind: EnemyKind, enemy: Phaser.GameObjects.Sprite): void {
     this.scene.tweens.killTweensOf(enemy);
     enemy.setData("hasHoverMotion", false);
+    enemy.setData("isEmerging", false);
     enemy.setAngle(0);
-    enemy.setScale(1).setVisible(false).setActive(false).setPosition(-10_000, -10_000);
+    enemy.setCrop().clearTint().setScale(1).setAlpha(1).setVisible(false).setActive(false).setPosition(-10_000, -10_000);
     const pool = this.networkEnemyPool.get(kind) ?? [];
     if (pool.length < NETWORK_ENEMY_POOL_LIMIT[kind]) {
       pool.push(enemy);
@@ -498,30 +600,99 @@ export class RoomRenderer {
     this.scene.tweens.add({ targets: trace, alpha: 0, duration: 110, onComplete: () => trace.destroy() });
   }
 
-  showClassAttack(classId: HeroClassId, attacker: Phaser.Physics.Arcade.Sprite, x2: number, y2: number): void {
+  showClassAttack(
+    classId: HeroClassId,
+    attacker: Phaser.Physics.Arcade.Sprite,
+    targetX: number,
+    targetY: number,
+    aimAngle?: number,
+    critical = false,
+  ): void {
     const color = classColor(classId);
-    const angle = Phaser.Math.Angle.Between(attacker.x, attacker.y, x2, y2);
+    const effectColor = critical ? CRITICAL_ATTACK_COLORS[classId] : color;
+    const targetAngle = Phaser.Math.Angle.Between(attacker.x, attacker.y, targetX, targetY);
+    const aim = Number.isFinite(aimAngle) ? Phaser.Math.Angle.Wrap(aimAngle as number) : targetAngle;
+    const angle = classId === "swordsman" ? targetAngle : aim;
+    const travelDistance = Phaser.Math.Distance.Between(attacker.x, attacker.y, targetX, targetY);
+    const effectTargetX = classId === "swordsman" ? targetX : attacker.x + Math.cos(angle) * travelDistance;
+    const effectTargetY = classId === "swordsman" ? targetY : attacker.y + Math.sin(angle) * travelDistance;
+    const attackFacing = heroFacingForAim(angle);
+    attacker.setData("facingDirection", attackFacing);
+    attacker.setFrame(heroFrameForPose(attackFacing, false, 0));
     attacker.setData("attackPoseUntil", this.scene.time.now + 130);
     this.scene.tweens.add({ targets: attacker, scaleX: attacker.scaleX * 1.16, scaleY: attacker.scaleY * 0.9, duration: 55, yoyo: true });
     if (classId === "swordsman") {
-      for (let trail = 0; trail < 3; trail += 1) {
-        const slash = this.scene.add.arc(
-          attacker.x,
-          attacker.y,
-          46 + trail * 11,
-          Phaser.Math.RadToDeg(angle) - 58 + trail * 5,
-          Phaser.Math.RadToDeg(angle) + 58 - trail * 5,
-          false,
-        ).setStrokeStyle(8 - trail * 2, trail === 0 ? 0xffffff : color, 0.92 - trail * 0.2).setDepth(31 - trail);
-        this.scene.tweens.add({ targets: slash, scale: 1.35 + trail * 0.08, alpha: 0, duration: 150 + trail * 45, onComplete: () => slash.destroy() });
-      }
+      const sprite = BASIC_ATTACK_SPRITES.swordsman;
+      const slashDirection = swordsmanSlashAnimationDirectionForAim(angle);
+      const direction = { x: Math.cos(angle), y: Math.sin(angle) };
+      const slash = this.scene.add.sprite(
+        attacker.x + direction.x * 34,
+        attacker.y + direction.y * 34,
+        sprite.textureKey,
+      ).setDisplaySize(critical ? 225 : 170, critical ? 225 : 170)
+        .setTint(critical ? effectColor : 0xffffff)
+        .setBlendMode(critical ? Phaser.BlendModes.ADD : Phaser.BlendModes.NORMAL)
+        .setDepth(31)
+        .play(`${sprite.animationKey}-${slashDirection}`);
+      this.scene.tweens.add({
+        targets: slash,
+        x: effectTargetX,
+        y: effectTargetY,
+        duration: Phaser.Math.Clamp(travelDistance * 0.75, 110, 220),
+        ease: "Cubic.easeOut",
+        onComplete: () => {
+          this.showImpact(effectTargetX, effectTargetY, critical ? 54 : 34, effectColor);
+          if (critical) this.showCriticalImpact(effectTargetX, effectTargetY, effectColor);
+          slash.destroy();
+        },
+      });
     } else if (classId === "archer") {
-      const arrow = this.scene.add.rectangle(attacker.x, attacker.y, 26, 5, color, 1).setRotation(angle).setDepth(31);
-      this.scene.tweens.add({ targets: arrow, x: x2, y: y2, duration: 120, ease: "Quad.easeIn", onComplete: () => { this.showImpact(x2, y2, 25, color); arrow.destroy(); } });
-      this.showAttack(attacker.x, attacker.y, x2, y2, color);
+      const sprite = BASIC_ATTACK_SPRITES.archer;
+      const arrow = this.scene.add.sprite(
+        attacker.x + Math.cos(angle) * 18,
+        attacker.y + Math.sin(angle) * 18,
+        sprite.textureKey,
+      ).setDisplaySize(critical ? 126 : 96, critical ? 47 : 36)
+        .setRotation(angle)
+        .setTint(critical ? effectColor : 0xffffff)
+        .setBlendMode(critical ? Phaser.BlendModes.ADD : Phaser.BlendModes.NORMAL)
+        .setDepth(31)
+        .play(sprite.animationKey);
+      this.scene.tweens.add({
+        targets: arrow,
+        x: effectTargetX,
+        y: effectTargetY,
+        duration: 135,
+        ease: "Quad.easeIn",
+        onComplete: () => {
+          this.showImpact(effectTargetX, effectTargetY, critical ? 38 : 25, effectColor);
+          if (critical) this.showCriticalImpact(effectTargetX, effectTargetY, effectColor);
+          arrow.destroy();
+        },
+      });
     } else {
-      const orb = this.scene.add.circle(attacker.x, attacker.y, 12, color, 0.92).setStrokeStyle(4, 0xffffff, 0.9).setDepth(31);
-      this.scene.tweens.add({ targets: orb, x: x2, y: y2, scale: 1.45, duration: 150, ease: "Sine.easeIn", onComplete: () => { this.showImpact(x2, y2, 48, color); orb.destroy(); } });
+      const sprite = BASIC_ATTACK_SPRITES.mage;
+      const orb = this.scene.add.sprite(attacker.x, attacker.y, sprite.textureKey)
+        .setDisplaySize(critical ? 58 : 42, critical ? 58 : 42)
+        .setTint(critical ? effectColor : 0xffffff)
+        .setBlendMode(Phaser.BlendModes.ADD)
+        .setDepth(31)
+        .play(sprite.animationKey);
+      const orbEndScale = orb.scaleX * (critical ? 1.38 : 1.25);
+      this.scene.tweens.add({
+        targets: orb,
+        x: effectTargetX,
+        y: effectTargetY,
+        scale: orbEndScale,
+        rotation: angle + Math.PI * 0.8,
+        duration: 165,
+        ease: "Sine.easeIn",
+        onComplete: () => {
+          this.showImpact(effectTargetX, effectTargetY, critical ? 68 : 48, effectColor);
+          if (critical) this.showCriticalImpact(effectTargetX, effectTargetY, effectColor);
+          orb.destroy();
+        },
+      });
       const rune = this.scene.add.circle(attacker.x, attacker.y, 26, color, 0.06).setStrokeStyle(3, color, 0.8).setDepth(30);
       this.scene.tweens.add({ targets: rune, radius: 52, rotation: Math.PI, alpha: 0, duration: 260, onComplete: () => rune.destroy() });
     }
@@ -530,6 +701,34 @@ export class RoomRenderer {
   showImpact(x: number, y: number, radius: number, color: number): void {
     const impact = this.scene.add.circle(x, y, 7, color, 0.28).setStrokeStyle(2, color, 0.9).setDepth(32);
     this.scene.tweens.add({ targets: impact, radius, alpha: 0, duration: 230, onComplete: () => impact.destroy() });
+  }
+
+  private showCriticalImpact(x: number, y: number, color: number): void {
+    const flash = this.scene.add.star(x, y, 8, 8, 25, color, 0.92)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDepth(34);
+    const ring = this.scene.add.circle(x, y, 13, color, 0.2)
+      .setStrokeStyle(4, color, 1)
+      .setBlendMode(Phaser.BlendModes.ADD)
+      .setDepth(33);
+    this.scene.tweens.add({
+      targets: flash,
+      scale: 2.2,
+      rotation: Math.PI / 5,
+      alpha: 0,
+      duration: 260,
+      ease: "Cubic.easeOut",
+      onComplete: () => flash.destroy(),
+    });
+    this.scene.tweens.add({
+      targets: ring,
+      radius: 62,
+      lineWidth: 1,
+      alpha: 0,
+      duration: 310,
+      ease: "Cubic.easeOut",
+      onComplete: () => ring.destroy(),
+    });
   }
 
   updateEnemyPattern(
