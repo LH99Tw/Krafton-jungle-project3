@@ -134,6 +134,7 @@ export type NetworkEnemySnapshot = {
   patternPhase: "idle" | "telegraph";
   patternRemaining: number;
   patternIndex: number;
+  attackSequence: number;
 };
 
 export type NetworkDropSnapshot = {

@@ -1,5 +1,5 @@
 import * as Phaser from "phaser";
-import { ENEMY_PATTERN_RANGE, enemyFanPatternAngles, enemyFloorPatternCircles } from "@five-days/game-core";
+import { enemyFanPatternAngles, enemyFloorPatternCircles, enemyPatternConfig, type EnemyPatternTier } from "@five-days/game-core";
 import { CLASS_DEFINITIONS } from "../../content/classes";
 import type { HeroClassId } from "../../domain/types";
 import { createGameTextures } from "../../client/render/createTextures";
@@ -50,7 +50,6 @@ export class RoomRenderer {
     createGameTextures(this.scene);
     this.createVegetationFrames();
     this.createEnvironmentFrames();
-    this.createHeroDirectionFrames();
     this.createCrosshairTexture();
     this.crosshair = this.scene.add.image(640, 360, "medieval-crosshair").setDepth(200).setScrollFactor(0);
     this.scene.game.canvas.style.cursor = "none";
@@ -98,9 +97,8 @@ export class RoomRenderer {
   }
 
   /**
-   * Procedural decor foundation for map templates: deterministic bushes and
-   * rocks scattered along walls and room perimeters. Real bush/rock image
-   * assets can replace these primitives later; placement stays seeded.
+   * Deterministic vegetation placement layered over the selected room surface.
+   * Props stay near room edges so combatants remain readable.
    */
   private drawWorldDecor(world: RenderZoneWorld, decorSeed: string): void {
     for (const entry of world.rooms) {
@@ -159,22 +157,6 @@ export class RoomRenderer {
         const right = Math.floor((column + 1) * source.width / 2);
         const bottom = Math.floor((row + 1) * source.height / 2);
         texture.add(frame === 3 ? "corridor" : `room-${frame}`, 0, left, top, right - left, bottom - top);
-      }
-    }
-  }
-
-  private createHeroDirectionFrames(): void {
-    for (const classId of ["swordsman", "archer", "mage"] as const) {
-      const texture = this.scene.textures.get(`hero-${classId}-8dir`);
-      const source = texture.getSourceImage() as HTMLImageElement;
-      for (let frame = 0; frame < 8; frame += 1) {
-        const column = frame % 4;
-        const row = Math.floor(frame / 4);
-        const left = Math.floor(column * source.width / 4);
-        const top = Math.floor(row * source.height / 2);
-        const right = Math.floor((column + 1) * source.width / 4);
-        const bottom = Math.floor((row + 1) * source.height / 2);
-        texture.add(`dir-${frame}`, 0, left, top, right - left, bottom - top);
       }
     }
   }
@@ -313,21 +295,19 @@ export class RoomRenderer {
   }
 
   createHero(classId: HeroClassId, x: number, y: number, alpha = 1): Phaser.Physics.Arcade.Sprite {
-    const hero = this.scene.physics.add.sprite(x, y, `hero-${classId}-8dir`, "dir-4");
-    const frameHeight = hero.frame.realHeight || hero.height;
-    const baseScale = Math.min(0.3, 84 / Math.max(1, frameHeight));
-    hero.setDepth(20).setAlpha(alpha).setScale(baseScale);
+    const hero = this.scene.physics.add.sprite(x, y, `hero-${classId}`);
+    hero.setDepth(20).setAlpha(alpha).setScale(1.35);
     (hero.body as Phaser.Physics.Arcade.Body).setCircle(11, 3, 7);
     return hero;
   }
 
   updateHeroPose(hero: Phaser.Physics.Arcade.Sprite, aimAngle: number, moving: boolean, time: number): void {
+    const animationTime = time;
     const octant = ((Math.round(aimAngle / (Math.PI / 4)) % 8) + 8) % 8;
-    // Generated sheets rotate clockwise from front (south): S, SE, E, NE,
-    // N, NW, W, SW. Octants here begin at east in screen coordinates.
-    const directionFrames = [2, 1, 0, 7, 6, 5, 4, 3] as const;
-    hero.setFrame(`dir-${directionFrames[octant]}`);
-    hero.setAngle(moving ? Math.sin(time / 85) * 1.6 : 0);
+    hero.setRotation(octant * Math.PI / 4);
+    if (animationTime < Number(hero.getData("attackPoseUntil") ?? 0)) return;
+    const stride = moving ? Math.sin(animationTime / 85) * 0.06 : 0;
+    hero.setScale(1.35 + stride, 1.35 - stride);
   }
 
   createEnemy(kind: EnemyKind, x: number, y: number): Phaser.Physics.Arcade.Sprite {
@@ -373,12 +353,20 @@ export class RoomRenderer {
   showClassAttack(classId: HeroClassId, attacker: Phaser.Physics.Arcade.Sprite, x2: number, y2: number): void {
     const color = classColor(classId);
     const angle = Phaser.Math.Angle.Between(attacker.x, attacker.y, x2, y2);
+    attacker.setData("attackPoseUntil", this.scene.time.now + 130);
     this.scene.tweens.add({ targets: attacker, scaleX: attacker.scaleX * 1.16, scaleY: attacker.scaleY * 0.9, duration: 55, yoyo: true });
     if (classId === "swordsman") {
-      const slash = this.scene.add.arc(attacker.x, attacker.y, 58, Phaser.Math.RadToDeg(angle) - 52, Phaser.Math.RadToDeg(angle) + 52, false)
-        .setStrokeStyle(9, color, 0.9).setDepth(31);
-      this.scene.tweens.add({ targets: slash, scale: 1.45, alpha: 0, duration: 180, onComplete: () => slash.destroy() });
-      this.showAttack(attacker.x, attacker.y, x2, y2, 0xffffff);
+      for (let trail = 0; trail < 3; trail += 1) {
+        const slash = this.scene.add.arc(
+          attacker.x,
+          attacker.y,
+          46 + trail * 11,
+          Phaser.Math.RadToDeg(angle) - 58 + trail * 5,
+          Phaser.Math.RadToDeg(angle) + 58 - trail * 5,
+          false,
+        ).setStrokeStyle(8 - trail * 2, trail === 0 ? 0xffffff : color, 0.92 - trail * 0.2).setDepth(31 - trail);
+        this.scene.tweens.add({ targets: slash, scale: 1.35 + trail * 0.08, alpha: 0, duration: 150 + trail * 45, onComplete: () => slash.destroy() });
+      }
     } else if (classId === "archer") {
       const arrow = this.scene.add.rectangle(attacker.x, attacker.y, 26, 5, color, 1).setRotation(angle).setDepth(31);
       this.scene.tweens.add({ targets: arrow, x: x2, y: y2, duration: 120, ease: "Quad.easeIn", onComplete: () => { this.showImpact(x2, y2, 25, color); arrow.destroy(); } });
@@ -398,6 +386,7 @@ export class RoomRenderer {
 
   updateEnemyPattern(
     enemyId: string,
+    tier: EnemyPatternTier,
     patternKind: "fan" | "floor",
     patternPhase: "idle" | "telegraph",
     patternIndex: number,
@@ -415,22 +404,32 @@ export class RoomRenderer {
     if (current?.key === key) return;
     current?.graphics.destroy();
     const graphics = this.scene.add.graphics().setDepth(16);
+    const config = enemyPatternConfig(tier);
     if (patternKind === "floor") {
-      for (const circle of enemyFloorPatternCircles(x, y, patternIndex)) {
+      for (const circle of enemyFloorPatternCircles(x, y, patternIndex, tier)) {
         graphics.fillStyle(0xff315a, 0.16).fillCircle(circle.x, circle.y, circle.radius);
         graphics.lineStyle(4, 0xff6b82, 0.9).strokeCircle(circle.x, circle.y, circle.radius);
         graphics.lineStyle(1, 0xffffff, 0.5).strokeCircle(circle.x, circle.y, circle.radius * 0.72);
       }
     } else {
-      for (const angle of enemyFanPatternAngles(patternIndex)) {
-        const endX = x + Math.cos(angle) * ENEMY_PATTERN_RANGE;
-        const endY = y + Math.sin(angle) * ENEMY_PATTERN_RANGE;
+      for (const angle of enemyFanPatternAngles(patternIndex, tier)) {
+        const endX = x + Math.cos(angle) * config.range;
+        const endY = y + Math.sin(angle) * config.range;
         graphics.lineStyle(18, 0xff315a, 0.13).lineBetween(x, y, endX, endY);
         graphics.lineStyle(3, 0xff8ca0, 0.84).lineBetween(x, y, endX, endY);
       }
     }
     this.scene.tweens.add({ targets: graphics, alpha: 0.35, duration: 180, yoyo: true, repeat: -1 });
     this.enemyPatternObjects.set(enemyId, { key, graphics });
+  }
+
+  showEnemyMeleeAttack(enemy: Phaser.Physics.Arcade.Sprite, targetX: number, targetY: number): void {
+    const angle = Phaser.Math.Angle.Between(enemy.x, enemy.y, targetX, targetY);
+    const slash = this.scene.add.arc(enemy.x, enemy.y, 34, Phaser.Math.RadToDeg(angle) - 65, Phaser.Math.RadToDeg(angle) + 65, false)
+      .setStrokeStyle(7, 0xff7a86, 0.9).setDepth(30);
+    this.scene.tweens.add({ targets: enemy, scaleX: 1.22, scaleY: 0.82, duration: 90, yoyo: true });
+    this.scene.tweens.add({ targets: slash, scale: 1.35, alpha: 0, duration: 210, onComplete: () => slash.destroy() });
+    this.showImpact(targetX, targetY, 24, 0xff596c);
   }
 
   destroy(): void {

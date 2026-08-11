@@ -100,6 +100,7 @@ export class EnemyState extends Schema {
   @type("string") patternPhase = "idle";
   @type("number") patternRemaining = 0;
   @type("number") patternIndex = 0;
+  @type("number") attackSequence = 0;
 }
 
 export class WaypointState extends Schema {

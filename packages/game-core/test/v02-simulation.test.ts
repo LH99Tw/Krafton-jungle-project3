@@ -3,13 +3,16 @@ import test from "node:test";
 import { PROTOCOL_VERSION, type PlayerInputCommand } from "@five-days/protocol";
 import {
   BOSS_ROOM_ID,
+  enemyPatternConfig,
   GameCore,
   ROOM_HEIGHT,
   ROOM_WIDTH,
   roomWorldCenter,
   roomWorldRect,
+  shouldAiYieldEquipment,
   waypointId,
   type CoreEnemy,
+  type PersonalHiddenDrop,
 } from "../src/index";
 
 test("constructs a deterministic authoritative world and starts players in the discovered base room", () => {
@@ -77,7 +80,7 @@ test("server auto attack picks the nearest enemy inside the cursor cone", () => 
   assert.equal(outsideCone.hp, outsideCone.maxHp);
 });
 
-test("static enemies proactively telegraph patterns without leaving their spawn room", () => {
+test("static enemies chase, animate an attack sequence, and stay in their spawn room", () => {
   const core = startedCore("static-behavior");
   const player = core.players.get("p1")!;
   player.aim = Math.PI;
@@ -86,10 +89,13 @@ test("static enemies proactively telegraph patterns without leaving their spawn 
   core.enemies.set(staticEnemy.id, staticEnemy);
   const originalX = staticEnemy.x;
   core.update(0.1);
-  assert.equal(staticEnemy.x, originalX);
+  assert.ok(staticEnemy.x < originalX);
   assert.equal(staticEnemy.aggroed, true);
-  assert.equal(staticEnemy.patternPhase, "telegraph");
-  assert.equal(staticEnemy.patternKind, "fan");
+  assert.equal(staticEnemy.patternPhase, "idle");
+  player.x = staticEnemy.x - 20;
+  for (let index = 0; index < 10; index += 1) core.update(0.1);
+  assert.ok(staticEnemy.attackSequence > 0);
+  assert.ok(player.hp < player.maxHp);
   const spawnRoomId = staticEnemy.spawnRoomId;
   const destination = core.rooms.get(player.roomId)!.connections[0]!;
   core.movePlayerToRoom(player.userId, destination);
@@ -97,6 +103,57 @@ test("static enemies proactively telegraph patterns without leaving their spawn 
   assert.equal(staticEnemy.roomId, spawnRoomId);
   assert.equal(staticEnemy.x, originalX);
   assert.equal(staticEnemy.patternPhase, "idle");
+});
+
+test("general and class augments affect authoritative attacks and skills", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "augment-runtime", minimumPlayers: 1 });
+  const archer = core.addPlayer({ userId: "p1", displayName: "archer", heroClass: "archer" });
+  core.setReady(archer.userId, true);
+  archer.x = 100;
+  archer.y = 100;
+  archer.aim = 0;
+  archer.upgrades = { multishot: 1, "archer-piercing": 1, "skill-power": 1, "skill-haste": 1, "archer-mark": 1 };
+  core.enemies.clear();
+  const targets = [150, 190, 230, 270].map((x, index) => enemy(`aug-${index}`, archer.roomId, x, 100));
+  for (const target of targets) core.enemies.set(target.id, target);
+  core.performAutoAttack(archer.userId);
+  assert.ok(targets.slice(0, 4).every((target) => target.hp < target.maxHp), "multishot and piercing must damage additional targets");
+  archer.autoAttackCooldown = 0;
+  assert.equal(core.castSkill(archer.userId, "q", 0), true);
+  assert.ok(archer.qCooldown > 0 && archer.qCooldown < 5, "skill haste must reduce authoritative cooldown");
+});
+
+test("elite pattern tiers increase from hidden to gate to boss", () => {
+  const hidden = enemyPatternConfig("hidden");
+  const gate = enemyPatternConfig("gate");
+  const boss = enemyPatternConfig("boss");
+  assert.ok(hidden.rayCount < gate.rayCount && gate.rayCount < boss.rayCount);
+  assert.ok(hidden.floorCount < gate.floorCount && gate.floorCount < boss.floorCount);
+  assert.ok(hidden.telegraphSeconds > gate.telegraphSeconds && gate.telegraphSeconds > boss.telegraphSeconds);
+  assert.ok(hidden.cooldownSeconds > gate.cooldownSeconds && gate.cooldownSeconds > boss.cooldownSeconds);
+  const core = startedCore("pattern-damage-tier");
+  const hiddenEnemy = [...core.enemies.values()].find((enemy) => enemy.kind === "hidden")!;
+  const gateEnemy = [...core.enemies.values()].find((enemy) => enemy.kind === "gate")!;
+  core.day = 3;
+  assert.equal(core.startBoss(), true);
+  const bossEnemy = [...core.enemies.values()].find((enemy) => enemy.kind === "boss")!;
+  assert.ok(hiddenEnemy.damage < gateEnemy.damage && gateEnemy.damage < bossEnemy.damage);
+});
+
+test("AI yields stronger non-exclusive equipment but keeps special mythic gear", () => {
+  const base = {
+    id: "ai-drop",
+    ownerPlayerId: "ai:1",
+    zone: 1 as const,
+    hiddenRoomId: "zone-1:1,1" as const,
+    dropIndex: 0,
+    slot: "weapon" as const,
+  };
+  const legendary: PersonalHiddenDrop = { ...base, rarity: "legendary", statMultiplier: 0.8, specialOptionCount: 0 };
+  const mythic: PersonalHiddenDrop = { ...base, id: "ai-mythic", rarity: "mythic", statMultiplier: 1, specialOptionCount: 2 };
+  assert.equal(shouldAiYieldEquipment(legendary, null), true);
+  assert.equal(shouldAiYieldEquipment(mythic, null), false);
+  assert.equal(shouldAiYieldEquipment(legendary, legendary), false);
 });
 
 test("team XP creates personal deterministic drafts through milestone level 10", () => {
@@ -169,6 +226,22 @@ test("zone three gate waypoint moves the whole connected party into the boss roo
   assert.equal(core.phase, "boss");
   assert.ok([...core.players.values()].every((player) => player.roomId === BOSS_ROOM_ID));
   assert.ok([...core.enemies.values()].some((candidate) => candidate.kind === "boss" && candidate.alive));
+});
+
+test("defender AI does not block travel while follower AI travels with the player", () => {
+  const core = startedCore("ai-travel");
+  const human = core.players.get("p1")!;
+  const defender = core.addPlayer({ userId: "ai:defender", displayName: "guard", heroClass: "swordsman" });
+  const follower = core.addPlayer({ userId: "ai:follower", displayName: "support", heroClass: "archer" });
+  const gate = [...core.enemies.values()].find((candidate) => candidate.kind === "gate" && candidate.roomId.startsWith("zone-1:"))!;
+  core.movePlayerToRoom(human.userId, gate.roomId);
+  assert.equal(core.damageEnemy(human.userId, gate.id, gate.hp), true);
+  const waypoint = [...core.waypoints.values()].find((candidate) => candidate.roomId === gate.roomId)!;
+  assert.equal(core.requestTravel(human.userId, waypoint.id, waypoint.destinationId), true);
+  for (let index = 0; index < 51; index += 1) core.update(0.1);
+  assert.equal(human.roomId, core.maps.zones[1].startRoomId);
+  assert.equal(follower.roomId, core.maps.zones[1].startRoomId);
+  assert.equal(defender.roomId, core.maps.zones[0].startRoomId);
 });
 
 test("invaders ignore players and advance coarsely from their gate to the zone-one base", () => {
@@ -322,6 +395,14 @@ test("solo AI companions: defender guards base, follower is driven toward the le
   const human = core.players.get("p1")!;
   assert.equal(defender.aiRole, "defender");
   assert.equal(follower.aiRole, "follower");
+  while (core.teamLevel < 10) core.addTeamExperience(core.teamXpToNext - core.teamXp);
+  for (const ai of [defender, follower]) {
+    assert.equal(ai.level, 10);
+    assert.equal(ai.upgradeDraft, null, "AI must automatically consume every pending draft");
+    assert.equal(Object.values(ai.upgrades).reduce((sum, stacks) => sum + (stacks ?? 0), 0), 9);
+    const milestoneId = Object.keys(ai.upgrades).find((id) => id.startsWith(`${ai.heroClass}-`));
+    assert.ok(milestoneId, "AI must choose a class-compatible milestone augment");
+  }
 
   core.movePlayerToRoom(human.userId, core.maps.zones[0].gateRoomId);
   const baseCenter = roomWorldCenter({ x: 0, y: 4 });
@@ -391,5 +472,6 @@ function enemy(id: string, roomId: CoreEnemy["roomId"], x: number, y: number): C
     patternPhase: "idle",
     patternRemaining: 0,
     patternIndex: 0,
+    attackSequence: 0,
   };
 }

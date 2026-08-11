@@ -25,10 +25,9 @@ import {
   createEmptyEquipment,
   createInvaderEnemy,
   createRuntimeWorld,
-  ENEMY_PATTERN_RANGE,
-  ENEMY_PATTERN_TELEGRAPH_SECONDS,
   enemyFanPatternAngles,
   enemyFloorPatternCircles,
+  enemyPatternConfig,
   equipmentBonuses,
   equipmentPower,
   isPlayerOnWaypoint,
@@ -47,7 +46,7 @@ import {
   type CoreWaypoint,
   type TravelIntent,
 } from "./v02/simulation";
-import { bossWorldRect, roomWorldCenter } from "./v02/world";
+import { bossWorldRect, roomWorldCenter, roomWorldRect } from "./v02/world";
 
 export * from "./v02";
 
@@ -70,6 +69,7 @@ export type CorePlayer = {
   ready: boolean;
   connected: boolean;
   lastSeq: number;
+  lastButtons: number;
   inputX: number;
   inputY: number;
   equipment: CoreEquipmentLoadout;
@@ -79,6 +79,11 @@ export type CorePlayer = {
   draftIndex: number;
   autoAttackCooldown: number;
   attackCount: number;
+  qCooldown: number;
+  eCooldown: number;
+  dashCooldown: number;
+  lastAttackTargetId: string | null;
+  consecutiveHits: number;
   damage: number;
   bossDamage: number;
   kills: number;
@@ -140,8 +145,9 @@ export class GameCore {
   private invaderSpawnAccumulator = 0;
   private invaderSerial = 0;
   private hiddenDropSerial = 0;
-  private bossPatternAccumulator = 0;
   private readonly resourceAccumulators = new Map<CoreRoomId, number>();
+  private readonly vulnerableEnemies = new Map<string, { playerId: string; expiresAt: number }>();
+  private readonly markedEnemies = new Map<string, { playerId: string; expiresAt: number }>();
 
   constructor(readonly options: GameCoreOptions) {
     this.minimumPlayers = options.minimumPlayers ?? 3;
@@ -190,6 +196,7 @@ export class GameCore {
       ready: false,
       connected: true,
       lastSeq: -1,
+      lastButtons: 0,
       inputX: 0,
       inputY: 0,
       equipment: createEmptyEquipment(),
@@ -199,6 +206,11 @@ export class GameCore {
       draftIndex: 0,
       autoAttackCooldown: 0,
       attackCount: 0,
+      qCooldown: 0,
+      eCooldown: 0,
+      dashCooldown: 0,
+      lastAttackTargetId: null,
+      consecutiveHits: 0,
       damage: 0,
       bossDamage: 0,
       kills: 0,
@@ -214,6 +226,7 @@ export class GameCore {
     for (let level = 2; level <= this.teamLevel; level += 1) player.pendingUpgradeLevels.push(level);
     this.players.set(input.userId, player);
     this.activateNextDraft(player);
+    this.autoChooseAiUpgrades(player);
     this.discoverRoom(player.roomId);
     return player;
   }
@@ -250,6 +263,11 @@ export class GameCore {
     player.inputX = command.payload.x * scale;
     player.inputY = command.payload.y * scale;
     player.aim = command.payload.aim;
+    const risingButtons = command.payload.buttons & ~player.lastButtons;
+    player.lastButtons = command.payload.buttons;
+    if ((risingButtons & 1) !== 0) this.castSkill(userId, "q", player.aim);
+    if ((risingButtons & 2) !== 0) this.castSkill(userId, "e", player.aim);
+    if ((risingButtons & 4) !== 0) this.castSkill(userId, "dash", player.aim);
     return true;
   }
 
@@ -257,9 +275,13 @@ export class GameCore {
     if (this.phase === "lobby" || this.phase === "ended") return;
     const delta = Math.max(0, Math.min(0.1, deltaSeconds));
     this.elapsed += delta;
+    this.updateAiPlayers();
 
     for (const player of this.players.values()) {
       player.autoAttackCooldown = Math.max(0, player.autoAttackCooldown - delta);
+      player.qCooldown = Math.max(0, player.qCooldown - delta);
+      player.eCooldown = Math.max(0, player.eCooldown - delta);
+      player.dashCooldown = Math.max(0, player.dashCooldown - delta);
       if (!player.alive) continue;
       const rules = CLASS_COMBAT_RULES[player.heroClass];
       const transitioned = movePlayerWorld(
@@ -276,13 +298,12 @@ export class GameCore {
         if (player.connected && player.alive && player.autoAttackCooldown <= 0) this.performAutoAttack(player.userId);
       }
     }
+    this.updateStaticEnemies(delta);
     this.updatePatternEnemies(delta);
-    this.updateBossPattern(delta);
     this.updateStaticRespawns(delta);
     this.updateInvaders(delta);
     this.updateInvaderSpawning(delta);
     this.updateResourceProduction(delta);
-    this.updateAiPlayers(delta);
     this.updateTravel(delta);
     this.refreshCurrentZone();
 
@@ -307,20 +328,68 @@ export class GameCore {
     const rules = CLASS_COMBAT_RULES[player.heroClass];
     const rangeMultiplier = 1 + (player.upgrades["area-power"] ?? 0) * 0.12
       + (player.heroClass === "swordsman" ? (player.upgrades.multishot ?? 0) * 0.2 : 0);
-    const target = selectNearestConeEnemy(
-      player,
-      this.enemies.values(),
-      rules.attackRange * rangeMultiplier,
-      rules.coneHalfAngle,
-    );
+    const bladeRange = player.heroClass === "swordsman" && player.upgrades["swordsman-blade"] ? 240 : 0;
+    const range = Math.max(rules.attackRange * rangeMultiplier, bladeRange);
+    const cone = rules.coneHalfAngle * (player.heroClass === "swordsman" && player.upgrades["swordsman-whirlwind"] ? 1.45 : 1);
+    const targets = this.enemiesInAttackCone(player, range, cone);
+    const target = targets[0];
     if (!target) return null;
 
     player.attackCount += 1;
+    if (player.lastAttackTargetId === target.id) player.consecutiveHits += 1;
+    else {
+      player.lastAttackTargetId = target.id;
+      player.consecutiveHits = 1;
+    }
     const haste = (player.upgrades.haste ?? 0) * 0.12;
     const equipmentHaste = equipmentBonuses(player.equipment).attackSpeedBonus / 100;
     player.autoAttackCooldown = Math.max(0.12, rules.attackInterval / (1 + haste + equipmentHaste));
-    this.damageEnemy(userId, target.id, this.calculateAttackDamage(player, target));
+    let additionalTargets = player.heroClass === "swordsman" ? 0 : (player.upgrades.multishot ?? 0);
+    if (player.heroClass === "archer") {
+      additionalTargets += (player.upgrades["archer-volley"] ?? 0) + (player.upgrades["archer-piercing"] ?? 0) * 2 + (player.upgrades["archer-ricochet"] ?? 0);
+    } else if (player.heroClass === "mage") additionalTargets += player.upgrades["mage-chain"] ?? 0;
+    for (const [index, candidate] of targets.slice(0, 1 + additionalTargets).entries()) {
+      const secondaryMultiplier = index === 0 ? 1 : player.heroClass === "mage" ? 0.6 : 0.65;
+      this.damageEnemy(userId, candidate.id, this.calculateAttackDamage(player, candidate) * secondaryMultiplier);
+    }
     return target;
+  }
+
+  castSkill(userId: string, skillId: "q" | "e" | "dash", aim: number): boolean {
+    const player = this.players.get(userId);
+    if (!player || !player.alive || this.phase === "lobby" || this.phase === "ended") return false;
+    player.aim = aim;
+    if (skillId === "dash") {
+      if (player.dashCooldown > 0) return false;
+      player.dashCooldown = 5;
+      movePlayerWorld(player, Math.cos(aim) * 145, Math.sin(aim) * 145, this.rooms);
+      return true;
+    }
+    const cooldownKey = skillId === "q" ? "qCooldown" : "eCooldown";
+    if (player[cooldownKey] > 0) return false;
+    const cooldownReduction = Math.min(0.6, (player.upgrades["skill-haste"] ?? 0) * 0.06
+      + (player.heroClass === "mage" && player.upgrades["mage-tempo"] ? 0.25 : 0));
+    player[cooldownKey] = (skillId === "q" ? 5 : 7) * (1 - cooldownReduction);
+    const skillPower = 1 + (player.upgrades["skill-power"] ?? 0) * 0.22;
+    const areaMultiplier = 1 + (player.upgrades["area-power"] ?? 0) * 0.12
+      + (player.heroClass === "mage" && player.upgrades["mage-nova"] ? 0.55 : 0);
+    const range = 260 * areaMultiplier;
+    const targets = this.enemiesInAttackCone(player, range, Math.PI * 0.72);
+    const baseDamage = (CLASS_COMBAT_RULES[player.heroClass].attackDamage + equipmentBonuses(player.equipment).attackBonus + augmentAttackBonus(player.upgrades))
+      * (skillId === "q" ? 2.1 : 1.65) * skillPower;
+    for (const target of targets) {
+      this.damageEnemy(userId, target.id, baseDamage);
+      if (player.heroClass === "swordsman" && player.upgrades["swordsman-rupture"]) {
+        this.vulnerableEnemies.set(target.id, { playerId: userId, expiresAt: this.elapsed + 3 });
+      }
+      if (player.heroClass === "archer" && player.upgrades["archer-mark"]) {
+        this.markedEnemies.set(target.id, { playerId: userId, expiresAt: this.elapsed + 5 });
+      }
+      if (player.heroClass === "mage" && player.upgrades["mage-echo"] && target.alive) {
+        this.damageEnemy(userId, target.id, baseDamage * 0.55);
+      }
+    }
+    return true;
   }
 
   damageEnemy(userId: string, enemyId: string, rawDamage?: number): boolean {
@@ -348,6 +417,7 @@ export class GameCore {
       player.level = this.teamLevel;
       for (const level of result.gainedLevels) player.pendingUpgradeLevels.push(level);
       this.activateNextDraft(player);
+      this.autoChooseAiUpgrades(player);
       this.recalculateTeamPower(player);
     }
     return result.gainedLevels;
@@ -499,6 +569,12 @@ export class GameCore {
   private calculateAttackDamage(player: CorePlayer, enemy: CoreEnemy): number {
     const rules = CLASS_COMBAT_RULES[player.heroClass];
     let damage = rules.attackDamage + equipmentBonuses(player.equipment).attackBonus + augmentAttackBonus(player.upgrades);
+    const criticalChance = (player.upgrades.precision ?? 0) * 0.06;
+    if (deterministicCombatRoll(this.options.seed, player.userId, player.attackCount) < criticalChance) {
+      damage *= 1.5 + (player.upgrades.ferocity ?? 0) * 0.2;
+    }
+    const momentumStacks = player.upgrades.momentum ?? 0;
+    if (momentumStacks > 0) damage *= 1 + Math.min(0.2 * momentumStacks, player.consecutiveHits * 0.04 * momentumStacks);
     if (["hidden", "gate", "boss"].includes(enemy.kind)) damage *= 1 + (player.upgrades["boss-hunter"] ?? 0) * 0.12;
     if (player.heroClass === "swordsman" && player.upgrades["swordsman-execution"] && enemy.hp / enemy.maxHp <= 0.3) {
       damage *= 1.6;
@@ -507,7 +583,27 @@ export class GameCore {
       const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
       damage *= 1 + Math.min(0.55, Math.max(0, (distance - 180) / 280) * 0.55);
     }
+    if (player.heroClass === "swordsman" && player.upgrades["swordsman-combo"] && player.attackCount % 3 === 0) damage *= 2;
+    if (player.heroClass === "mage" && player.upgrades["mage-overcharge"] && player.attackCount % 4 === 0) damage *= 2.2;
+    if (this.vulnerableEnemies.get(enemy.id)?.playerId === player.userId && (this.vulnerableEnemies.get(enemy.id)?.expiresAt ?? 0) > this.elapsed) damage *= 1.15;
+    if (this.markedEnemies.get(enemy.id)?.playerId === player.userId && (this.markedEnemies.get(enemy.id)?.expiresAt ?? 0) > this.elapsed) damage *= 1.25;
     return Math.max(1, Math.round(damage));
+  }
+
+  private enemiesInAttackCone(player: CorePlayer, range: number, coneHalfAngle: number): CoreEnemy[] {
+    return [...this.enemies.values()]
+      .filter((enemy) => enemy.alive && enemy.roomId === player.roomId)
+      .map((enemy) => ({
+        enemy,
+        distance: Math.hypot(enemy.x - player.x, enemy.y - player.y),
+        angularError: Math.abs(Math.atan2(
+          Math.sin(Math.atan2(enemy.y - player.y, enemy.x - player.x) - player.aim),
+          Math.cos(Math.atan2(enemy.y - player.y, enemy.x - player.x) - player.aim),
+        )),
+      }))
+      .filter(({ distance, angularError }) => distance <= range && angularError <= coneHalfAngle)
+      .sort((left, right) => left.distance - right.distance || left.enemy.id.localeCompare(right.enemy.id))
+      .map(({ enemy }) => enemy);
   }
 
   private killEnemy(killer: CorePlayer, enemy: CoreEnemy): void {
@@ -554,20 +650,25 @@ export class GameCore {
     for (const item of drops) {
       const player = this.players.get(item.ownerPlayerId);
       if (!player) continue;
+      if (player.aiRole && item.specialOptionCount === 0) {
+        const recipient = [...this.players.values()]
+          .filter((candidate) => !candidate.aiRole && candidate.alive)
+          .sort((left, right) => equipmentPower(left.equipment[item.slot]) - equipmentPower(right.equipment[item.slot]))[0];
+        if (recipient && shouldAiYieldEquipment(item, recipient.equipment[item.slot])) {
+          this.placeDrop({ ...item, id: `${item.id}:gift:${recipient.userId}`, ownerPlayerId: recipient.userId }, roomId);
+          continue;
+        }
+      }
       const current = player.equipment[item.slot];
       if (equipmentPower(item) > equipmentPower(current)) this.equipItem(player, item);
-      else {
-        const room = this.rooms.get(roomId);
-        const center = room ? roomWorldCenter({ x: room.gridX, y: room.gridY }) : { x: ROOM_WIDTH / 2, y: ROOM_HEIGHT / 2 };
-        this.drops.set(item.id, {
-          ...item,
-          roomId,
-          x: center.x,
-          y: center.y,
-          claimed: false,
-        });
-      }
+      else this.placeDrop(item, roomId);
     }
+  }
+
+  private placeDrop(item: PersonalHiddenDrop, roomId: RoomId): void {
+    const room = this.rooms.get(roomId);
+    const center = room ? roomWorldCenter({ x: room.gridX, y: room.gridY }) : { x: ROOM_WIDTH / 2, y: ROOM_HEIGHT / 2 };
+    this.drops.set(item.id, { ...item, roomId, x: center.x, y: center.y, claimed: false });
   }
 
   private equipItem(player: CorePlayer, item: PersonalHiddenDrop): void {
@@ -609,6 +710,21 @@ export class GameCore {
     };
   }
 
+  private autoChooseAiUpgrades(player: CorePlayer): void {
+    if (!player.aiRole) return;
+    while (player.upgradeDraft) {
+      const choice = [...player.upgradeDraft.choices].sort((left, right) => (
+        aiAugmentScore(player.heroClass, right.id) - aiAugmentScore(player.heroClass, left.id)
+        || left.id.localeCompare(right.id)
+      ))[0];
+      if (!choice) break;
+      player.upgrades = addAugmentStack(player.upgrades, choice.id as AugmentId);
+      player.upgradeDraft = null;
+      this.activateNextDraft(player);
+    }
+    this.recalculateTeamPower(player);
+  }
+
   private discoverRoom(roomId: CoreRoomId): void {
     const room = this.rooms.get(roomId);
     if (!room) return;
@@ -640,7 +756,7 @@ export class GameCore {
   }
 
   private travelEligiblePlayers(): CorePlayer[] {
-    return [...this.players.values()].filter((player) => player.connected && player.alive);
+    return [...this.players.values()].filter((player) => player.connected && player.alive && !player.aiRole);
   }
 
   private updateTravel(delta: number): void {
@@ -658,7 +774,8 @@ export class GameCore {
     waypoint.holdingPlayers = holding.length;
     waypoint.holdProgress = Math.min(1, intent.elapsed / WAYPOINT_HOLD_SECONDS);
     if (intent.elapsed + SIMULATION_EPSILON >= WAYPOINT_HOLD_SECONDS) {
-      this.completeTravel(intent.destinationId, eligible);
+      const followers = [...this.players.values()].filter((player) => player.alive && player.aiRole === "follower");
+      this.completeTravel(intent.destinationId, [...eligible, ...followers]);
     }
   }
 
@@ -713,9 +830,34 @@ export class GameCore {
     }
   }
 
+  private updateStaticEnemies(delta: number): void {
+    for (const enemy of this.enemies.values()) {
+      if (!enemy.alive || enemy.kind !== "static") continue;
+      enemy.attackCooldown = Math.max(0, enemy.attackCooldown - delta);
+      const target = this.nearestPlayerInRoom(enemy.roomId, enemy.x, enemy.y, 560);
+      if (!target) {
+        enemy.aggroed = false;
+        enemy.targetId = null;
+        this.moveEnemyToward(enemy, enemy.spawnX, enemy.spawnY, delta);
+        continue;
+      }
+      enemy.aggroed = true;
+      enemy.targetId = target.userId;
+      const distance = Math.hypot(target.x - enemy.x, target.y - enemy.y);
+      if (distance > enemy.attackRange) this.moveEnemyToward(enemy, target.x, target.y, delta);
+      else if (enemy.attackCooldown <= 0) {
+        enemy.attackSequence += 1;
+        enemy.attackCooldown = 0.9;
+        this.damagePlayer(target, enemy.damage);
+      }
+    }
+  }
+
   private updatePatternEnemies(delta: number): void {
     for (const enemy of this.enemies.values()) {
-      if (!enemy.alive || !["static", "hidden", "gate"].includes(enemy.kind)) continue;
+      if (!enemy.alive || !["hidden", "gate", "boss"].includes(enemy.kind)) continue;
+      const tier = enemy.kind === "boss" ? "boss" : enemy.kind === "hidden" ? "hidden" : "gate";
+      const config = enemyPatternConfig(tier);
       enemy.attackCooldown = Math.max(0, enemy.attackCooldown - delta);
       const target = this.nearestPlayerInRoom(enemy.roomId, enemy.x, enemy.y, Number.POSITIVE_INFINITY);
       if (!target) {
@@ -730,7 +872,7 @@ export class GameCore {
         if (enemy.attackCooldown > 0) continue;
         enemy.patternKind = enemy.patternIndex % 2 === 0 ? "fan" : "floor";
         enemy.patternPhase = "telegraph";
-        enemy.patternRemaining = ENEMY_PATTERN_TELEGRAPH_SECONDS;
+        enemy.patternRemaining = config.telegraphSeconds;
         continue;
       }
       enemy.patternRemaining = Math.max(0, enemy.patternRemaining - delta);
@@ -738,25 +880,27 @@ export class GameCore {
       this.resolveEnemyPattern(enemy);
       enemy.patternPhase = "idle";
       enemy.patternIndex += 1;
-      enemy.attackCooldown = enemy.kind === "static" ? 1.35 : enemy.kind === "hidden" ? 1.05 : 0.9;
+      enemy.attackCooldown = config.cooldownSeconds;
     }
   }
 
   private resolveEnemyPattern(enemy: CoreEnemy): void {
+    const tier = enemy.kind === "boss" ? "boss" : enemy.kind === "hidden" ? "hidden" : "gate";
+    const config = enemyPatternConfig(tier);
     for (const player of this.players.values()) {
       if (!player.alive || player.roomId !== enemy.roomId) continue;
       let hit = false;
       if (enemy.patternKind === "floor") {
-        hit = enemyFloorPatternCircles(enemy.x, enemy.y, enemy.patternIndex)
+        hit = enemyFloorPatternCircles(enemy.x, enemy.y, enemy.patternIndex, tier)
           .some((circle) => Math.hypot(player.x - circle.x, player.y - circle.y) <= circle.radius);
       } else {
         const dx = player.x - enemy.x;
         const dy = player.y - enemy.y;
         const distance = Math.hypot(dx, dy);
-        hit = distance <= ENEMY_PATTERN_RANGE && enemyFanPatternAngles(enemy.patternIndex).some((angle) => {
+        hit = distance <= config.range && enemyFanPatternAngles(enemy.patternIndex, tier).some((angle) => {
           const forward = dx * Math.cos(angle) + dy * Math.sin(angle);
           const perpendicular = Math.abs(-dx * Math.sin(angle) + dy * Math.cos(angle));
-          return forward >= 0 && forward <= ENEMY_PATTERN_RANGE && perpendicular <= 18;
+          return forward >= 0 && forward <= config.range && perpendicular <= 18;
         });
       }
       if (hit) this.damagePlayer(player, enemy.damage);
@@ -781,6 +925,7 @@ export class GameCore {
       enemy.patternPhase = "idle";
       enemy.patternRemaining = 0;
       enemy.patternIndex = 0;
+      enemy.attackSequence = 0;
       enemy.respawnRemaining = null;
       const room = this.rooms.get(enemy.spawnRoomId);
       if (room) room.cleared = false;
@@ -844,19 +989,6 @@ export class GameCore {
     for (let index = 0; index < count; index += 1) this.spawnInvader(this.currentZone);
   }
 
-  private updateBossPattern(delta: number): void {
-    if (this.phase !== "boss") return;
-    const boss = [...this.enemies.values()].find((enemy) => enemy.behavior === "boss" && enemy.alive);
-    if (!boss) return;
-    const enraged = boss.hp / boss.maxHp <= 0.3;
-    const interval = enraged ? 2.4 : 3.4;
-    this.bossPatternAccumulator += delta;
-    if (this.bossPatternAccumulator < interval) return;
-    this.bossPatternAccumulator = 0;
-    const targets = [...this.players.values()].filter((player) => player.alive && player.roomId === boss.roomId);
-    for (const target of targets) this.damagePlayer(target, Math.max(1, Math.round(boss.damage * 0.75)));
-  }
-
   private nearestPlayerInRoom(roomId: CoreRoomId, x: number, y: number, range: number): CorePlayer | null {
     let best: CorePlayer | null = null;
     let bestDistance = range;
@@ -888,7 +1020,7 @@ export class GameCore {
    * enemies in their room. Drives input + aim so the shared movement/attack
    * pipeline moves them normally.
    */
-  private updateAiPlayers(delta: number): void {
+  private updateAiPlayers(): void {
     for (const player of this.players.values()) {
       if (!player.aiRole || !player.alive) {
         if (player.aiRole) { player.inputX = 0; player.inputY = 0; }
@@ -900,14 +1032,56 @@ export class GameCore {
         ? this.rooms.get(this.maps.zones[0].startRoomId)
         : leader ? this.rooms.get(leader.roomId) : null;
       if (!targetRoom) { player.inputX = 0; player.inputY = 0; continue; }
-      const anchor = this.roomWorldCenterOf(targetRoom.id);
-      this.aiApproach(player, anchor.x, anchor.y, player.aiRole === "follower" ? 70 : 40);
+      if (player.roomId === targetRoom.id) {
+        const anchor = player.aiRole === "follower" && leader
+          ? { x: leader.x, y: leader.y }
+          : this.roomWorldCenterOf(targetRoom.id);
+        this.aiApproach(player, anchor.x, anchor.y, player.aiRole === "follower" ? 76 : 40);
+      } else {
+        const nextRoom = this.nextRoomToward(player.roomId, targetRoom.id);
+        const anchor = nextRoom ? this.roomWorldCenterOf(nextRoom) : this.roomWorldCenterOf(targetRoom.id);
+        this.aiApproach(player, anchor.x, anchor.y, 12);
+      }
       const enemy = this.nearestPlayerInRoomEnemy(player);
       if (enemy && (this.phase === "day" || this.phase === "night" || this.phase === "boss")) {
         player.aim = Math.atan2(enemy.y - player.y, enemy.x - player.x);
         this.performAutoAttack(player.userId);
       }
     }
+  }
+
+  private moveEnemyToward(enemy: CoreEnemy, x: number, y: number, delta: number): void {
+    const dx = x - enemy.x;
+    const dy = y - enemy.y;
+    const distance = Math.hypot(dx, dy);
+    if (distance <= 0) return;
+    const step = Math.min(distance, enemy.speed * delta);
+    const room = this.rooms.get(enemy.spawnRoomId);
+    const bounds = room ? roomWorldRect({ x: room.gridX, y: room.gridY }) : null;
+    const nextX = enemy.x + dx / distance * step;
+    const nextY = enemy.y + dy / distance * step;
+    enemy.x = bounds ? clamp(nextX, bounds.x, bounds.x + bounds.width) : nextX;
+    enemy.y = bounds ? clamp(nextY, bounds.y, bounds.y + bounds.height) : nextY;
+  }
+
+  private nextRoomToward(from: CoreRoomId, destination: CoreRoomId): CoreRoomId | null {
+    if (from === destination) return destination;
+    const queue: CoreRoomId[] = [from];
+    const previous = new Map<CoreRoomId, CoreRoomId | null>([[from, null]]);
+    while (queue.length > 0) {
+      const current = queue.shift() as CoreRoomId;
+      for (const connection of this.rooms.get(current)?.connections ?? []) {
+        if (previous.has(connection)) continue;
+        previous.set(connection, current);
+        if (connection === destination) {
+          let cursor: CoreRoomId = destination;
+          while (previous.get(cursor) && previous.get(cursor) !== from) cursor = previous.get(cursor) as CoreRoomId;
+          return cursor;
+        }
+        queue.push(connection);
+      }
+    }
+    return null;
   }
 
   private aiLeader(ai: CorePlayer): CorePlayer | null {
@@ -956,6 +1130,27 @@ export class GameCore {
     }
     this.currentZone = zone;
   }
+}
+
+function aiAugmentScore(heroClass: HeroClassId, id: string): number {
+  const classPriority: Record<HeroClassId, readonly string[]> = {
+    swordsman: ["swordsman-execution", "swordsman-combo", "swordsman-whirlwind", "swordsman-blade", "power", "area-power", "haste", "multishot"],
+    archer: ["archer-volley", "archer-piercing", "archer-ricochet", "archer-sniper", "multishot", "precision", "haste", "power"],
+    mage: ["mage-overcharge", "mage-chain", "mage-nova", "mage-echo", "skill-power", "area-power", "haste", "power"],
+  };
+  const index = classPriority[heroClass].indexOf(id);
+  return index < 0 ? 10 : 100 - index;
+}
+
+export function shouldAiYieldEquipment(item: PersonalHiddenDrop, humanEquipment: PersonalHiddenDrop | null): boolean {
+  return item.specialOptionCount === 0 && equipmentPower(item) > equipmentPower(humanEquipment);
+}
+
+function deterministicCombatRoll(seed: string | number, playerId: string, attackCount: number): number {
+  const value = `${seed}:${playerId}:${attackCount}`;
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) hash = Math.imul(hash ^ value.charCodeAt(index), 16777619);
+  return (hash >>> 0) / 0x1_0000_0000;
 }
 
 function clamp(value: number, min: number, max: number): number {

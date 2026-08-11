@@ -91,6 +91,7 @@ export type CoreEnemy = {
   patternPhase: EnemyPatternPhase;
   patternRemaining: number;
   patternIndex: number;
+  attackSequence: number;
 };
 
 export type CoreWaypoint = {
@@ -218,7 +219,7 @@ const ENEMY_RULES: Readonly<Record<Exclude<CoreEnemyKind, "invader" | "boss">, {
 }>> = {
   static: { hp: 34, damage: 7, speed: 72, attackRange: 38, xp: 18, gold: 5 },
   hidden: { hp: 110, damage: 14, speed: 82, attackRange: 155, xp: 54, gold: 18 },
-  gate: { hp: 190, damage: 11, speed: 55, attackRange: 250, xp: 75, gold: 24 },
+  gate: { hp: 190, damage: 18, speed: 55, attackRange: 250, xp: 75, gold: 24 },
 };
 
 export function createRuntimeWorld(
@@ -300,7 +301,7 @@ export function createBossEnemy(seed: string | number, difficulty: "easy" | "nor
     spawnY: y,
     hp,
     maxHp: hp,
-    damage: Math.round(18 * multiplier.damage),
+    damage: Math.round(26 * multiplier.damage),
     speed: 0,
     attackRange: 0,
     attackCooldown: 0,
@@ -318,6 +319,7 @@ export function createBossEnemy(seed: string | number, difficulty: "easy" | "nor
     patternPhase: "idle",
     patternRemaining: 0,
     patternIndex: 0,
+    attackSequence: 0,
   };
 }
 
@@ -363,6 +365,7 @@ export function createInvaderEnemy(
     patternPhase: "idle",
     patternRemaining: 0,
     patternIndex: 0,
+    attackSequence: 0,
   };
 }
 
@@ -605,23 +608,38 @@ function createSeededRoomEnemy(
     patternPhase: "idle",
     patternRemaining: 0,
     patternIndex: 0,
+    attackSequence: 0,
   };
 }
 
-export const ENEMY_PATTERN_RANGE = 520;
-export const ENEMY_PATTERN_TELEGRAPH_SECONDS = 0.85;
+export type EnemyPatternTier = "hidden" | "gate" | "boss";
 
-export function enemyFanPatternAngles(patternIndex: number): readonly number[] {
-  const rotation = patternIndex * Math.PI / 24;
-  return Array.from({ length: 12 }, (_, index) => rotation + index * Math.PI / 6);
+export function enemyPatternConfig(tier: EnemyPatternTier): Readonly<{
+  rayCount: number;
+  range: number;
+  floorCount: number;
+  floorRadius: number;
+  telegraphSeconds: number;
+  cooldownSeconds: number;
+}> {
+  if (tier === "hidden") return { rayCount: 8, range: 420, floorCount: 5, floorRadius: 54, telegraphSeconds: 1.05, cooldownSeconds: 1.55 };
+  if (tier === "boss") return { rayCount: 16, range: 660, floorCount: 10, floorRadius: 74, telegraphSeconds: 0.65, cooldownSeconds: 0.65 };
+  return { rayCount: 12, range: 520, floorCount: 7, floorRadius: 64, telegraphSeconds: 0.85, cooldownSeconds: 1 };
 }
 
-export function enemyFloorPatternCircles(x: number, y: number, patternIndex: number): readonly { x: number; y: number; radius: number }[] {
-  const rotation = patternIndex * Math.PI / 7;
-  return Array.from({ length: 7 }, (_, index) => {
-    const angle = rotation + index * Math.PI * 2 / 7;
+export function enemyFanPatternAngles(patternIndex: number, tier: EnemyPatternTier = "gate"): readonly number[] {
+  const config = enemyPatternConfig(tier);
+  const rotation = patternIndex * Math.PI / (config.rayCount * 2);
+  return Array.from({ length: config.rayCount }, (_, index) => rotation + index * Math.PI * 2 / config.rayCount);
+}
+
+export function enemyFloorPatternCircles(x: number, y: number, patternIndex: number, tier: EnemyPatternTier = "gate"): readonly { x: number; y: number; radius: number }[] {
+  const config = enemyPatternConfig(tier);
+  const rotation = patternIndex * Math.PI / config.floorCount;
+  return Array.from({ length: config.floorCount }, (_, index) => {
+    const angle = rotation + index * Math.PI * 2 / config.floorCount;
     const distance = index % 2 === 0 ? 155 : 265;
-    return { x: x + Math.cos(angle) * distance, y: y + Math.sin(angle) * distance, radius: 64 };
+    return { x: x + Math.cos(angle) * distance, y: y + Math.sin(angle) * distance, radius: config.floorRadius };
   });
 }
 

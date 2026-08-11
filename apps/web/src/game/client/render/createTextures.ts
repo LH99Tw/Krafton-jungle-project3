@@ -11,39 +11,39 @@ export function createGameTextures(scene: Phaser.Scene): void {
   const specs: TextureSpec[] = [
     {
       key: "hero-swordsman",
-      width: 28,
-      height: 32,
+      width: 36,
+      height: 36,
       draw: (g) => {
-        g.fillStyle(0x3b2d34).fillRect(7, 4, 14, 9);
-        g.fillStyle(0xf2c35c).fillRect(5, 13, 18, 15);
-        g.fillStyle(0xfff1b2).fillRect(10, 7, 8, 7);
-        g.fillStyle(0xeaf2ff).fillRect(22, 7, 3, 21);
-        g.fillStyle(0x5f7ea7).fillRect(3, 28, 8, 4).fillRect(17, 28, 8, 4);
+        g.fillStyle(0x2b3442).fillCircle(17, 18, 14);
+        g.lineStyle(3, 0xf2c35c).strokeCircle(17, 18, 13);
+        g.fillStyle(0xf2c35c).fillTriangle(32, 18, 20, 11, 20, 25);
+        g.fillStyle(0xeaf2ff).fillRect(17, 2, 4, 20);
+        g.fillStyle(0x6f89a8).fillCircle(13, 20, 6);
       },
     },
     {
       key: "hero-archer",
-      width: 28,
-      height: 32,
+      width: 36,
+      height: 36,
       draw: (g) => {
-        g.fillStyle(0x3a4734).fillRect(7, 3, 14, 10);
-        g.fillStyle(0x8fd99d).fillRect(5, 13, 18, 15);
-        g.fillStyle(0xd9ffe2).fillRect(10, 7, 8, 7);
-        g.lineStyle(2, 0xc69b6d).strokeEllipse(23, 16, 8, 24);
-        g.fillStyle(0x4f6957).fillRect(3, 28, 8, 4).fillRect(17, 28, 8, 4);
+        g.fillStyle(0x273d31).fillCircle(17, 18, 14);
+        g.lineStyle(3, 0x8fd99d).strokeCircle(17, 18, 13);
+        g.fillStyle(0x8fd99d).fillTriangle(32, 18, 20, 11, 20, 25);
+        g.lineStyle(2, 0xd7ad75).lineBetween(19, 6, 27, 18).lineBetween(27, 18, 19, 30);
+        g.lineStyle(1, 0xffefc2).lineBetween(19, 6, 19, 30);
       },
     },
     {
       key: "hero-mage",
-      width: 28,
-      height: 32,
+      width: 36,
+      height: 36,
       draw: (g) => {
-        g.fillStyle(0x4d315f).fillTriangle(4, 9, 24, 9, 14, 0);
-        g.fillStyle(0xc69bff).fillRect(5, 13, 18, 15);
-        g.fillStyle(0xf0ddff).fillRect(10, 7, 8, 7);
-        g.fillStyle(0x8a62b8).fillRect(24, 6, 2, 25);
-        g.fillStyle(0xe9d5ff).fillCircle(25, 5, 4);
-        g.fillStyle(0x654477).fillRect(3, 28, 8, 4).fillRect(17, 28, 8, 4);
+        g.fillStyle(0x372449).fillCircle(17, 18, 14);
+        g.lineStyle(3, 0xc69bff).strokeCircle(17, 18, 13);
+        g.fillStyle(0xc69bff).fillTriangle(32, 18, 20, 11, 20, 25);
+        g.lineStyle(3, 0x8a62b8).lineBetween(14, 5, 14, 30);
+        g.fillStyle(0xe9d5ff).fillCircle(14, 5, 4);
+        g.fillStyle(0x724b91).fillCircle(17, 19, 6);
       },
     },
     {

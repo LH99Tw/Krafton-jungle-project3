@@ -396,7 +396,8 @@ export class PartyRoom extends Room<PartyRoomState> {
       return;
     }
     if (command.type === "skill.cast") {
-      this.reject(client, "SKILL_NOT_READY");
+      const aim = Math.atan2(command.payload.targetY - 360, command.payload.targetX - 640);
+      if (!this.core.castSkill(userId, command.payload.skillId, aim)) this.reject(client, "SKILL_NOT_READY");
       return;
     }
     if (command.type === "build.place" || command.type === "build.upgrade") {
@@ -610,6 +611,7 @@ export class PartyRoom extends Room<PartyRoomState> {
         patternPhase: enemy.patternPhase,
         patternRemaining: enemy.patternRemaining,
         patternIndex: enemy.patternIndex,
+        attackSequence: enemy.attackSequence,
       });
       if (isNew || keyframeDue || roomChanged) {
         state.x = enemy.x;

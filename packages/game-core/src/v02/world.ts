@@ -103,15 +103,26 @@ export function resolveWalkablePoint(
   let resolvedX = previousX;
   let resolvedY = previousY;
   for (let step = 0; step < steps; step += 1) {
-    const candidates = [
-      { x: resolvedX + stepX, y: resolvedY + stepY },
-      { x: resolvedX + stepX, y: resolvedY },
-      { x: resolvedX, y: resolvedY + stepY },
-    ];
-    const candidate = candidates.find((point) => isWalkablePoint(rects, point.x, point.y));
-    if (!candidate) break;
-    resolvedX = candidate.x;
-    resolvedY = candidate.y;
+    const diagonalX = resolvedX + stepX;
+    const diagonalY = resolvedY + stepY;
+    if (isWalkablePoint(rects, diagonalX, diagonalY)) {
+      resolvedX = diagonalX;
+      resolvedY = diagonalY;
+      continue;
+    }
+    // Resolve both axes in the same sub-step. The previous implementation
+    // accepted only one candidate, dropping half of diagonal input at door
+    // edges and causing visible hesitation/correction while entering corridors.
+    let moved = false;
+    if (isWalkablePoint(rects, diagonalX, resolvedY)) {
+      resolvedX = diagonalX;
+      moved = true;
+    }
+    if (isWalkablePoint(rects, resolvedX, diagonalY)) {
+      resolvedY = diagonalY;
+      moved = true;
+    }
+    if (!moved) break;
   }
   return { x: resolvedX, y: resolvedY };
 }
