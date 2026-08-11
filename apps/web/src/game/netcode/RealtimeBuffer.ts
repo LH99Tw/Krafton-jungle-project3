@@ -14,7 +14,6 @@ type TimedTransform = TransformSample & { serverTime: number };
 
 export function shouldRenderPartyMember(
   member: { connected: boolean; x: number; y: number },
-  _viewer: { x: number; y: number },
 ): boolean {
   return member.connected;
 }

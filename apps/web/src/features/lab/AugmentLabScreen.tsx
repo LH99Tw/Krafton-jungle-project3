@@ -119,12 +119,13 @@ export function AugmentLabScreen({ onBack }: { onBack: () => void }) {
   const [popups, setPopups] = useState<DamagePopup[]>([]);
   const [logs, setLogs] = useState<CombatLogEntry[]>([]);
 
-  useEffect(() => {
-    setTargetHp(TARGET_CONFIGS[targetTier].maxHp);
+  const selectTargetTier = (tier: TargetTier) => {
+    setTargetTier(tier);
+    setTargetHp(TARGET_CONFIGS[tier].maxHp);
     setIsDead(false);
     setConsecutiveHits(0);
     setKillTime(null);
-  }, [targetTier]);
+  };
 
   useEffect(() => {
     if (!startTime || isDead) return;
@@ -307,7 +308,7 @@ export function AugmentLabScreen({ onBack }: { onBack: () => void }) {
           <div className="tuner-group">
             <h3>공용 기본 증강</h3>
 
-            <label className="stat-slider">
+            <label className="stat-slider" aria-label="Attack power">
               <div>
                 <span>⚔️ 공격력 (Power)</span>
                 <strong>+{stats.attackPowerPercent}%</strong>
@@ -315,7 +316,7 @@ export function AugmentLabScreen({ onBack }: { onBack: () => void }) {
               <input type="range" min="0" max="200" step="5" value={stats.attackPowerPercent} onChange={(e) => setStats({ ...stats, attackPowerPercent: Number(e.target.value) })} />
             </label>
 
-            <label className="stat-slider">
+            <label className="stat-slider" aria-label="Attack speed">
               <div>
                 <span>⚡ 공격 속도 (Haste)</span>
                 <strong>+{stats.attackSpeedPercent}%</strong>
@@ -323,7 +324,7 @@ export function AugmentLabScreen({ onBack }: { onBack: () => void }) {
               <input type="range" min="0" max="200" step="5" value={stats.attackSpeedPercent} onChange={(e) => setStats({ ...stats, attackSpeedPercent: Number(e.target.value) })} />
             </label>
 
-            <label className="stat-slider">
+            <label className="stat-slider" aria-label="Critical hit chance">
               <div>
                 <span>🎯 치명타 확률 (Crit Rate)</span>
                 <strong>{stats.critChancePercent}%</strong>
@@ -331,7 +332,7 @@ export function AugmentLabScreen({ onBack }: { onBack: () => void }) {
               <input type="range" min="0" max="100" step="5" value={stats.critChancePercent} onChange={(e) => setStats({ ...stats, critChancePercent: Number(e.target.value) })} />
             </label>
 
-            <label className="stat-slider">
+            <label className="stat-slider" aria-label="Critical hit damage">
               <div>
                 <span>💥 치명타 피해 (Crit Dmg)</span>
                 <strong>{stats.critDamagePercent}%</strong>
@@ -339,7 +340,7 @@ export function AugmentLabScreen({ onBack }: { onBack: () => void }) {
               <input type="range" min="150" max="500" step="10" value={stats.critDamagePercent} onChange={(e) => setStats({ ...stats, critDamagePercent: Number(e.target.value) })} />
             </label>
 
-            <label className="stat-slider">
+            <label className="stat-slider" aria-label="Skill haste">
               <div>
                 <span>⏱️ 스킬 쿨타임 감소 (Skill Haste)</span>
                 <strong>-{stats.skillHastePercent}%</strong>
@@ -347,7 +348,7 @@ export function AugmentLabScreen({ onBack }: { onBack: () => void }) {
               <input type="range" min="0" max="80" step="5" value={stats.skillHastePercent} onChange={(e) => setStats({ ...stats, skillHastePercent: Number(e.target.value) })} />
             </label>
 
-            <label className="stat-slider">
+            <label className="stat-slider" aria-label="Skill power">
               <div>
                 <span>✨ 스킬 위력 (Skill Power)</span>
                 <strong>+{stats.skillPowerPercent}%</strong>
@@ -355,7 +356,7 @@ export function AugmentLabScreen({ onBack }: { onBack: () => void }) {
               <input type="range" min="0" max="200" step="5" value={stats.skillPowerPercent} onChange={(e) => setStats({ ...stats, skillPowerPercent: Number(e.target.value) })} />
             </label>
 
-            <label className="stat-slider highlight-slider">
+            <label className="stat-slider highlight-slider" aria-label="Boss damage">
               <div>
                 <span>👑 거물/보스 추가 피해 (Boss Slayer)</span>
                 <strong>+{stats.bossDamagePercent}%</strong>
@@ -363,7 +364,7 @@ export function AugmentLabScreen({ onBack }: { onBack: () => void }) {
               <input type="range" min="0" max="200" step="5" value={stats.bossDamagePercent} onChange={(e) => setStats({ ...stats, bossDamagePercent: Number(e.target.value) })} />
             </label>
 
-            <label className="stat-slider">
+            <label className="stat-slider" aria-label="Consecutive hit bonus">
               <div>
                 <span>🔥 연속 타격 피해 (Momentum)</span>
                 <strong>+{stats.consecutiveHitBonusPercent}% /hit</strong>
@@ -393,7 +394,7 @@ export function AugmentLabScreen({ onBack }: { onBack: () => void }) {
           <div className="target-selector">
             <span>테스트 타겟 단계:</span>
             {(["mob", "elite", "boss"] as const).map((tier) => (
-              <button key={tier} type="button" className={`target-tab ${targetTier === tier ? "active" : ""}`} onClick={() => setTargetTier(tier)}>
+              <button key={tier} type="button" className={`target-tab ${targetTier === tier ? "active" : ""}`} onClick={() => selectTargetTier(tier)}>
                 {TARGET_CONFIGS[tier].icon} {TARGET_CONFIGS[tier].name}
               </button>
             ))}

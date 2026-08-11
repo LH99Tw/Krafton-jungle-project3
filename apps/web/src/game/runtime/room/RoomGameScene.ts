@@ -380,7 +380,7 @@ export class RoomGameScene extends Phaser.Scene {
 
   update(time: number, delta: number): void {
     this.roomRenderer.updateCrosshair(this.input.activePointer);
-    this.visionFog.update(this.player.x, this.player.y, time);
+    this.visionFog.update(this.player.x, this.player.y);
     if (this.ended) return;
     const safeDeltaMs = Math.min(100, Math.max(0, delta));
 
@@ -550,10 +550,7 @@ export class RoomGameScene extends Phaser.Scene {
       const resolved = transform ?? member;
       const point = clampToWorld(this.zoneWorld.bounds, resolved.x, resolved.y);
       const visible = this.sharesNetworkVisionZone(localState.roomId, resolved.roomId)
-        && shouldRenderPartyMember(
-          { ...member, x: point.x, y: point.y },
-          this.player,
-      );
+        && shouldRenderPartyMember({ ...member, x: point.x, y: point.y });
       sprite.setPosition(point.x, point.y).setVisible(visible);
       this.roomRenderer.updateHeroPose(sprite, transform?.vx ?? 0, transform?.vy ?? 0, now);
     }
@@ -1442,7 +1439,7 @@ export class RoomGameScene extends Phaser.Scene {
       }
       const visible = isLocal || (
         this.sharesNetworkVisionZone(local.roomId, member.roomId)
-        && shouldRenderPartyMember(member, local)
+        && shouldRenderPartyMember(member)
       );
       sprite.setVisible(visible).setActive(member.connected);
       sprite.setAlpha(isLocal ? 1 : 0.82);

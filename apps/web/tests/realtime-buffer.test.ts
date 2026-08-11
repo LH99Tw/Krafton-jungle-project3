@@ -96,10 +96,9 @@ test("local prediction normalizes diagonal input before applying class speed", (
 });
 
 test("remote party visibility is independent of fog radius and follows connection state", () => {
-  const viewer = { x: 0, y: 0 };
-  assert.equal(shouldRenderPartyMember({ connected: true, x: 800, y: 0 }, viewer), true);
-  assert.equal(shouldRenderPartyMember({ connected: false, x: 100, y: 0 }, viewer), false);
-  assert.equal(shouldRenderPartyMember({ connected: true, x: 8_001, y: 0 }, viewer), true);
+  assert.equal(shouldRenderPartyMember({ connected: true, x: 800, y: 0 }), true);
+  assert.equal(shouldRenderPartyMember({ connected: false, x: 100, y: 0 }), false);
+  assert.equal(shouldRenderPartyMember({ connected: true, x: 8_001, y: 0 }), true);
 });
 
 test("official authored rooms resolve the shared official minimap area", () => {
