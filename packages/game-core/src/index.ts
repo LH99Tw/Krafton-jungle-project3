@@ -56,7 +56,6 @@ import {
   corridorRectBetween,
   findWalkableDiscPath,
   createWalkableSpatialIndex,
-  isWalkableDiscPointIndexed,
   isWalkableDiscLineIndexed,
   resolveWalkableDiscPointIndexed,
   isWalkableDiscLine,
