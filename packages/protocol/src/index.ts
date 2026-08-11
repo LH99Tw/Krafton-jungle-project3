@@ -197,15 +197,6 @@ export type TransformSample = z.infer<typeof transformSampleSchema>;
 export type WorldFrame = z.infer<typeof worldFrameSchema>;
 export type FastLaneOffer = z.infer<typeof fastLaneOfferSchema>;
 export type TransportMode = z.infer<typeof transportModeSchema>;
-export type SkillCastCommand = z.infer<typeof skillCastSchema>;
-export type BuildPlaceCommand = z.infer<typeof buildPlaceSchema>;
-export type BuildUpgradeCommand = z.infer<typeof buildUpgradeSchema>;
-export type UpgradeChooseCommand = z.infer<typeof upgradeChooseSchema>;
-export type RoomReadyCommand = z.infer<typeof roomReadySchema>;
-export type PlayerInteractCommand = z.infer<typeof playerInteractSchema>;
-export type TravelRequestCommand = z.infer<typeof travelRequestSchema>;
-export type RecallRequestCommand = z.infer<typeof recallRequestSchema>;
-export type EquipmentEquipCommand = z.infer<typeof equipmentEquipSchema>;
 export type RoomOptionsInput = z.input<typeof roomOptionsSchema>;
 export type ResolvedRoomOptions = z.output<typeof roomOptionsSchema>;
 // `partyMode` remains optional at existing call sites while the parser resolves it to "coop".
@@ -239,8 +230,3 @@ export type LobbyGameStart = {
   difficulty: Difficulty;
   playerClasses: Record<string, HeroClassId>;
 };
-
-export type ServerEvent =
-  | { type: "message"; message: string }
-  | { type: "result"; state: "victory" | "defeat" | "abandoned"; reason: string }
-  | { type: "protocol-error"; code: string };

@@ -106,7 +106,7 @@ export type EquipmentSummary = {
   power: number;
 };
 
-export type WaypointSnapshot = {
+type WaypointSnapshot = {
   nearby: boolean;
   id: string | null;
   label: string;

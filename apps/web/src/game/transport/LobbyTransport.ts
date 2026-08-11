@@ -9,7 +9,7 @@ import {
   type LobbyPhase,
 } from "@five-days/protocol";
 
-export type LobbyPlayer = {
+type LobbyPlayer = {
   userId: string;
   displayName: string;
   ready: boolean;

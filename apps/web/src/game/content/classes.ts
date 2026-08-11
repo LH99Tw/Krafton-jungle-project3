@@ -79,5 +79,4 @@ export const CLASS_DEFINITIONS: Record<HeroClassId, ClassDefinition> = {
   },
 };
 
-export const CLASS_ORDER: HeroClassId[] = ["swordsman", "archer", "mage"];
 

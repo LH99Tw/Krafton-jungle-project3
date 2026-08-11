@@ -3,7 +3,7 @@ import { PROTOCOL_VERSION } from "@five-days/protocol";
 
 export const PLAYER_TRANSFORM_VIEW = 1;
 
-export class EquipmentSummaryState extends Schema {
+class EquipmentSummaryState extends Schema {
   @type("string") weaponId = "";
   @type("string") weaponRarity = "";
   @type("string") armorId = "";
@@ -26,7 +26,7 @@ export class UpgradeChoiceState extends Schema {
   @type("number") order = 0;
 }
 
-export class PlayerUpgradeDraftState extends Schema {
+class PlayerUpgradeDraftState extends Schema {
   @type("string") draftId = "";
   @type("number") level = 0;
   @type("boolean") active = false;
