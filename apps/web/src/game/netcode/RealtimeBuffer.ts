@@ -1,11 +1,14 @@
 import {
+  ACTOR_COLLISION_RADIUS,
   BOSS_ROOM_ID,
   CLASS_COMBAT_RULES,
   bossWorldRect,
   buildWorldFromRooms,
   resolveWalkablePoint,
+  resolveWalkableDiscPoint,
   roomContainingPoint,
   roomIdToGrid,
+  type WorldRect,
 } from "@five-days/game-core";
 import { transformFlags, type InputFrame, type TransformSample, type WorldFrame } from "@five-days/protocol";
 import type { HeroClassId, RoomMapCell } from "../domain/types";
@@ -103,12 +106,33 @@ export function predictPlayerTransform(input: {
   frame: InputFrame;
   deltaSeconds: number;
   rooms: readonly RoomMapCell[];
+  movementWorld?: Readonly<{
+    walkable: readonly WorldRect[];
+    rooms: readonly Readonly<{ id: string; rect: WorldRect }>[];
+  }>;
 }): { x: number; y: number; roomId: string } {
   const magnitude = Math.hypot(input.frame.x, input.frame.y);
   const scale = magnitude > 1 ? 1 / magnitude : 1;
   const speed = CLASS_COMBAT_RULES[input.heroClass].speed;
   const deltaX = input.frame.x * scale * speed * input.deltaSeconds;
   const deltaY = input.frame.y * scale * speed * input.deltaSeconds;
+  if (input.movementWorld) {
+    const resolved = resolveWalkableDiscPoint(
+      input.movementWorld.walkable,
+      input.x + deltaX,
+      input.y + deltaY,
+      input.x,
+      input.y,
+      ACTOR_COLLISION_RADIUS,
+    );
+    const containing = input.movementWorld.rooms.find(({ rect }) => (
+      resolved.x >= rect.x
+      && resolved.x < rect.x + rect.width
+      && resolved.y >= rect.y
+      && resolved.y < rect.y + rect.height
+    ));
+    return { x: resolved.x, y: resolved.y, roomId: containing?.id ?? input.roomId };
+  }
   if (input.roomId === BOSS_ROOM_ID) {
     const rect = bossWorldRect();
     return {

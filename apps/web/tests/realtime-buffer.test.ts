@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PROTOCOL_VERSION, transformFlags, type TransformSample, type WorldFrame } from "@five-days/protocol";
+import { ACTOR_COLLISION_RADIUS, OFFICIAL_WORLD } from "@five-days/game-core";
+import { PROTOCOL_VERSION, transformFlags, type InputFrame, type TransformSample, type WorldFrame } from "@five-days/protocol";
 import {
   RealtimeTransformBuffer,
   predictPlayerTransform,
@@ -93,6 +94,43 @@ test("local prediction normalizes diagonal input before applying class speed", (
   assert.ok(predicted.y > 360);
   assert.ok(Math.abs(predicted.x - 640) < 10);
   assert.ok(Math.abs(predicted.y - 360) < 10);
+});
+
+test("official authored-world prediction uses the authoritative floor and collision radius", () => {
+  const base = OFFICIAL_WORLD.rooms.find((room) => room.id === OFFICIAL_WORLD.baseRoomId)!;
+  const rooms = OFFICIAL_WORLD.rooms.map((room) => ({ id: room.id, rect: room.rect }));
+  const frame: InputFrame = {
+    v: PROTOCOL_VERSION,
+    seq: 1,
+    clientTime: 0,
+    x: 1,
+    y: 0,
+    aim: 0,
+    buttons: 0,
+  };
+  const center = predictPlayerTransform({
+    x: base.rect.x + base.rect.width / 2,
+    y: base.rect.y + base.rect.height / 2,
+    roomId: base.id,
+    heroClass: "swordsman",
+    frame,
+    deltaSeconds: 1 / 60,
+    rooms: [],
+    movementWorld: { walkable: OFFICIAL_WORLD.walkable, rooms },
+  });
+  assert.ok(center.x > base.rect.x + base.rect.width / 2, "valid floor input must advance immediately");
+
+  const topEdge = predictPlayerTransform({
+    x: base.rect.x + base.rect.width / 2,
+    y: base.rect.y + ACTOR_COLLISION_RADIUS,
+    roomId: base.id,
+    heroClass: "swordsman",
+    frame: { ...frame, x: 0, y: -1 },
+    deltaSeconds: 1 / 60,
+    rooms: [],
+    movementWorld: { walkable: OFFICIAL_WORLD.walkable, rooms },
+  });
+  assert.equal(topEdge.y, base.rect.y + ACTOR_COLLISION_RADIUS, "prediction must match the server wall inset");
 });
 
 test("remote party visibility is independent of fog radius and follows connection state", () => {

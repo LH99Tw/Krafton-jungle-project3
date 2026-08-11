@@ -1,5 +1,6 @@
 import * as Phaser from "phaser";
 import {
+  ACTOR_COLLISION_RADIUS,
   AUGMENT_BY_ID,
   CLASS_COMBAT_RULES,
   createAugmentDraft,
@@ -66,8 +67,28 @@ import { RoomRenderer, classColor } from "./RoomRenderer";
 import type { VisionRevealSource } from "./vision";
 
 type LocalEnemyKind = "static" | "hidden" | "gate" | "invader" | "boss";
-const PLAYER_COLLISION_RADIUS = 14;
+const PLAYER_COLLISION_RADIUS = ACTOR_COLLISION_RADIUS;
 const ENEMY_COLLISION_RADIUS = 12;
+const OFFICIAL_PREDICTION_ROOMS = OFFICIAL_MAP_MANIFEST.world.rooms.map((room) => ({ id: room.id, rect: room.rect }));
+const OFFICIAL_LOCKED_WALKABLE = [
+  ...OFFICIAL_MAP_MANIFEST.world.rooms
+    .filter((room) => room.id !== OFFICIAL_MAP_MANIFEST.world.bossRoomId)
+    .map((room) => room.rect),
+  ...OFFICIAL_MAP_MANIFEST.world.connections
+    .filter((connection) => (
+      connection.from !== OFFICIAL_MAP_MANIFEST.world.bossRoomId
+      && connection.to !== OFFICIAL_MAP_MANIFEST.world.bossRoomId
+    ))
+    .flatMap((connection) => connection.floorRects),
+];
+const OFFICIAL_OPEN_PREDICTION_WORLD = {
+  walkable: OFFICIAL_MAP_MANIFEST.world.walkable,
+  rooms: OFFICIAL_PREDICTION_ROOMS,
+};
+const OFFICIAL_LOCKED_PREDICTION_WORLD = {
+  walkable: OFFICIAL_LOCKED_WALKABLE,
+  rooms: OFFICIAL_PREDICTION_ROOMS,
+};
 
 type LocalEnemy = {
   id: string;
@@ -477,6 +498,7 @@ export class RoomGameScene extends Phaser.Scene {
     const authoritative = frame.players.find((player) => player.id === this.options.userId || player.id === localState?.userId);
     if (!snapshot || !localState || !authoritative) return;
     let reconciled = { x: authoritative.x, y: authoritative.y, roomId: authoritative.roomId };
+    const movementWorld = this.networkPredictionWorld(snapshot);
     for (const input of this.options.runtimeMode === "editor-core" ? [] : colyseusTransport.unacknowledgedInputs) {
       reconciled = predictPlayerTransform({
         ...reconciled,
@@ -484,6 +506,7 @@ export class RoomGameScene extends Phaser.Scene {
         frame: input,
         deltaSeconds: 1 / 60,
         rooms: snapshot.rooms,
+        movementWorld,
       });
     }
     const visualX = this.player.x;
@@ -522,7 +545,14 @@ export class RoomGameScene extends Phaser.Scene {
       frame,
       deltaSeconds: 1 / 60,
       rooms: snapshot.rooms,
+      movementWorld: this.networkPredictionWorld(snapshot),
     });
+  }
+
+  private networkPredictionWorld(snapshot: NetworkWorldSnapshot) {
+    const bossAccessible = snapshot.day >= 3
+      && snapshot.rooms.some((room) => room.type === "gate" && room.cleared);
+    return bossAccessible ? OFFICIAL_OPEN_PREDICTION_WORLD : OFFICIAL_LOCKED_PREDICTION_WORLD;
   }
 
   private updateNetworkTransforms(): void {
