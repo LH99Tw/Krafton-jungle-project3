@@ -1,7 +1,13 @@
 import { hashToken } from "@five-days/auth";
 import { revokeSession } from "@five-days/db/repositories";
 import { NextResponse } from "next/server";
-import { csrfCookieName, sessionCookieName, validateMutationRequest } from "@/app/auth/session";
+import {
+  CSRF_COOKIE,
+  csrfCookieName,
+  expireAuthCookie,
+  sessionCookieName,
+  validateMutationRequest,
+} from "@/app/auth/session";
 import { clientIp, consumeRateLimit, rateLimited } from "@/app/security/request";
 
 export async function POST(request: Request) {
@@ -13,8 +19,9 @@ export async function POST(request: Request) {
   const token = readCookie(request.headers.get("cookie") ?? "", sessionCookieName());
   if (token) await revokeSession(hashToken(token));
   const response = NextResponse.json({ ok: true });
-  response.cookies.delete(sessionCookieName());
-  response.cookies.delete(csrfCookieName());
+  expireAuthCookie(response, sessionCookieName(), true);
+  expireAuthCookie(response, csrfCookieName(), false);
+  if (csrfCookieName() !== CSRF_COOKIE) expireAuthCookie(response, CSRF_COOKIE, false);
   return response;
 }
 

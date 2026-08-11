@@ -1,23 +1,22 @@
 import { hashToken, safeEqual } from "@five-days/auth";
 import { findSessionUser, type UserRecord } from "@five-days/db/repositories";
 import { cookies, headers } from "next/headers";
+import {
+  CSRF_COOKIE,
+  csrfCookieName,
+  sessionCookieName,
+} from "./cookies";
 
-export const CSRF_COOKIE = "fdm_csrf";
+export {
+  CSRF_COOKIE,
+  csrfCookieName,
+  expireAuthCookie,
+  oauthCookieName,
+  sessionCookieName,
+} from "./cookies";
 export const SessionUnavailable = Symbol("SessionUnavailable");
 
 export type SessionUser = UserRecord & { accountType: "member" | "guest" };
-
-export function sessionCookieName(): string {
-  return process.env.NODE_ENV === "production" ? "__Host-fdm_session" : "fdm_session";
-}
-
-export function csrfCookieName(): string {
-  return process.env.NODE_ENV === "production" ? "__Host-fdm_csrf" : CSRF_COOKIE;
-}
-
-export function oauthCookieName(): string {
-  return process.env.NODE_ENV === "production" ? "__Host-fdm_oauth_state" : "fdm_oauth_state";
-}
 
 export type SessionState =
   | { status: "authenticated"; user: SessionUser }
@@ -46,7 +45,10 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 }
 
 export async function getCsrfToken(): Promise<string | null> {
-  return (await cookies()).get(csrfCookieName())?.value ?? null;
+  const cookieStore = await cookies();
+  return cookieStore.get(csrfCookieName())?.value
+    ?? (csrfCookieName() !== CSRF_COOKIE ? cookieStore.get(CSRF_COOKIE)?.value : undefined)
+    ?? null;
 }
 
 export async function validateMutationRequest(request: Request): Promise<boolean> {

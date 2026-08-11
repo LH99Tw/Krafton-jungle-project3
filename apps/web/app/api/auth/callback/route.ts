@@ -7,7 +7,7 @@ import {
 } from "@five-days/auth";
 import { createSession, upsertCognitoUser } from "@five-days/db/repositories";
 import { NextResponse } from "next/server";
-import { csrfCookieName, oauthCookieName, sessionCookieName } from "@/app/auth/session";
+import { csrfCookieName, expireAuthCookie, oauthCookieName, sessionCookieName } from "@/app/auth/session";
 import { clientIp, consumeRateLimit, rateLimited } from "@/app/security/request";
 
 export async function GET(request: Request) {
@@ -47,7 +47,7 @@ export async function GET(request: Request) {
     });
 
     const response = NextResponse.redirect(new URL(oauth.returnTo, required("APP_ORIGIN")), 303);
-    response.cookies.delete(oauthCookieName());
+    expireAuthCookie(response, oauthCookieName(), true);
     response.cookies.set(sessionCookieName(), sessionToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
@@ -99,7 +99,7 @@ function readCookie(header: string, name: string): string | undefined {
 
 function failure(requestUrl: URL, code: string) {
   const response = NextResponse.redirect(new URL(`/?authError=${encodeURIComponent(code)}`, required("APP_ORIGIN")), 303);
-  response.cookies.delete(oauthCookieName());
+  expireAuthCookie(response, oauthCookieName(), true);
   return response;
 }
 
