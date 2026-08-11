@@ -29,6 +29,7 @@ import type {
   UpgradeId,
 } from "../../domain/types";
 import type { InputFrame, WorldFrame } from "@five-days/protocol";
+import { resolveSharedPartyProgress } from "../../domain/sharedPartyProgress";
 import { ProgressionModel } from "../../systems/ProgressionModel";
 import { colyseusTransport } from "../../transport/ColyseusTransport";
 import { predictPlayerTransform, RealtimeTransformBuffer, shouldRenderPartyMember } from "../../netcode/RealtimeBuffer";
@@ -1206,6 +1207,7 @@ export class RoomGameScene extends Phaser.Scene {
         y: this.player.y,
         aim: 0,
         isLocal: true,
+        equipment: equipped,
       }],
       currentZone: this.currentZone,
       currentRoomId: this.currentRoomId,
@@ -1252,6 +1254,16 @@ export class RoomGameScene extends Phaser.Scene {
     const requiredPlayers = activeWaypoint && activeWaypoint.requiredPlayers > 0
       ? activeWaypoint.requiredPlayers
       : this.options.partyMode === "solo" ? 1 : Math.max(1, connectedAlivePlayers);
+    const shared = resolveSharedPartyProgress({
+      baseHp: state?.baseHp ?? 0,
+      baseMaxHp: state?.baseMaxHp ?? BASE_MAX_HP,
+      gold: state?.gold ?? 0,
+      currentZone: state?.currentZone ?? 1,
+      teamLevel: state?.teamLevel ?? 1,
+      teamXp: state?.teamXp ?? 0,
+      teamXpToNext: state?.teamXpToNext ?? 0,
+      rooms: roomMap,
+    });
     return {
       running: phase !== "ended",
       phase,
@@ -1261,14 +1273,14 @@ export class RoomGameScene extends Phaser.Scene {
       elapsed: state?.elapsed ?? 0,
       hp: local?.hp ?? 0,
       maxHp: local?.maxHp ?? 0,
-      baseHp: state?.baseHp ?? 0,
-      baseMaxHp: state?.baseMaxHp ?? BASE_MAX_HP,
-      level: state?.teamLevel ?? local?.level ?? 1,
-      xp: state?.teamXp ?? 0,
-      xpToNext: state?.teamXpToNext ?? 0,
-      gold: state?.gold ?? 0,
+      baseHp: shared.baseHp,
+      baseMaxHp: shared.baseMaxHp,
+      level: shared.level,
+      xp: shared.xp,
+      xpToNext: shared.xpToNext,
+      gold: shared.gold,
       teamPower: state?.players.reduce((sum, member) => sum + member.teamPower, 0) ?? 0,
-      gatesDestroyed: roomMap.filter((room) => room.type === "gate" && room.cleared).length,
+      gatesDestroyed: shared.gatesDestroyed,
       buildMode: this.buildMode,
       qCooldown: 0,
       eCooldown: 0,
@@ -1280,11 +1292,11 @@ export class RoomGameScene extends Phaser.Scene {
       upgrades: [],
       stats: { ...(state?.stats ?? this.stats) },
       party: state?.players ?? [],
-      currentZone: state?.currentZone ?? 1,
+      currentZone: shared.currentZone,
       currentRoomId: local?.roomId ?? this.currentRoomId,
-      roomsExplored: roomMap.filter((room) => room.zone === (state?.currentZone ?? 1) && room.visited).length,
-      roomMap,
-      equipment: state?.localEquipment ?? [],
+      roomsExplored: shared.roomsExplored,
+      roomMap: shared.roomMap,
+      equipment: local?.equipment ?? [],
       buildSupported: false,
       inBuildZone: false,
       waypoint: {

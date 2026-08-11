@@ -544,6 +544,7 @@ export class ColyseusTransport {
       y: player.y ?? 0,
       aim: player.aim ?? 0,
       isLocal: player.userId === this.localUserId,
+      equipment: equipmentSummaries(player.equipment),
     }));
     const localRoomId = players.find((player) => player.isLocal)?.roomId ?? "";
     const localPlayerState = collectionValues(state.players).find((player) => player.userId === this.localUserId);
@@ -565,7 +566,6 @@ export class ColyseusTransport {
           })),
       }
       : null;
-    const localEquipment = equipmentSummaries(localPlayerState?.equipment);
     const stats = collectionValues(state.players).reduce<TeamStats>((total, player) => ({
       damage: total.damage + (player.damage ?? 0),
       bossDamage: total.bossDamage + (player.bossDamage ?? 0),
@@ -649,7 +649,7 @@ export class ColyseusTransport {
       baseHp: state.baseHp ?? 0,
       baseMaxHp: state.baseMaxHp ?? 900,
       gold: state.gold ?? 0,
-      currentZone: rooms.find((room) => room.id === localRoomId)?.zone ?? state.currentZone ?? 1,
+      currentZone: state.currentZone ?? 1,
       teamLevel: state.teamLevel ?? 1,
       teamXp: state.teamXp ?? 0,
       teamXpToNext: state.teamXpToNext ?? 20,
@@ -660,7 +660,6 @@ export class ColyseusTransport {
       waypoints,
       waypointHoldProgress: state.waypointHoldProgress ?? Math.max(0, ...waypoints.map((waypoint) => waypoint.holdProgress)),
       localUpgradeDraft,
-      localEquipment,
       stats,
     };
     this.latestState = snapshot;

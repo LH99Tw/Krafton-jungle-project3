@@ -52,6 +52,7 @@ export function GameHud({
       y: 0,
       aim: 0,
       isLocal: true,
+      equipment: snapshot.equipment,
     }];
 
   return (
@@ -81,7 +82,7 @@ export function GameHud({
           </div>
           <div className="inventory-party-grid">
             {party.map((member) => (
-              <InventoryMember key={member.userId} member={member} equipment={member.isLocal ? snapshot.equipment : []} />
+              <InventoryMember key={member.userId} member={member} equipment={member.equipment} />
             ))}
           </div>
         </div>
