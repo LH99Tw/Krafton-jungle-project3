@@ -39,6 +39,7 @@ import {
   isInsideBuildBounds,
   snapToBuildGrid,
   type RenderableRoom,
+  type RenderWorldRoom,
   type RenderZoneWorld,
 } from "./layout";
 import { RoomRenderer, classColor } from "./RoomRenderer";
@@ -424,14 +425,17 @@ export class RoomGameScene extends Phaser.Scene {
    */
   private updateLocalRoomPresence(): void {
     if (this.currentRoomId === "boss" || this.ended) return;
-    const entry = this.zoneWorld.rooms.find((candidate) => {
-      const rect = candidate.rect;
-      return this.player.x >= rect.x && this.player.x < rect.x + rect.width
-        && this.player.y >= rect.y && this.player.y < rect.y + rect.height;
-    });
+    const entry = this.worldRoomAtPoint(this.player.x, this.player.y);
     if (entry && entry.room.id !== this.currentRoomId) {
       this.enterLocalRoom(entry.room.id, this.currentRoomId, true);
     }
+  }
+
+  private worldRoomAtPoint(x: number, y: number): RenderWorldRoom | undefined {
+    return this.zoneWorld.rooms.find((candidate) => {
+      const { x: left, y: top, width, height } = candidate.rect;
+      return x >= left && x < left + width && y >= top && y < top + height;
+    });
   }
 
   private updateAutoAttack(time: number): void {
