@@ -1,4 +1,5 @@
 import { Client, matchMaker, Room, ServerError, type AuthContext } from "@colyseus/core";
+import { performance } from "node:perf_hooks";
 import { StateView } from "@colyseus/schema";
 import { type GameTicketClaims } from "@five-days/auth";
 import { createMatch, finalizeMatch } from "@five-days/db/repositories";
@@ -60,6 +61,7 @@ import {
   recordInputLeaseExpiration,
   recordRealtimeInput,
   recordRealtimeWorldFrame,
+  recordRealtimeTiming,
   recordRoomInvaderMetrics,
   recordSimulationCatchUp,
   removeRoomInvaderMetrics,
@@ -76,6 +78,24 @@ export const INPUT_LEASE_MS = 100;
 const MAX_CATCH_UP_TICKS = 4;
 const KEYFRAME_INTERVAL_MS = 500;
 const DISCONTINUITY_DISTANCE = 96;
+const ENEMY_WORLD_KEYFRAME_TICKS = 60;
+const WEBSOCKET_SIZE_SAMPLE_INTERVAL = 30;
+
+type PreviousTransform = { roomId: string; x: number; y: number; at: number; vx: number; vy: number };
+type EnemySchemaSnapshot = {
+  hp: number; targetId: string; roomId: string; alive: boolean;
+  patternKind: string; patternPhase: string; patternRemaining: number;
+  patternIndex: number; attackSequence: number;
+};
+
+function rolloutBucket(value: string): number {
+  let hash = 2_166_136_261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return (hash >>> 0) % 100;
+}
 
 export function assertOfficialMapRevision(mapRevision: string): void {
   if (mapRevision !== OFFICIAL_MAP_MANIFEST.mapRevision) {
@@ -176,7 +196,16 @@ export class PartyRoom extends Room<PartyRoomState> {
   private readonly visiblePlayerTransforms = new Map<string, Set<string>>();
   private readonly activeHumanSessions = new Set<string>();
   private readonly schemaRoomIds = new Map<string, string>();
-  private readonly previousTransforms = new Map<string, { roomId: string; x: number; y: number; at: number }>();
+  private readonly previousTransforms = new Map<string, PreviousTransform>();
+  private lastEnemyFramePositions = new Map<string, { roomId: string; x: number; y: number; revision?: number }>();
+  private enemyIdsByRoom = new Map<string, Set<string>>();
+  private enemyRoomMembership = new Map<string, string>();
+  private enemySchemaSnapshots = new Map<string, EnemySchemaSnapshot>();
+  private clientEnemyViewRevision = new Map<string, { viewerRoomId: string; revision: number }>();
+  private enemyMembershipRevision = 0;
+  private websocketSizeSamples = 0;
+  private lastWebsocketFrameBytes = 0;
+  private multirateEnabled = false;
   private aoiRoomCache = new Map<string, ReadonlySet<string>>();
   private simulationAccumulatorMs = 0;
   private serverTick = 0;
@@ -210,12 +239,20 @@ export class PartyRoom extends Room<PartyRoomState> {
     this.maxClients = options.partyMode === "solo" ? 1 : 3;
     this.setState(new PartyRoomState());
     this.state.protocolVersion = PROTOCOL_VERSION;
+    const multiratePercent = numericEnv("INVADER_MULTIRATE_PERCENT", 10, 0, 100);
+    this.multirateEnabled = rolloutBucket(this.roomId) < multiratePercent;
     this.core = new GameCore({
       mode: options.sessionMode,
       difficulty: options.difficulty,
       seed: crypto.randomUUID(),
       minimumPlayers: options.partyMode === "solo" ? 1 : 3,
       maxLiveInvaders: numericEnv("MAX_LIVE_INVADERS", DEFAULT_MAX_LIVE_INVADERS, 32, ABSOLUTE_MAX_LIVE_INVADERS),
+      invaderUpdateRates: this.multirateEnabled
+        ? {
+          warmHz: numericEnv("INVADER_WARM_HZ", 20, 1, 60),
+          coldHz: numericEnv("INVADER_COLD_HZ", 10, 1, 60),
+        }
+        : { warmHz: 60, coldHz: 60 },
       world: OFFICIAL_WORLD,
     });
     this.exploration = new PartyExploration(this.core);
@@ -488,27 +525,36 @@ export class PartyRoom extends Room<PartyRoomState> {
   }
 
   private simulate(deltaMs: number): void {
-    this.simulationAccumulatorMs += Math.min(Math.max(deltaMs, 0), SIMULATION_STEP_MS * MAX_CATCH_UP_TICKS);
+    const safeDeltaMs = Number.isFinite(deltaMs) ? Math.max(deltaMs, 0) : 0;
+    this.simulationAccumulatorMs += safeDeltaMs;
+    const pendingTicks = Math.floor(this.simulationAccumulatorMs / SIMULATION_STEP_MS + 1e-9);
+    const simulationTicksToRun = Math.min(pendingTicks, MAX_CATCH_UP_TICKS);
+    const skippedTicks = Math.max(0, pendingTicks - MAX_CATCH_UP_TICKS);
+    const droppedCatchUp = skippedTicks > 0;
+    if (droppedCatchUp) {
+      const skippedSimulationMs = skippedTicks * SIMULATION_STEP_MS;
+      this.core.compensateSkippedCombatTime(skippedSimulationMs / 1000);
+      this.simulationAccumulatorMs = Math.max(0, this.simulationAccumulatorMs - skippedSimulationMs);
+    }
     let simulatedTicks = 0;
-    while (this.simulationAccumulatorMs + Number.EPSILON >= SIMULATION_STEP_MS && simulatedTicks < MAX_CATCH_UP_TICKS) {
+    while (simulatedTicks < simulationTicksToRun) {
       this.expireStaleInputs(Date.now());
+      const coreStartedAt = performance.now();
       this.core.update(SIMULATION_STEP_MS / 1000);
+      recordRealtimeTiming("coreUpdate", performance.now() - coreStartedAt);
       this.simulationAccumulatorMs -= SIMULATION_STEP_MS;
       this.serverTick += 1;
       simulatedTicks += 1;
     }
-    const droppedCatchUp = simulatedTicks === MAX_CATCH_UP_TICKS && this.simulationAccumulatorMs >= SIMULATION_STEP_MS;
-    if (droppedCatchUp) {
-      this.simulationAccumulatorMs %= SIMULATION_STEP_MS;
-    }
+    this.simulationAccumulatorMs = Math.max(0, this.simulationAccumulatorMs);
     for (const notice of this.core.takeNotices()) {
       for (const client of this.clients) {
         if (client.userData?.userId === notice.userId) client.send("message", { code: notice.code, message: notice.message });
       }
     }
     recordSimulationCatchUp(simulatedTicks - 1, droppedCatchUp);
-    this.schemaSyncAccumulatorMs += Math.max(0, deltaMs);
-    this.explorationAccumulatorMs += Math.max(0, deltaMs);
+    this.schemaSyncAccumulatorMs += safeDeltaMs;
+    this.explorationAccumulatorMs += safeDeltaMs;
     if (this.explorationAccumulatorMs >= MINIMAP_GEOMETRY_REFRESH_MS) {
       this.explorationAccumulatorMs %= MINIMAP_GEOMETRY_REFRESH_MS;
       this.exploration.update();
@@ -524,16 +570,29 @@ export class PartyRoom extends Room<PartyRoomState> {
     const schemaSyncDue = this.schemaSyncAccumulatorMs >= SCHEMA_SYNC_INTERVAL_MS || this.core.phase === "ended";
     if (schemaSyncDue) {
       this.schemaSyncAccumulatorMs %= SCHEMA_SYNC_INTERVAL_MS;
+      const schemaStartedAt = performance.now();
       this.syncState();
+      recordRealtimeTiming("schemaSync", performance.now() - schemaStartedAt);
+      const aoiStartedAt = performance.now();
       this.updateClientViews();
+      recordRealtimeTiming("aoiUpdate", performance.now() - aoiStartedAt);
+      const tiers = this.core.invaderSimulationTiers;
       recordRoomInvaderMetrics(this.roomId, {
         active: this.core.liveInvaderCount,
         pending: this.core.pendingInvaderCount,
         capHits: this.core.invaderCapHitCount,
         retired: this.core.retiredInvaderCount,
+        hot: tiers.hot,
+        warm: tiers.warm,
+        cold: tiers.cold,
+        multirateEnabled: this.multirateEnabled,
       });
     }
-    if (simulatedTicks > 0 && this.serverTick % WORLD_FRAME_INTERVAL_TICKS === 0) this.emitWorldFrames();
+    if (simulatedTicks > 0 && this.serverTick % WORLD_FRAME_INTERVAL_TICKS === 0) {
+      const frameStartedAt = performance.now();
+      this.emitWorldFrames();
+      recordRealtimeTiming("worldFrame", performance.now() - frameStartedAt);
+    }
     if (this.core.phase === "ended") {
       if (!this.resultBroadcast) {
         this.resultBroadcast = true;
@@ -575,6 +634,7 @@ export class PartyRoom extends Room<PartyRoomState> {
         this.state.players.set(player.userId, state);
       }
       const roomChanged = this.schemaRoomIds.get(player.userId) !== player.roomId;
+      const combatStats = this.core.combatStats(player.userId);
       Object.assign(state, {
         userId: player.userId,
         displayName: player.displayName,
@@ -584,6 +644,15 @@ export class PartyRoom extends Room<PartyRoomState> {
         maxHp: player.maxHp,
         level: player.level,
         teamPower: player.teamPower,
+        attackDamage: combatStats?.attackDamage ?? 0,
+        defense: combatStats?.defense ?? 0,
+        criticalChance: combatStats?.criticalChance ?? 0,
+        criticalDamage: combatStats?.criticalDamage ?? 150,
+        attacksPerSecond: combatStats?.attacksPerSecond ?? 0,
+        attackRange: combatStats?.attackRange ?? 0,
+        moveSpeed: combatStats?.moveSpeed ?? 0,
+        qCooldown: player.qCooldown,
+        eCooldown: player.eCooldown,
         damage: player.damage,
         bossDamage: player.bossDamage,
         kills: player.kills,
@@ -677,6 +746,8 @@ export class PartyRoom extends Room<PartyRoomState> {
       this.state.enemies.delete(id);
       this.schemaRoomIds.delete(`enemy:${id}`);
       this.previousTransforms.delete(`enemy:${id}`);
+      this.lastEnemyFramePositions?.delete(id);
+      this.enemySchemaSnapshots?.delete(id);
     });
 
     for (const enemy of view.enemies) {
@@ -687,28 +758,40 @@ export class PartyRoom extends Room<PartyRoomState> {
         this.state.enemies.set(enemy.id, state);
       }
       const roomChanged = this.schemaRoomIds.get(`enemy:${enemy.id}`) !== enemy.roomId;
-      Object.assign(state, {
-        id: enemy.id,
-        kind: enemy.kind,
-        behavior: enemy.behavior,
-        roomId: enemy.roomId,
-        spawnRoomId: enemy.spawnRoomId,
-        targetId: enemy.targetId ?? "",
+      const nextSnapshot: EnemySchemaSnapshot = {
         hp: enemy.hp,
-        maxHp: enemy.maxHp,
+        targetId: enemy.targetId ?? "",
+        roomId: enemy.roomId,
         alive: enemy.alive,
         patternKind: enemy.patternKind,
         patternPhase: enemy.patternPhase,
         patternRemaining: enemy.patternRemaining,
         patternIndex: enemy.patternIndex,
         attackSequence: enemy.attackSequence,
-      });
+      };
+      this.enemySchemaSnapshots ??= new Map<string, EnemySchemaSnapshot>();
+      const previousSnapshot = this.enemySchemaSnapshots.get(enemy.id);
+      const revisionChanged = !previousSnapshot || Object.keys(nextSnapshot).some((key) => (
+        nextSnapshot[key as keyof EnemySchemaSnapshot] !== previousSnapshot[key as keyof EnemySchemaSnapshot]
+      ));
+      if (isNew || revisionChanged) {
+        Object.assign(state, {
+          id: enemy.id,
+          kind: enemy.kind,
+          behavior: enemy.behavior,
+          spawnRoomId: enemy.spawnRoomId,
+          maxHp: enemy.maxHp,
+          ...nextSnapshot,
+        });
+        this.enemySchemaSnapshots.set(enemy.id, nextSnapshot);
+      }
       if (isNew || keyframeDue || roomChanged) {
         state.x = enemy.x;
         state.y = enemy.y;
       }
       this.schemaRoomIds.set(`enemy:${enemy.id}`, enemy.roomId);
     }
+    this.refreshEnemyRoomBuckets(view.enemies);
 
     for (const waypoint of view.waypoints) {
       let state = this.state.waypoints.get(waypoint.id);
@@ -769,6 +852,7 @@ export class PartyRoom extends Room<PartyRoomState> {
 
   private emitWorldFrames(): void {
     const serverTime = Date.now();
+    const enemyKeyframe = this.serverTick % ENEMY_WORLD_KEYFRAME_TICKS === 0;
     const playerSamples = new Map<string, TransformSample>();
     const enemySamples = new Map<string, TransformSample>();
     for (const player of this.core.players.values()) {
@@ -784,6 +868,10 @@ export class PartyRoom extends Room<PartyRoomState> {
     }
     for (const enemy of this.core.enemies.values()) {
       if (!this.core.discoveredRooms.has(enemy.roomId)) continue;
+      const previous = this.lastEnemyFramePositions.get(enemy.id);
+      const changed = !previous || previous.revision !== enemy.transformRevision
+        || previous.roomId !== enemy.roomId || previous.x !== enemy.x || previous.y !== enemy.y;
+      if (!enemyKeyframe && !changed) continue;
       enemySamples.set(enemy.id, this.transformSample(
         `enemy:${enemy.id}`,
         enemy.id,
@@ -793,6 +881,12 @@ export class PartyRoom extends Room<PartyRoomState> {
         0,
         serverTime,
       ));
+      this.lastEnemyFramePositions.set(enemy.id, {
+        roomId: enemy.roomId,
+        x: enemy.x,
+        y: enemy.y,
+        revision: enemy.transformRevision,
+      });
     }
     for (const client of this.clients) {
       const userId = client.userData?.userId as string | undefined;
@@ -806,27 +900,20 @@ export class PartyRoom extends Room<PartyRoomState> {
         players: [...this.core.players.values()]
           .filter((player) => player.userId === userId || this.isPlayerInAoi(viewer, player))
           .map((player) => playerSamples.get(player.userId) as TransformSample),
-        enemies: [...this.core.enemies.values()]
-          .filter((enemy) => this.isPlayerInAoi(viewer, enemy))
-          .map((enemy) => enemySamples.get(enemy.id))
-          .filter((sample): sample is TransformSample => Boolean(sample)),
+        enemies: [...enemySamples.values()].filter((enemy) => this.aoiRooms(viewer.roomId).has(enemy.roomId)),
       };
-      const bytes = Buffer.byteLength(JSON.stringify(frame));
-      if (sendFastLaneWorldFrame(client.sessionId, frame)) {
-        recordRealtimeWorldFrame("webtransport", bytes);
+      const fastLaneBytes = sendFastLaneWorldFrame(client.sessionId, frame);
+      if (fastLaneBytes !== null) {
+        recordRealtimeWorldFrame("webtransport", fastLaneBytes);
       } else {
         client.send("world.frame", frame);
-        recordRealtimeWorldFrame("websocket", bytes);
+        this.websocketSizeSamples += 1;
+        if (this.websocketSizeSamples % WEBSOCKET_SIZE_SAMPLE_INTERVAL === 1 || this.lastWebsocketFrameBytes === 0) {
+          this.lastWebsocketFrameBytes = Buffer.byteLength(JSON.stringify(frame));
+        }
+        recordRealtimeWorldFrame("websocket", this.lastWebsocketFrameBytes);
       }
     }
-    for (const sample of playerSamples.values()) this.previousTransforms.set(
-      `player:${sample.id}`,
-      { roomId: sample.roomId, x: sample.x, y: sample.y, at: serverTime },
-    );
-    for (const sample of enemySamples.values()) this.previousTransforms.set(
-      `enemy:${sample.id}`,
-      { roomId: sample.roomId, x: sample.x, y: sample.y, at: serverTime },
-    );
   }
 
   private transformSample(
@@ -842,16 +929,28 @@ export class PartyRoom extends Room<PartyRoomState> {
     const deltaSeconds = previous ? Math.max(0.001, (serverTime - previous.at) / 1000) : 0;
     const distance = previous ? Math.hypot(x - previous.x, y - previous.y) : 0;
     const discontinuity = Boolean(previous && distance > DISCONTINUITY_DISTANCE);
-    return {
+    const moved = !previous || previous.roomId !== roomId || distance > 0;
+    const vx = previous && !discontinuity && distance > 0 ? (x - previous.x) / deltaSeconds : (previous?.vx ?? 0);
+    const vy = previous && !discontinuity && distance > 0 ? (y - previous.y) / deltaSeconds : (previous?.vy ?? 0);
+    const sample: TransformSample = {
       id,
       roomId,
       x,
       y,
-      vx: previous && !discontinuity ? (x - previous.x) / deltaSeconds : 0,
-      vy: previous && !discontinuity ? (y - previous.y) / deltaSeconds : 0,
+      vx: discontinuity ? 0 : vx,
+      vy: discontinuity ? 0 : vy,
       aim,
       flags: discontinuity ? transformFlags.discontinuity : transformFlags.none,
     };
+    if (moved) this.previousTransforms.set(cacheKey, {
+      roomId,
+      x,
+      y,
+      at: serverTime,
+      vx: sample.vx,
+      vy: sample.vy,
+    });
+    return sample;
   }
 
   private isPlayerInAoi(
@@ -901,6 +1000,35 @@ export class PartyRoom extends Room<PartyRoomState> {
     }
   }
 
+  private refreshEnemyRoomBuckets(enemies: Iterable<{ id: string; roomId: string }>): void {
+    this.enemyIdsByRoom ??= new Map<string, Set<string>>();
+    this.enemyRoomMembership ??= new Map<string, string>();
+    this.enemyMembershipRevision ??= 0;
+    const liveIds = new Set<string>();
+    let changed = false;
+    for (const enemy of enemies) {
+      liveIds.add(enemy.id);
+      const previousRoomId = this.enemyRoomMembership.get(enemy.id);
+      if (previousRoomId === enemy.roomId) continue;
+      if (previousRoomId) this.enemyIdsByRoom.get(previousRoomId)?.delete(enemy.id);
+      let bucket = this.enemyIdsByRoom.get(enemy.roomId);
+      if (!bucket) {
+        bucket = new Set<string>();
+        this.enemyIdsByRoom.set(enemy.roomId, bucket);
+      }
+      bucket.add(enemy.id);
+      this.enemyRoomMembership.set(enemy.id, enemy.roomId);
+      changed = true;
+    }
+    for (const [enemyId, roomId] of this.enemyRoomMembership) {
+      if (liveIds.has(enemyId)) continue;
+      this.enemyRoomMembership.delete(enemyId);
+      this.enemyIdsByRoom.get(roomId)?.delete(enemyId);
+      changed = true;
+    }
+    if (changed) this.enemyMembershipRevision += 1;
+  }
+
   private updateClientView(client: Client, userId: string): void {
     const viewer = this.core.players.get(userId);
     if (!viewer || !client.view) return;
@@ -919,21 +1047,29 @@ export class PartyRoom extends Room<PartyRoomState> {
     this.visiblePlayerTransforms.set(client.sessionId, nextPlayerIds);
 
     const enemyIds = this.visibleEnemies.get(client.sessionId) ?? new Set<string>();
-    const nextEnemyIds = new Set<string>();
-    for (const enemy of this.core.enemies.values()) {
-      if (!this.isPlayerInAoi(viewer, enemy)) continue;
-      const state = this.state.enemies.get(enemy.id);
-      if (!state) continue;
-      nextEnemyIds.add(enemy.id);
-      if (!enemyIds.has(enemy.id)) client.view.add(state);
-    }
-    for (const id of enemyIds) {
-      if (!nextEnemyIds.has(id)) {
-        const state = this.state.enemies.get(id);
-        if (state) client.view.remove(state);
+    const enemyViewState = this.clientEnemyViewRevision.get(client.sessionId);
+    if (!enemyViewState || enemyViewState.viewerRoomId !== viewer.roomId || enemyViewState.revision !== this.enemyMembershipRevision) {
+      const nextEnemyIds = new Set<string>();
+      for (const roomId of this.aoiRooms(viewer.roomId)) {
+        for (const enemyId of this.enemyIdsByRoom.get(roomId) ?? []) {
+          const state = this.state.enemies.get(enemyId);
+          if (!state) continue;
+          nextEnemyIds.add(enemyId);
+          if (!enemyIds.has(enemyId)) client.view.add(state);
+        }
       }
+      for (const id of enemyIds) {
+        if (!nextEnemyIds.has(id)) {
+          const state = this.state.enemies.get(id);
+          if (state) client.view.remove(state);
+        }
+      }
+      this.visibleEnemies.set(client.sessionId, nextEnemyIds);
+      this.clientEnemyViewRevision.set(client.sessionId, {
+        viewerRoomId: viewer.roomId,
+        revision: this.enemyMembershipRevision,
+      });
     }
-    this.visibleEnemies.set(client.sessionId, nextEnemyIds);
 
     const dropIds = this.visibleDrops.get(client.sessionId) ?? new Set<string>();
     const nextDropIds = new Set<string>();
@@ -1009,6 +1145,7 @@ export class PartyRoom extends Room<PartyRoomState> {
     this.visibleEnemies.delete(sessionId);
     this.visibleDrops.delete(sessionId);
     this.visiblePlayerTransforms.delete(sessionId);
+    this.clientEnemyViewRevision?.delete(sessionId);
   }
 
   private clearUserInput(userId: string): void {

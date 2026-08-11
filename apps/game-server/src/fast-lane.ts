@@ -76,16 +76,16 @@ export function issueFastLaneOffer(roomId: string, sessionId: string, userId: st
   return fastLaneOfferSchema.parse({ url: publicUrl, token: `${encoded}.${signature}`, expiresAt });
 }
 
-export function sendFastLaneWorldFrame(sessionId: string, frame: WorldFrame): boolean {
+export function sendFastLaneWorldFrame(sessionId: string, frame: WorldFrame): number | null {
   const session = sessions.get(sessionId);
-  if (!session) return false;
+  if (!session) return null;
   const bytes = encoder.encode(JSON.stringify({ type: "world.frame", payload: frame }));
-  if (bytes.byteLength > 32_768) return false;
+  if (bytes.byteLength > 32_768) return null;
   session.writeChain = session.writeChain.then(() => session.writer.write(bytes)).catch(() => {
     session.close();
     if (sessions.get(sessionId) === session) sessions.delete(sessionId);
   });
-  return true;
+  return bytes.byteLength;
 }
 
 export function fastLaneStatus(): { state: typeof state; detail: string; sessions: number } {

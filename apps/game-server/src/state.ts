@@ -49,6 +49,15 @@ export class PlayerState extends Schema {
   @type("number") maxHp = 0;
   @type("number") level = 1;
   @type("number") teamPower = 0;
+  @type("number") attackDamage = 0;
+  @type("number") defense = 0;
+  @type("number") criticalChance = 0;
+  @type("number") criticalDamage = 150;
+  @type("number") attacksPerSecond = 0;
+  @type("number") attackRange = 0;
+  @type("number") moveSpeed = 0;
+  @type("number") qCooldown = 0;
+  @type("number") eCooldown = 0;
   @type("number") damage = 0;
   @type("number") bossDamage = 0;
   @type("number") kills = 0;

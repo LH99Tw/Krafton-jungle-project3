@@ -126,6 +126,10 @@ export type CoreEnemy = {
   patternRemaining: number;
   patternIndex: number;
   attackSequence: number;
+  /** Monotonic revision used by the server's delta transform channel. */
+  transformRevision: number;
+  /** Most recently resolved authoritative movement speed in pixels/second. */
+  lastMoveSpeed: number;
 };
 
 export type CoreWaypoint = {
@@ -354,6 +358,8 @@ export function createBossEnemy(seed: string | number, difficulty: "easy" | "nor
     patternRemaining: 0,
     patternIndex: 0,
     attackSequence: 0,
+    transformRevision: 0,
+    lastMoveSpeed: 0,
   };
 }
 
@@ -401,6 +407,8 @@ export function createInvaderEnemy(
     patternRemaining: 0,
     patternIndex: 0,
     attackSequence: 0,
+    transformRevision: 0,
+    lastMoveSpeed: 0,
   };
 }
 
@@ -646,6 +654,8 @@ export function createSeededRoomEnemy(
     patternRemaining: 0,
     patternIndex: 0,
     attackSequence: 0,
+    transformRevision: 0,
+    lastMoveSpeed: 0,
   };
 }
 

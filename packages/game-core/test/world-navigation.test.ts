@@ -3,10 +3,33 @@ import test from "node:test";
 import { GameCore, OFFICIAL_WORLD } from "../src/index";
 import type { CoreWorldDefinition } from "../src/v02/simulation";
 import {
+  createWalkableSpatialIndex,
   findWalkableDiscPath,
+  isWalkableDiscPoint,
+  isWalkableDiscPointIndexed,
   resolveWalkableDiscPoint,
   type WorldRect,
 } from "../src/v02/world";
+
+test("the 256px spatial index is exactly equivalent to linear collision checks for 100,000 discs", () => {
+  const index = createWalkableSpatialIndex(OFFICIAL_WORLD.walkable, 256);
+  let randomState = 0x5eed_1234;
+  const random = () => {
+    randomState = (Math.imul(randomState, 1_664_525) + 1_013_904_223) >>> 0;
+    return randomState / 0x1_0000_0000;
+  };
+  const bounds = OFFICIAL_WORLD.bounds;
+  for (let sample = 0; sample < 100_000; sample += 1) {
+    const x = bounds.x - 64 + random() * (bounds.width + 128);
+    const y = bounds.y - 64 + random() * (bounds.height + 128);
+    const radius = random() * 32;
+    assert.equal(
+      isWalkableDiscPointIndexed(index, x, y, radius),
+      isWalkableDiscPoint(OFFICIAL_WORLD.walkable, x, y, radius),
+      `collision mismatch at sample ${sample}: (${x}, ${y}), radius ${radius}`,
+    );
+  }
+});
 
 test("disc pathfinding routes a distant follower around an L-shaped wall", () => {
   const walkable: readonly WorldRect[] = [

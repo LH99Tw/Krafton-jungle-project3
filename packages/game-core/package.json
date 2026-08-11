@@ -10,6 +10,7 @@
     "build": "tsc --noEmit",
     "lint": "eslint src test --config ../../eslint.config.mjs",
     "test": "tsx --test test/*.test.ts",
+    "benchmark:invaders": "tsx scripts/invader-load.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

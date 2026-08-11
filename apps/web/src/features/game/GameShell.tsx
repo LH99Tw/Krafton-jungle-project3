@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { HeroClassId, LobbyChatMessage, LobbyGameStart, LobbyListing } from "@five-days/protocol";
 import { GameCanvas } from "@/src/game/client/GameCanvas";
+import { preloadGameClient } from "@/src/game/client/preloadGameClient";
 import {
   EMPTY_SNAPSHOT,
   type GameResult,
@@ -24,6 +25,8 @@ import { AugmentLabScreen } from "../lab/AugmentLabScreen";
 import type { EditorMapDefinition } from "@/src/game/domain/mapEditor";
 import { GameHud } from "./GameHud";
 import { ResultOverlay } from "./ResultOverlay";
+
+const SELECTION_LAUNCH_DELAY_MS = 2_000;
 
 export type Viewer = {
   userId: string;
@@ -51,6 +54,10 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   const recoveryAttempted = useRef(false);
   const snapshotRef = useRef<GameSnapshot>(EMPTY_SNAPSHOT);
   const runGenerationRef = useRef(0);
+  const selectionPreloadReadyRef = useRef(false);
+  const pendingLobbyStartRef = useRef<LobbyGameStart | null>(null);
+  const lobbyLaunchStartedRef = useRef(false);
+  const lobbyLaunchTimerRef = useRef<number | null>(null);
   const [viewer, setViewer] = useState<Viewer>(initialViewer);
   const [authUnavailable, setAuthUnavailable] = useState(sessionUnavailable);
   const [screen, setScreen] = useState<Screen>(initialScreen ?? "access");
@@ -59,7 +66,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   const [snapshot, setSnapshot] = useState<GameSnapshot>(EMPTY_SNAPSHOT);
   const [upgradeChoices, setUpgradeChoices] = useState<UpgradeChoice[]>([]);
   const [result, setResult] = useState<GameResult | null>(null);
-  const [networkStatus, setNetworkStatus] = useState<NetworkStatus>("idle");
+  const [, setNetworkStatus] = useState<NetworkStatus>("idle");
   const [rooms, setRooms] = useState<LobbyListing[]>([]);
   const [lobby, setLobby] = useState<LobbySnapshot | null>(null);
   const [messages, setMessages] = useState<LobbyChatMessage[]>([]);
@@ -132,6 +139,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     });
     return () => {
       runGenerationRef.current += 1;
+      if (lobbyLaunchTimerRef.current !== null) window.clearTimeout(lobbyLaunchTimerRef.current);
       offSnapshot(); offUpgrade(); offResult(); offReady(); offNetwork(); offNetworkEvent();
       colyseusTransport.disconnect();
     };
@@ -168,6 +176,45 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     }
   }, [gameServerUrl, viewer]);
 
+  const launchSelectedRun = useCallback((event: LobbyGameStart) => {
+    if (!viewer || lobbyLaunchStartedRef.current) return;
+    const heroClass = event.playerClasses[viewer.userId] as HeroClassId | undefined;
+    if (!heroClass) {
+      setSurfaceError("확정된 캐릭터 정보를 찾지 못했습니다.");
+      return;
+    }
+    lobbyLaunchStartedRef.current = true;
+    pendingLobbyStartRef.current = null;
+    setLaunching(true);
+    if (lobbyLaunchTimerRef.current !== null) window.clearTimeout(lobbyLaunchTimerRef.current);
+    lobbyLaunchTimerRef.current = window.setTimeout(() => {
+      lobbyLaunchTimerRef.current = null;
+      void beginRun({
+        heroClass,
+        sessionMode: event.sessionMode,
+        difficulty: event.difficulty,
+        partyMode: "coop",
+      }, event.gameRoomId);
+    }, SELECTION_LAUNCH_DELAY_MS);
+  }, [beginRun, viewer]);
+
+  useEffect(() => {
+    if (screen !== "selecting") return;
+    let active = true;
+    selectionPreloadReadyRef.current = false;
+    lobbyLaunchStartedRef.current = false;
+    void preloadGameClient().then(() => {
+      if (!active) return;
+      selectionPreloadReadyRef.current = true;
+      const pendingStart = pendingLobbyStartRef.current;
+      if (pendingStart) launchSelectedRun(pendingStart);
+    }).catch((error) => {
+      if (!active) return;
+      setSurfaceError(formatClientError(error, "게임 리소스를 불러오지 못했습니다."));
+    });
+    return () => { active = false; };
+  }, [launchSelectedRun, screen]);
+
   useEffect(() => {
     if (!viewer || !gameServerUrl || recoveryAttempted.current || autoStartOptions) return;
     const recovery = readRunRecovery(viewer.userId);
@@ -193,14 +240,11 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       setScreen((current) => current === "playing" || current === "editor" ? current : "lobby");
     });
     const offStart = lobbyTransport.on("start", (event: LobbyGameStart) => {
-      if (!viewer) return;
-      const heroClass = event.playerClasses[viewer.userId] as HeroClassId | undefined;
-      if (!heroClass) return setSurfaceError("확정된 캐릭터 정보를 찾지 못했습니다.");
-      setLaunching(true);
-      window.setTimeout(() => void beginRun({ heroClass, sessionMode: event.sessionMode, difficulty: event.difficulty, partyMode: "coop" }, event.gameRoomId), 1100);
+      pendingLobbyStartRef.current = event;
+      if (selectionPreloadReadyRef.current) launchSelectedRun(event);
     });
     return () => { offSnapshot(); offError(); offDisconnected(); offStart(); void lobbyTransport.leave(); };
-  }, [beginRun, viewer]);
+  }, [launchSelectedRun]);
 
   useEffect(() => {
     if (screen !== "lobby" || !viewer || !gameServerUrl) return;
@@ -359,7 +403,6 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   }, [localMapEditorEnabled, viewer?.userId]);
 
   if (screen === "playing" && activeOptions) return <main className="play-screen">
-    <div className="network-status" role="status">{activeOptions.editorMap ? "로컬 맵 테스트" : `게임 서버 · ${networkStatus === "connected" ? "연결됨" : networkStatus}`}</div>
     <GameCanvas key={runKey} options={activeOptions} />
     <GameHud snapshot={snapshot} heroClass={activeOptions.heroClass} onExit={returnToLobby} upgradeChoices={upgradeChoices} onChoose={chooseUpgrade} />
     <ResultOverlay

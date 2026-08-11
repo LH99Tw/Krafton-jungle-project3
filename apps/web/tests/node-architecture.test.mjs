@@ -99,6 +99,42 @@ test("retains the Phaser game while adding the Colyseus transport", async () => 
   assert.match(transport, /game-ticket/);
 });
 
+test("composes the in-game relic HUD from focused components", async () => {
+  const hud = await readFile(new URL("src/features/game/GameHud.tsx", root), "utf8");
+  const commandBar = await readFile(new URL("src/features/game/hud/PlayerCommandBar.tsx", root), "utf8");
+  const phase = await readFile(new URL("src/features/game/hud/PhaseHud.tsx", root), "utf8");
+  const exploration = await readFile(new URL("src/features/game/hud/ExplorationHud.tsx", root), "utf8");
+  const minimap = await readFile(new URL("src/features/game/RoomMiniMap.tsx", root), "utf8");
+  const styles = await readFile(new URL("app/globals.css", root), "utf8");
+
+  for (const component of ["PhaseHud", "TeamGoldHud", "ExplorationHud", "PlayerCommandBar", "PartyVitalsHud"]) {
+    assert.match(hud, new RegExp(`<${component}`));
+  }
+  const partyVitals = await readFile(new URL("src/features/game/hud/PartyVitalsHud.tsx", root), "utf8");
+  assert.match(partyVitals, /PARTY_SIZE = 3/);
+  assert.match(partyVitals, /게이트 파괴/);
+  assert.match(exploration, /className="map-tactical-footer"/);
+  assert.match(exploration, /베이스 내구도/);
+  assert.match(exploration, /웨이포인트 집결/);
+  assert.doesNotMatch(exploration, /멀티플레이 건설|build-zone-hint|equipment-strip/);
+  assert.doesNotMatch(minimap, /PARTY TRAIL|지나온 길|현재 시야|minimap-status|minimap-zoom-controls/);
+  assert.match(styles, /\/\* Notices sit directly below[\s\S]*?\.hud-message \{[\s\S]*?top:clamp\(108px,9vw,132px\)/);
+  assert.match(styles, /\/\* Center the combat-stat ledger[\s\S]*?\.player-stats-panel \{[\s\S]*?padding:76px 34px 48px/);
+  assert.doesNotMatch(commandBar, /AUTO|TEAM POWER|SPACE/);
+  assert.match(commandBar, /keyName="Q"/);
+  assert.match(commandBar, /keyName="E"/);
+  assert.match(commandBar, /개인 전투 스탯/);
+  assert.match(phase, /phase-day\.png/);
+  assert.match(phase, /phase-night\.png/);
+  const generatedHudAssets = [
+    "phase-day.png", "phase-night.png", "gold-coin.png", "frame-phase.png", "frame-gold.png", "frame-map.png",
+    "frame-command.png", "frame-stats.png", "skills/swordsman-q.png", "skills/swordsman-e.png",
+    "skills/archer-q.png", "skills/archer-e.png", "skills/mage-q.png", "skills/mage-e.png", "skills/stats.png",
+  ];
+  await Promise.all(generatedHudAssets.map((file) => access(new URL(`public/images/ui/hud/${file}`, root))));
+  assert.match(commandBar, /images\/ui\/hud\/skills\/\$\{heroClass\}-\$\{keyName\.toLowerCase\(\)\}\.png/);
+});
+
 test("renders the dedicated access sidebar with the clean decorative asset", async () => {
   const sidebar = await readFile(new URL("src/features/lobby/AccessSidebar.tsx", root), "utf8");
   const accessScreen = await readFile(new URL("src/features/lobby/AccessScreen.tsx", root), "utf8");
@@ -192,6 +228,8 @@ test("keeps the party creation dialog centered above the lobby", async () => {
 
 test("reuses generated navigation chrome across lobby and character selection", async () => {
   const characterSelect = await readFile(new URL("src/features/lobby/CharacterSelectScreen.tsx", root), "utf8");
+  const gameShell = await readFile(new URL("src/features/game/GameShell.tsx", root), "utf8");
+  const gamePreloader = await readFile(new URL("src/game/client/preloadGameClient.ts", root), "utf8");
   const styles = await readFile(new URL("app/globals.css", root), "utf8");
   const navigationAssets = ["top-bar.webp", "bottom-floor.webp", "team-status-strip-v2.png"];
 
@@ -206,4 +244,14 @@ test("reuses generated navigation chrome across lobby and character selection", 
   assert.match(styles, /\.team-pick-image \{[^}]*height:calc\(100% - 6px\)[^}]*overflow:hidden/s);
   assert.match(styles, /\.team-pick-image > img \{[^}]*width:100%[^}]*height:100%[^}]*object-fit:cover/s);
   assert.match(styles, /\.class-slashes \{[^}]*width:calc\(100% - 40px\)[^}]*gap:12px/s);
+  assert.doesNotMatch(characterSelect, /select-loading|FIELD ASSETS|전장 자원 준비 중/);
+  assert.doesNotMatch(characterSelect, /출전 직업을 선택하세요|select-ready-count/);
+  assert.match(gameShell, /SELECTION_LAUNCH_DELAY_MS = 2_000/);
+  assert.match(gameShell, /selectionPreloadReadyRef\.current\) launchSelectedRun\(event\)/);
+  assert.match(gameShell, /window\.setTimeout\([\s\S]*SELECTION_LAUNCH_DELAY_MS/);
+  assert.match(gamePreloader, /GAMEPLAY_IMAGE_ASSETS\.map\(loadImage\)/);
+  assert.match(gamePreloader, /image\.decode\(\)/);
+
+  const gameCanvas = await readFile(new URL("src/game/client/GameCanvas.tsx", root), "utf8");
+  assert.doesNotMatch(gameCanvas, /game-loading|원정 준비 중|gameBridge\.on\("loading"/);
 });

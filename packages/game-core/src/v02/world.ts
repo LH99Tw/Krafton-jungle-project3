@@ -19,9 +19,15 @@ const WORLD_CORRIDOR_WIDTH = 160;
 
 export type WorldRect = Readonly<{ x: number; y: number; width: number; height: number }>;
 export type WorldWallSegment = Readonly<{ x1: number; y1: number; x2: number; y2: number }>;
+export type WalkableSpatialIndex = Readonly<{
+  rects: readonly WorldRect[];
+  cellSize: number;
+  rows: ReadonlyMap<number, ReadonlyMap<number, readonly WorldRect[]>>;
+}>;
 
 type NavigationNode = Readonly<{ x: number; y: number; column: number; row: number }>;
 const discNavigationGridCache = new WeakMap<readonly WorldRect[], Map<string, ReadonlyMap<string, NavigationNode>>>();
+const discSampleCache = new Map<number, ReadonlyArray<Readonly<{ x: number; y: number }>>>();
 
 /** Returns the outside boundary of the union of axis-aligned walkable rectangles. */
 export function boundarySegments(rects: readonly WorldRect[]): WorldWallSegment[] {
@@ -124,6 +130,37 @@ function pointInRect(x: number, y: number, rect: WorldRect): boolean {
   return x >= rect.x && x < rect.x + rect.width && y >= rect.y && y < rect.y + rect.height;
 }
 
+export function createWalkableSpatialIndex(
+  rects: readonly WorldRect[],
+  cellSize = 256,
+): WalkableSpatialIndex {
+  if (!Number.isFinite(cellSize) || cellSize <= 0) throw new RangeError("cellSize must be positive");
+  const rows = new Map<number, Map<number, WorldRect[]>>();
+  for (const rect of rects) {
+    const minColumn = Math.floor(rect.x / cellSize);
+    const maxColumn = Math.floor((rect.x + Math.max(0, rect.width - Number.EPSILON)) / cellSize);
+    const minRow = Math.floor(rect.y / cellSize);
+    const maxRow = Math.floor((rect.y + Math.max(0, rect.height - Number.EPSILON)) / cellSize);
+    for (let row = minRow; row <= maxRow; row += 1) {
+      for (let column = minColumn; column <= maxColumn; column += 1) {
+        const columns = rows.get(row) ?? new Map<number, WorldRect[]>();
+        const bucket = columns.get(column) ?? [];
+        bucket.push(rect);
+        columns.set(column, bucket);
+        rows.set(row, columns);
+      }
+    }
+  }
+  return { rects, cellSize, rows };
+}
+
+function isWalkableIndexedPoint(index: WalkableSpatialIndex, x: number, y: number): boolean {
+  const row = Math.floor(y / index.cellSize);
+  const column = Math.floor(x / index.cellSize);
+  for (const rect of index.rows.get(row)?.get(column) ?? []) if (pointInRect(x, y, rect)) return true;
+  return false;
+}
+
 /** True when the world point is on a walkable surface (room or corridor). */
 function isWalkablePoint(rects: readonly WorldRect[], x: number, y: number): boolean {
   for (const rect of rects) if (pointInRect(x, y, rect)) return true;
@@ -138,12 +175,37 @@ export function isWalkableDiscPoint(
   radius: number,
 ): boolean {
   if (!isWalkablePoint(rects, x, y)) return false;
-  const samples = Math.max(8, Math.ceil(radius * Math.PI / 6));
-  for (let index = 0; index < samples; index += 1) {
-    const angle = index * Math.PI * 2 / samples;
-    if (!isWalkablePoint(rects, x + Math.cos(angle) * radius, y + Math.sin(angle) * radius)) return false;
+  for (const sample of discSamples(radius)) {
+    if (!isWalkablePoint(rects, x + sample.x, y + sample.y)) return false;
   }
   return true;
+}
+
+/** Exact spatially-indexed equivalent of isWalkableDiscPoint. */
+export function isWalkableDiscPointIndexed(
+  index: WalkableSpatialIndex,
+  x: number,
+  y: number,
+  radius: number,
+): boolean {
+  if (!isWalkableIndexedPoint(index, x, y)) return false;
+  for (const sample of discSamples(radius)) {
+    if (!isWalkableIndexedPoint(index, x + sample.x, y + sample.y)) return false;
+  }
+  return true;
+}
+
+function discSamples(radius: number): readonly Readonly<{ x: number; y: number }>[] {
+  const samples = Math.max(8, Math.ceil(radius * Math.PI / 6));
+  const key = radius * 1_000 + samples;
+  const cached = discSampleCache.get(key);
+  if (cached) return cached;
+  const points = Array.from({ length: samples }, (_, sample) => {
+    const angle = sample * Math.PI * 2 / samples;
+    return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+  });
+  discSampleCache.set(key, points);
+  return points;
 }
 
 export function isWalkableDiscLine(
@@ -160,6 +222,28 @@ export function isWalkableDiscLine(
     const progress = step / steps;
     if (!isWalkableDiscPoint(
       rects,
+      fromX + (toX - fromX) * progress,
+      fromY + (toY - fromY) * progress,
+      radius,
+    )) return false;
+  }
+  return true;
+}
+
+export function isWalkableDiscLineIndexed(
+  index: WalkableSpatialIndex,
+  fromX: number,
+  fromY: number,
+  toX: number,
+  toY: number,
+  radius: number,
+): boolean {
+  const distance = Math.hypot(toX - fromX, toY - fromY);
+  const steps = Math.max(1, Math.ceil(distance / 8));
+  for (let step = 0; step <= steps; step += 1) {
+    const progress = step / steps;
+    if (!isWalkableDiscPointIndexed(
+      index,
       fromX + (toX - fromX) * progress,
       fromY + (toY - fromY) * progress,
       radius,
@@ -384,6 +468,35 @@ export function resolveWalkableDiscPoint(
   radius: number,
 ): Readonly<{ x: number; y: number }> {
   const walkable = (x: number, y: number): boolean => isWalkableDiscPoint(rects, x, y, radius);
+  const deltaX = desiredX - previousX;
+  const deltaY = desiredY - previousY;
+  const steps = Math.max(1, Math.ceil(Math.max(Math.abs(deltaX), Math.abs(deltaY)) / 8));
+  const stepX = deltaX / steps;
+  const stepY = deltaY / steps;
+  let x = previousX;
+  let y = previousY;
+  for (let step = 0; step < steps; step += 1) {
+    const nextX = x + stepX;
+    const nextY = y + stepY;
+    if (walkable(nextX, nextY)) { x = nextX; y = nextY; continue; }
+    let moved = false;
+    if (walkable(nextX, y)) { x = nextX; moved = true; }
+    if (walkable(x, nextY)) { y = nextY; moved = true; }
+    if (!moved) break;
+  }
+  return { x, y };
+}
+
+/** Exact spatially-indexed equivalent of resolveWalkableDiscPoint. */
+export function resolveWalkableDiscPointIndexed(
+  index: WalkableSpatialIndex,
+  desiredX: number,
+  desiredY: number,
+  previousX: number,
+  previousY: number,
+  radius: number,
+): Readonly<{ x: number; y: number }> {
+  const walkable = (x: number, y: number): boolean => isWalkableDiscPointIndexed(index, x, y, radius);
   const deltaX = desiredX - previousX;
   const deltaY = desiredY - previousY;
   const steps = Math.max(1, Math.ceil(Math.max(Math.abs(deltaX), Math.abs(deltaY)) / 8));

@@ -82,6 +82,19 @@ export type PartyMemberSnapshot = {
   attackTargetId: string;
   isLocal: boolean;
   equipment: EquipmentSummary[];
+  qCooldown?: number;
+  eCooldown?: number;
+  combatStats?: PlayerCombatStats;
+};
+
+export type PlayerCombatStats = {
+  attackDamage: number;
+  defense: number;
+  criticalChance: number;
+  criticalDamage: number;
+  attacksPerSecond: number;
+  attackRange: number;
+  moveSpeed: number;
 };
 
 export type RoomMapCell = {
@@ -228,6 +241,7 @@ export type GameSnapshot = {
   minimap: MiniMapSnapshot | null;
   explorationPercent: number;
   equipment: EquipmentSummary[];
+  combatStats: PlayerCombatStats;
   buildSupported: boolean;
   inBuildZone: boolean;
   waypoint: WaypointSnapshot;
@@ -298,6 +312,15 @@ export const EMPTY_SNAPSHOT: GameSnapshot = {
   minimap: null,
   explorationPercent: 0,
   equipment: [],
+  combatStats: {
+    attackDamage: 0,
+    defense: 0,
+    criticalChance: 0,
+    criticalDamage: 150,
+    attacksPerSecond: 0,
+    attackRange: 0,
+    moveSpeed: 0,
+  },
   buildSupported: false,
   inBuildZone: true,
   waypoint: {

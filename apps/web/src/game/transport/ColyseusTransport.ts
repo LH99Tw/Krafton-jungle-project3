@@ -47,6 +47,15 @@ type PlayerStateLike = {
   maxHp?: number;
   level?: number;
   teamPower?: number;
+  attackDamage?: number;
+  defense?: number;
+  criticalChance?: number;
+  criticalDamage?: number;
+  attacksPerSecond?: number;
+  attackRange?: number;
+  moveSpeed?: number;
+  qCooldown?: number;
+  eCooldown?: number;
   damage?: number;
   bossDamage?: number;
   kills?: number;
@@ -623,6 +632,17 @@ class ColyseusTransport {
       attackTargetId: player.attackTargetId ?? "",
       isLocal: player.userId === this.localUserId,
       equipment: equipmentSummaries(player.equipment),
+      qCooldown: player.qCooldown ?? 0,
+      eCooldown: player.eCooldown ?? 0,
+      combatStats: {
+        attackDamage: player.attackDamage ?? 0,
+        defense: player.defense ?? 0,
+        criticalChance: player.criticalChance ?? 0,
+        criticalDamage: player.criticalDamage ?? 150,
+        attacksPerSecond: player.attacksPerSecond ?? 0,
+        attackRange: player.attackRange ?? 0,
+        moveSpeed: player.moveSpeed ?? 0,
+      },
     }));
     const localRoomId = players.find((player) => player.isLocal)?.roomId ?? "";
     this.revealClientParty(players.map((player) => ({

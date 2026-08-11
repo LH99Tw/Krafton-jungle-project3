@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, type WheelEvent } from "react";
 import {
   cellIndexAt,
   computeVisibilityPolygon,
@@ -12,15 +12,23 @@ import type { MiniMapSnapshot, PartyMemberSnapshot } from "@/src/game/domain/typ
 
 const PLAYER_COLORS = ["#72e6bd", "#ff7f9f", "#85baff", "#f1ce70", "#c79cff", "#ff9f66"];
 const DYNAMIC_FRAME_MS = 1_000 / 30;
+const DEFAULT_VIEW: MiniMapView = { zoom: 1, offsetX: 0, offsetY: 0 };
 
-export function RoomMiniMap({ minimap, party, embed = false }: {
+type RoomMiniMapProps = {
   minimap: MiniMapSnapshot | null;
   party: PartyMemberSnapshot[];
   embed?: boolean;
-}) {
+};
+
+export function RoomMiniMap(props: RoomMiniMapProps) {
+  return <RoomMiniMapContent key={props.minimap?.geometry.areaId ?? "loading"} {...props} />;
+}
+
+function RoomMiniMapContent({ minimap, party, embed = false }: RoomMiniMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const positionsRef = useRef(new Map<string, { x: number; y: number }>());
   const partyRef = useRef(party);
+  const viewRef = useRef<MiniMapView>({ ...DEFAULT_VIEW });
   const percent = useMemo(() => minimap ? explorationPercent(minimap.geometry, minimap.explorationMask) : 0, [minimap]);
 
   useEffect(() => {
@@ -41,6 +49,8 @@ export function RoomMiniMap({ minimap, party, embed = false }: {
     let lastWidth = 0;
     let lastHeight = 0;
     let lastPartySignature = "";
+    let lastFocusSignature = "";
+    let lastViewSignature = "";
 
     const draw = (time: number) => {
       if (stopped) return;
@@ -54,12 +64,16 @@ export function RoomMiniMap({ minimap, party, embed = false }: {
       const width = Math.max(1, Math.round(rect.width * dpr));
       const height = Math.max(1, Math.round(rect.height * dpr));
       const currentParty = partyRef.current;
+      const focus = minimapFocus(minimap, currentParty);
+      const focusSignature = focus ? `${Math.round(focus.x / 8)}:${Math.round(focus.y / 8)}` : "full";
+      const view = viewRef.current;
+      const viewSignature = `${view.zoom.toFixed(4)}:${view.offsetX.toFixed(2)}:${view.offsetY.toFixed(2)}`;
       const partySignature = currentParty.map((member) => `${member.userId}:${member.connected ? 1 : 0}:${member.alive ? 1 : 0}:${member.roomId}:${member.x.toFixed(1)}:${member.y.toFixed(1)}`).join("|");
       const settled = currentParty.every((member) => {
         const position = positionsRef.current.get(member.userId);
         return !position || Math.hypot(member.x - position.x, member.y - position.y) < 0.25;
       });
-      if (partySignature === lastPartySignature && settled && width === lastWidth && height === lastHeight) {
+      if (partySignature === lastPartySignature && settled && width === lastWidth && height === lastHeight && focusSignature === lastFocusSignature && viewSignature === lastViewSignature) {
         frame = requestAnimationFrame(draw);
         return;
       }
@@ -68,34 +82,57 @@ export function RoomMiniMap({ minimap, party, embed = false }: {
         canvas.width = width;
         canvas.height = height;
       }
-      if (lastWidth !== width || lastHeight !== height) {
+      if (lastWidth !== width || lastHeight !== height || focusSignature !== lastFocusSignature || viewSignature !== lastViewSignature) {
         lastWidth = width;
         lastHeight = height;
+        lastFocusSignature = focusSignature;
+        lastViewSignature = viewSignature;
         staticCanvas.width = width;
         staticCanvas.height = height;
-        renderStaticMap(staticCanvas, rect.width, rect.height, dpr, minimap);
+        renderStaticMap(staticCanvas, rect.width, rect.height, dpr, minimap, focus, view);
       }
       context.setTransform(1, 0, 0, 1, 0, 0);
       context.clearRect(0, 0, width, height);
       context.drawImage(staticCanvas, 0, 0);
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
-      renderDynamicMap(context, rect.width, rect.height, minimap, currentParty, positionsRef.current, reducedMotion, wallIndex);
+      renderDynamicMap(context, rect.width, rect.height, minimap, currentParty, positionsRef.current, reducedMotion, wallIndex, focus, view);
       frame = requestAnimationFrame(draw);
     };
     frame = requestAnimationFrame(draw);
     return () => { stopped = true; cancelAnimationFrame(frame); };
   }, [minimap]);
 
+  const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
+    if (!minimap) return;
+    event.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const focus = minimapFocus(minimap, partyRef.current);
+    const current = viewRef.current;
+    const currentTransform = mapTransform(rect.width, rect.height, minimap, focus, current);
+    const baseTransform = mapTransform(rect.width, rect.height, minimap, focus, DEFAULT_VIEW);
+    const fullScale = fullMapScale(rect.width, rect.height, minimap);
+    const minimumZoom = Math.min(1, fullScale / baseTransform.scale);
+    const nextZoom = clamp(current.zoom * Math.exp(-event.deltaY * 0.0015), minimumZoom, 3);
+    if (Math.abs(nextZoom - current.zoom) < 0.0001) return;
+
+    const cursorX = event.clientX - rect.left;
+    const cursorY = event.clientY - rect.top;
+    const worldX = (cursorX - currentTransform.offsetX) / currentTransform.scale;
+    const worldY = (cursorY - currentTransform.offsetY) / currentTransform.scale;
+    const nextScale = baseTransform.scale * nextZoom;
+    const baseCenter = mapCenter(minimap, focus);
+    const nextCenterX = clamp(worldX - (cursorX - rect.width / 2) / nextScale, minimap.geometry.bounds.x, minimap.geometry.bounds.x + minimap.geometry.bounds.width);
+    const nextCenterY = clamp(worldY - (cursorY - rect.height / 2) / nextScale, minimap.geometry.bounds.y, minimap.geometry.bounds.y + minimap.geometry.bounds.height);
+    const next = { zoom: nextZoom, offsetX: nextCenterX - baseCenter.x, offsetY: nextCenterY - baseCenter.y };
+    viewRef.current = next;
+  };
+
   const content = <>
-    <div className="hud-panel-title">
-      <span>{minimap?.geometry.areaId === "official-map" ? "OFFICIAL MAP" : minimap?.geometry.areaId.replace("zone-", "ZONE ").toUpperCase() ?? "EXPEDITION"} · PARTY TRAIL</span>
-      <b>{percent >= 95 ? "탐색 완료" : `${Math.floor(percent)}%`}</b>
-    </div>
-    <div className="minimap-canvas-frame">
+    <div className="minimap-canvas-frame" onWheel={handleWheel}>
       <canvas ref={canvasRef} className="minimap-canvas" role="img" aria-label={`파티 공유 탐색 지도, ${Math.floor(percent)}% 탐색됨`} />
-      {!minimap && <span className="minimap-loading">탐색 지형 동기화 중</span>}
     </div>
-    <div className="minimap-status" aria-hidden="true"><span><i className="trail-dot" />지나온 길</span><span><i className="vision-dot" />현재 시야</span></div>
   </>;
 
   return embed ? <div className="embedded-room-map">{content}</div> : <section className="room-map hud-panel">{content}</section>;
@@ -108,12 +145,30 @@ type Transform = Readonly<{
   toCanvas: (x: number, y: number) => { x: number; y: number };
 }>;
 
-function mapTransform(width: number, height: number, minimap: MiniMapSnapshot): Transform {
+type MiniMapView = Readonly<{ zoom: number; offsetX: number; offsetY: number }>;
+
+function fullMapScale(width: number, height: number, minimap: MiniMapSnapshot): number {
   const padding = 10;
   const { bounds } = minimap.geometry;
-  const scale = Math.min((width - padding * 2) / bounds.width, (height - padding * 2) / bounds.height);
-  const offsetX = (width - bounds.width * scale) / 2 - bounds.x * scale;
-  const offsetY = (height - bounds.height * scale) / 2 - bounds.y * scale;
+  return Math.min((width - padding * 2) / bounds.width, (height - padding * 2) / bounds.height);
+}
+
+function mapCenter(minimap: MiniMapSnapshot, focus: { x: number; y: number } | null): { x: number; y: number } {
+  const { bounds } = minimap.geometry;
+  return focus ?? { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
+}
+
+function mapTransform(width: number, height: number, minimap: MiniMapSnapshot, focus: { x: number; y: number } | null = null, view: MiniMapView = DEFAULT_VIEW): Transform {
+  const fullScale = fullMapScale(width, height, minimap);
+  const baseScale = focus
+    ? Math.min(fullScale * 4, Math.max(fullScale * 2.35, Math.min(width, height) / (minimap.geometry.visionRadius * 2.4)))
+    : fullScale;
+  const scale = baseScale * view.zoom;
+  const baseCenter = mapCenter(minimap, focus);
+  const centerX = baseCenter.x + view.offsetX;
+  const centerY = baseCenter.y + view.offsetY;
+  const offsetX = width / 2 - centerX * scale;
+  const offsetY = height / 2 - centerY * scale;
   return { scale, offsetX, offsetY, toCanvas: (x, y) => ({ x: offsetX + x * scale, y: offsetY + y * scale }) };
 }
 
@@ -135,11 +190,13 @@ function renderStaticMap(
   height: number,
   dpr: number,
   minimap: MiniMapSnapshot,
+  focus: { x: number; y: number } | null,
+  view: MiniMapView,
 ): void {
   const context = canvas.getContext("2d");
   if (!context) return;
   const { geometry, explorationMask } = minimap;
-  const transform = mapTransform(width, height, minimap);
+  const transform = mapTransform(width, height, minimap, focus, view);
   context.setTransform(dpr, 0, 0, dpr, 0, 0);
   context.fillStyle = "#000";
   context.fillRect(0, 0, width, height);
@@ -180,9 +237,11 @@ function renderDynamicMap(
   positions: Map<string, { x: number; y: number }>,
   reducedMotion: boolean,
   wallIndex: ReturnType<typeof createWallSpatialIndex>,
+  focus: { x: number; y: number } | null,
+  view: MiniMapView,
 ): void {
   const { geometry } = minimap;
-  const transform = mapTransform(width, height, minimap);
+  const transform = mapTransform(width, height, minimap, focus, view);
   const visibleParty = party.filter((member) => member.connected && member.alive
     && (geometry.areaId === "editor" || areaForRoom(member.roomId) === geometry.areaId));
 
@@ -231,6 +290,13 @@ function renderDynamicMap(
   }
 }
 
+function minimapFocus(minimap: MiniMapSnapshot, party: PartyMemberSnapshot[]): { x: number; y: number } | null {
+  const eligible = party.filter((member) => member.connected && member.alive
+    && (minimap.geometry.areaId === "editor" || areaForRoom(member.roomId) === minimap.geometry.areaId));
+  const member = eligible.find((candidate) => candidate.isLocal) ?? eligible[0];
+  return member ? { x: member.x, y: member.y } : null;
+}
+
 function areaForRoom(roomId: string): string {
   if (roomId.startsWith("editor:")) return "official-map";
   if (roomId === "boss:arena") return "zone-3";
@@ -241,4 +307,8 @@ function playerColor(userId: string): string {
   let hash = 2166136261;
   for (let index = 0; index < userId.length; index += 1) hash = Math.imul(hash ^ userId.charCodeAt(index), 16777619);
   return PLAYER_COLORS[Math.abs(hash) % PLAYER_COLORS.length]!;
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
 }

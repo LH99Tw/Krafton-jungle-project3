@@ -8,6 +8,7 @@ import {
   enemyPatternConfig,
   GameCore,
   MAX_PENDING_INVADERS,
+  OFFICIAL_WORLD,
   ROOM_HEIGHT,
   ROOM_WIDTH,
   roomWorldCenter,
@@ -84,6 +85,29 @@ test("server auto attack picks the nearest enemy inside the cursor cone", () => 
   assert.equal(near.aggroed, true);
   assert.equal(far.hp, far.maxHp);
   assert.equal(outsideCone.hp, outsideCone.maxHp);
+});
+
+test("a skipped server interval advances combat clocks and resolves one bounded auto attack", () => {
+  const core = startedCore("lag-compensated-auto-attack");
+  const player = core.players.get("p1")!;
+  player.x = 100;
+  player.y = 100;
+  player.aim = 0;
+  player.autoAttackCooldown = 0.8;
+  player.qCooldown = 2;
+  const target = enemy("lag-target", player.roomId, 180, 100);
+  core.enemies.clear();
+  core.enemies.set(target.id, target);
+
+  assert.equal(core.compensateSkippedCombatTime(1), 1);
+  assert.equal(player.attackCount, 1);
+  assert.ok(target.hp < target.maxHp);
+  assert.equal(player.qCooldown, 1);
+  assert.ok(player.autoAttackCooldown > 0, "the compensated attack must restart its normal cooldown");
+
+  player.autoAttackCooldown = 0.2;
+  assert.equal(core.compensateSkippedCombatTime(30), 1);
+  assert.equal(player.attackCount, 2, "one long stall must not create an unbounded attack burst");
 });
 
 test("server attacks across an open corridor but not through the surrounding wall", () => {
@@ -744,6 +768,69 @@ test("a full 256-invader room remains bounded through a simulation tick", () => 
   assert.throws(() => core.spawnInvader(1), /Live invader limit/);
 });
 
+test("multirate invaders keep hot combat identical to the 60Hz reference", () => {
+  const create = (rates: { warmHz: number; coldHz: number }) => {
+    const core = new GameCore({
+      mode: "prototype",
+      difficulty: "normal",
+      seed: "multirate-hot",
+      minimumPlayers: 1,
+      world: OFFICIAL_WORLD,
+      invaderUpdateRates: rates,
+    });
+    const player = core.addPlayer({ userId: "hot-player", displayName: "용사", heroClass: "swordsman" });
+    core.setReady(player.userId, true);
+    player.hp = 1_000_000;
+    player.maxHp = 1_000_000;
+    const invader = core.spawnInvader(1);
+    core.movePlayerToRoom(player.userId, invader.roomId);
+    player.x = invader.x;
+    player.y = invader.y;
+    return { core, player, invader };
+  };
+  const reference = create({ warmHz: 60, coldHz: 60 });
+  const multirate = create({ warmHz: 20, coldHz: 10 });
+  let sawHot = false;
+  for (let tick = 0; tick < 180; tick += 1) {
+    reference.core.update(1 / 60);
+    multirate.core.update(1 / 60);
+    sawHot ||= multirate.core.invaderSimulationTiers.hot === 1;
+  }
+  assert.equal(multirate.player.hp, reference.player.hp);
+  assert.equal(multirate.invader.attackSequence, reference.invader.attackSequence);
+  assert.equal(sawHot, true);
+});
+
+test("cold multirate movement remains within the promised 100ms arrival error", () => {
+  const create = (rates: { warmHz: number; coldHz: number }) => {
+    const core = new GameCore({
+      mode: "prototype",
+      difficulty: "normal",
+      seed: "multirate-cold",
+      minimumPlayers: 1,
+      world: OFFICIAL_WORLD,
+      invaderUpdateRates: rates,
+    });
+    const player = core.addPlayer({ userId: "cold-player", displayName: "관찰자", heroClass: "swordsman" });
+    core.setReady(player.userId, true);
+    core.setConnected(player.userId, false);
+    return { core, invader: core.spawnInvader(1) };
+  };
+  const reference = create({ warmHz: 60, coldHz: 60 });
+  const multirate = create({ warmHz: 20, coldHz: 10 });
+  for (let tick = 0; tick < 357; tick += 1) {
+    reference.core.update(1 / 60);
+    multirate.core.update(1 / 60);
+  }
+  assert.equal(multirate.core.invaderSimulationTiers.cold, 1);
+  assert.ok(multirate.invader.transformRevision > 0);
+  assert.ok(multirate.invader.lastMoveSpeed > 0);
+  assert.ok(
+    Math.hypot(multirate.invader.x - reference.invader.x, multirate.invader.y - reference.invader.y)
+      <= reference.invader.speed * 0.1 + 0.001,
+  );
+});
+
 test("solo AI companions: defender guards base, follower is driven toward the leader", () => {
   const core = startedCore("ai-follow");
   core.addPlayer({ userId: "ai:1", displayName: "수호자", heroClass: "swordsman" });
@@ -849,5 +936,7 @@ function enemy(id: string, roomId: CoreEnemy["roomId"], x: number, y: number): C
     patternRemaining: 0,
     patternIndex: 0,
     attackSequence: 0,
+    transformRevision: 0,
+    lastMoveSpeed: 0,
   };
 }

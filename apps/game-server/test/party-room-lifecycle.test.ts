@@ -8,7 +8,7 @@ import {
   PartyRoom,
   runWithTimeoutAndRetry,
 } from "../src/party-room";
-import { PROTOCOL_VERSION, transformFlags } from "@five-days/protocol";
+import { PROTOCOL_VERSION, transformFlags, type WorldFrame } from "@five-days/protocol";
 import { PartyRoomState } from "../src/state";
 import {
   realtimeMetricsSnapshot,
@@ -110,6 +110,7 @@ test("a fresh active session wins a race against an older reserved reconnect", a
   harness.visibleEnemies = new Map();
   harness.visibleDrops = new Map();
   harness.visiblePlayerTransforms = new Map();
+  harness.clientEnemyViewRevision = new Map();
   harness.syncState = () => {
     syncCount += 1;
   };
@@ -158,6 +159,7 @@ test("a consented departure hands the existing character to server AI while a te
   harness.visibleEnemies = new Map();
   harness.visibleDrops = new Map();
   harness.visiblePlayerTransforms = new Map();
+  harness.clientEnemyViewRevision = new Map();
   harness.inputSequences = new Map([[player.userId, 4]]);
   harness.lastInputAt = new Map([[player.userId, Date.now()]]);
   harness.syncState = () => { syncCount += 1; };
@@ -197,6 +199,7 @@ test("the last consented player departure abandons and disposes the room instead
   harness.visibleEnemies = new Map();
   harness.visibleDrops = new Map();
   harness.visiblePlayerTransforms = new Map();
+  harness.clientEnemyViewRevision = new Map();
   harness.inputSequences = new Map();
   harness.lastInputAt = new Map();
   harness.syncState = () => { syncCount += 1; };
@@ -233,6 +236,7 @@ test("an expired reconnect for the last player also disposes the room", async ()
   harness.visibleEnemies = new Map();
   harness.visibleDrops = new Map();
   harness.visiblePlayerTransforms = new Map();
+  harness.clientEnemyViewRevision = new Map();
   harness.allowReconnection = async () => { throw new Error("reconnect expired"); };
   harness.syncState = () => undefined;
   harness.finalizeAndDisconnect = async () => { finalizeCalls += 1; };
@@ -289,6 +293,8 @@ test("schema sync removes retired enemies and their transform caches", () => {
   harness.visibleEnemies = new Map();
   harness.schemaRoomIds = new Map();
   harness.previousTransforms = new Map([[`enemy:${invader.id}`, { roomId: invader.roomId, x: invader.x, y: invader.y, at: 1 }]]);
+  harness.lastEnemyFramePositions = new Map();
+  harness.enemySchemaSnapshots = new Map();
   harness.lastKeyframeAt = 0;
   const syncState = (PartyRoom.prototype as unknown as { syncState(this: PartyRoom, force?: boolean): void }).syncState;
 
@@ -317,6 +323,7 @@ test("party room keeps simulation at 60Hz while schema work is limited to 10Hz",
     pendingInvaderCount: 0,
     invaderCapHitCount: 0,
     retiredInvaderCount: 0,
+    invaderSimulationTiers: { hot: 0, warm: 0, cold: 0 },
     takeNotices: () => [],
   };
   harness.simulationAccumulatorMs = 0;
@@ -351,6 +358,54 @@ test("party room keeps simulation at 60Hz while schema work is limited to 10Hz",
   assert.equal(syncs, 1);
   assert.equal(viewUpdates, 1);
   removeRoomInvaderMetrics("schema-rate-test");
+});
+
+test("a delayed room tick compensates skipped combat time without replaying unlimited simulation ticks", () => {
+  const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
+  let updates = 0;
+  const compensated: number[] = [];
+  const executionOrder: string[] = [];
+  Object.defineProperty(harness, "roomId", { value: "lag-compensation-test" });
+  harness.core = {
+    phase: "day",
+    players: new Map(),
+    update: () => { updates += 1; executionOrder.push("simulation"); },
+    compensateSkippedCombatTime: (delta: number) => { compensated.push(delta); executionOrder.push("combat"); return 1; },
+    liveInvaderCount: 0,
+    pendingInvaderCount: 0,
+    invaderCapHitCount: 0,
+    retiredInvaderCount: 0,
+    invaderSimulationTiers: { hot: 0, warm: 0, cold: 0 },
+    takeNotices: () => [],
+  };
+  harness.clients = [];
+  harness.simulationAccumulatorMs = 0;
+  harness.schemaSyncAccumulatorMs = 0;
+  harness.explorationAccumulatorMs = 0;
+  harness.serverTick = 0;
+  harness.createdAt = Date.now();
+  harness.gameplayLocked = true;
+  harness.resultBroadcast = false;
+  harness.shutdownStarted = false;
+  harness.exploration = {
+    update: () => undefined,
+    takeGeometryUpdates: () => [],
+    flush: () => [],
+  };
+  harness.expireStaleInputs = () => undefined;
+  harness.syncState = () => undefined;
+  harness.updateClientViews = () => undefined;
+  harness.emitWorldFrames = () => undefined;
+  harness.broadcast = () => undefined;
+  const simulate = (PartyRoom.prototype as unknown as { simulate(this: PartyRoom, deltaMs: number): void }).simulate;
+
+  simulate.call(harness as unknown as PartyRoom, 1_000);
+
+  assert.equal(updates, 4);
+  assert.equal(compensated.length, 1);
+  assert.equal(executionOrder[0], "combat", "lag compensation must resolve combat before movement and enemy AI");
+  assert.ok(Math.abs(compensated[0]! - 14 / 15) < 0.0001, "the omitted 56 ticks must advance combat clocks");
+  removeRoomInvaderMetrics("lag-compensation-test");
 });
 
 test("realtime metrics expose bounded invader population and lifecycle counters", () => {
@@ -394,6 +449,41 @@ test("crossing into a connected room keeps a continuous transform while a real t
   const teleport = transformSample.call(harness as unknown as PartyRoom, "enemy:e1", "e1", "base", 500, 500, 0, 1_066);
   assert.equal(teleport.flags, transformFlags.discontinuity);
   assert.equal(teleport.vx, 0);
+});
+
+test("world frames send enemy deltas and recover with a one-second keyframe", () => {
+  const frames: WorldFrame[] = [];
+  const player = { userId: "viewer", roomId: "room-a", x: 10, y: 10, aim: 0 };
+  const enemy = { id: "enemy-1", roomId: "room-a", x: 20, y: 20 };
+  const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
+  harness.core = {
+    players: new Map([[player.userId, player]]),
+    enemies: new Map([[enemy.id, enemy]]),
+    discoveredRooms: new Set([enemy.roomId]),
+  };
+  harness.clients = [{
+    sessionId: "session-1",
+    userData: { userId: player.userId },
+    send: (type: string, frame: WorldFrame) => { if (type === "world.frame") frames.push(frame); },
+  }];
+  harness.inputSequences = new Map();
+  harness.previousTransforms = new Map();
+  harness.lastEnemyFramePositions = new Map();
+  harness.websocketSizeSamples = 0;
+  harness.lastWebsocketFrameBytes = 0;
+  harness.aoiRooms = () => new Set(["room-a"]);
+  const emit = (PartyRoom.prototype as unknown as { emitWorldFrames(this: PartyRoom): void }).emitWorldFrames;
+
+  harness.serverTick = 2;
+  emit.call(harness as unknown as PartyRoom);
+  harness.serverTick = 4;
+  emit.call(harness as unknown as PartyRoom);
+  harness.serverTick = 60;
+  emit.call(harness as unknown as PartyRoom);
+
+  assert.equal(frames[0]?.enemies.length, 1);
+  assert.equal(frames[1]?.enemies.length, 0);
+  assert.equal(frames[2]?.enemies.length, 1);
 });
 
 test("unreliable input sequence does not reject a reliable command", () => {

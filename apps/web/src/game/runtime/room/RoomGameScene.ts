@@ -1780,6 +1780,17 @@ export class RoomGameScene extends Phaser.Scene {
       minimap,
       explorationPercent: explored,
       equipment: equipped,
+      combatStats: {
+        attackDamage: this.effectiveAttack(),
+        defense: this.effectiveDefense(),
+        criticalChance: (this.progression.stacks.get("precision") ?? 0) * 6,
+        criticalDamage: 150 + (this.progression.stacks.get("ferocity") ?? 0) * 20,
+        attacksPerSecond: 1_000 / this.effectiveAttackInterval(),
+        attackRange: this.progression.has("swordsman-blade")
+          ? Math.max(240, this.progression.stats.attackRange)
+          : this.progression.stats.attackRange,
+        moveSpeed: this.progression.stats.moveSpeed,
+      },
       buildSupported: true,
       inBuildZone: this.isLocalBuildRoom() && isInsideBuildBounds(this.player.x, this.player.y),
       waypoint: {
@@ -1849,8 +1860,8 @@ export class RoomGameScene extends Phaser.Scene {
       teamPower: state?.players.reduce((sum, member) => sum + member.teamPower, 0) ?? 0,
       gatesDestroyed: shared.gatesDestroyed,
       buildMode: this.buildMode,
-      qCooldown: 0,
-      eCooldown: 0,
+      qCooldown: local?.qCooldown ?? 0,
+      eCooldown: local?.eCooldown ?? 0,
       dashCooldown: 0,
       bossAvailable: currentRoom?.type === "gate" && currentRoom.zone === 3 && currentRoom.cleared,
       bossHp: boss?.hp ?? null,
@@ -1866,6 +1877,15 @@ export class RoomGameScene extends Phaser.Scene {
       minimap: state?.minimap ?? null,
       explorationPercent: state?.minimap ? calculateExplorationPercent(state.minimap.geometry, state.minimap.explorationMask) : 0,
       equipment: local?.equipment ?? [],
+      combatStats: local?.combatStats ?? {
+        attackDamage: CLASS_DEFINITIONS[this.options.heroClass].stats.attack,
+        defense: CLASS_DEFINITIONS[this.options.heroClass].stats.defense,
+        criticalChance: 0,
+        criticalDamage: 150,
+        attacksPerSecond: 1_000 / CLASS_DEFINITIONS[this.options.heroClass].stats.attackIntervalMs,
+        attackRange: CLASS_DEFINITIONS[this.options.heroClass].stats.attackRange,
+        moveSpeed: CLASS_DEFINITIONS[this.options.heroClass].stats.moveSpeed,
+      },
       buildSupported: false,
       inBuildZone: false,
       waypoint: {
