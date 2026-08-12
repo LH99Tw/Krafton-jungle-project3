@@ -631,6 +631,20 @@ export class GameCore {
     const damage = Math.max(1, Math.round(rawDamage ?? this.calculateAttackDamage(player, enemy)));
     enemy.hp = Math.max(0, enemy.hp - damage);
     enemy.lastHitBy = userId;
+    if (enemy.kind === "static" || enemy.kind === "invader") {
+      const angle = Math.atan2(enemy.y - player.y, enemy.x - player.x);
+      const knockbackDistance = 32;
+      const roomRect = this.roomRectOf(enemy.roomId);
+      if (roomRect) {
+        const targetX = enemy.x + Math.cos(angle) * knockbackDistance;
+        const targetY = enemy.y + Math.sin(angle) * knockbackDistance;
+        enemy.x = Math.max(roomRect.x + 20, Math.min(roomRect.x + roomRect.width - 20, targetX));
+        enemy.y = Math.max(roomRect.y + 20, Math.min(roomRect.y + roomRect.height - 20, targetY));
+      } else {
+        enemy.x += Math.cos(angle) * knockbackDistance;
+        enemy.y += Math.sin(angle) * knockbackDistance;
+      }
+    }
     if (enemy.behavior !== "invader") {
       this.addEnemyThreat(enemy.id, userId, ENEMY_AGGRO_DAMAGE_BASE + damage * ENEMY_AGGRO_DAMAGE_MULTIPLIER);
       enemy.aggroed = true;
