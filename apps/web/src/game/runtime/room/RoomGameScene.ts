@@ -929,7 +929,7 @@ export class RoomGameScene extends Phaser.Scene {
     const cx = entry?.center.x ?? 0;
     const cy = entry?.center.y ?? 0;
     if (room.type === "static-monster") {
-      const count = 2 + room.zone;
+      const count = Math.max(1, Math.round((2 + room.zone) / 3));
       for (let index = 0; index < count; index += 1) {
         const angle = (Math.PI * 2 * index) / count;
         this.spawnEnemy("static", cx + Math.cos(angle) * 155, cy + Math.sin(angle) * 115, room.zone);
@@ -958,8 +958,8 @@ export class RoomGameScene extends Phaser.Scene {
         : kind === "boss"
           ? { hp: 950, damage: 28, speed: 0, xp: 0, gold: 0 }
           : kind === "invader"
-            ? { hp: 28, damage: 9, speed: MONSTER_MOVE_SPEED, xp: 7, gold: 5 }
-            : { hp: 24, damage: 8, speed: MONSTER_MOVE_SPEED, xp: 8, gold: 6 };
+            ? { hp: 56, damage: 9, speed: MONSTER_MOVE_SPEED, xp: 7, gold: 5 }
+            : { hp: 48, damage: 8, speed: MONSTER_MOVE_SPEED, xp: 8, gold: 6 };
     const maxHp = Math.round(base.hp * zoneScale * this.difficulty.enemyHp);
     const enemy: LocalEnemy = {
       id: `${this.currentRoomId}:${kind}:${this.attackCounter++}`,
@@ -1548,6 +1548,22 @@ export class RoomGameScene extends Phaser.Scene {
     if (enemy.kind === "boss") this.stats.bossDamage += damage;
     enemy.sprite.setTintFill(0xffffff);
     this.time.delayedCall(55, () => enemy.sprite.active && enemy.sprite.clearTint());
+
+    // Basic mob hit knockback (1/3 mob count compensation)
+    if (enemy.kind === "static" || enemy.kind === "invader") {
+      const angle = Phaser.Math.Angle.Between(this.player.x, this.player.y, enemy.sprite.x, enemy.sprite.y);
+      const knockbackDistance = 32;
+      const anchor = this.lastWalkableEnemyPositions.get(enemy.id) ?? { x: enemy.sprite.x, y: enemy.sprite.y };
+      const fromX = enemy.sprite.x;
+      const fromY = enemy.sprite.y;
+      const targetX = enemy.sprite.x + Math.cos(angle) * knockbackDistance;
+      const targetY = enemy.sprite.y + Math.sin(angle) * knockbackDistance;
+      const clamped = clampToWalkable(this.zoneWorld.walkable, targetX, targetY, anchor.x, anchor.y, ENEMY_COLLISION_RADIUS);
+      enemy.sprite.setPosition(clamped.x, clamped.y);
+      this.lastWalkableEnemyPositions.set(enemy.id, clamped);
+      this.roomRenderer.showKnockbackEffect(enemy.sprite, fromX, fromY, clamped.x, clamped.y);
+    }
+
     this.updateLocalEnemyHpBar(enemy);
     if (enemy.hp <= 0) this.killEnemy(enemy);
   }

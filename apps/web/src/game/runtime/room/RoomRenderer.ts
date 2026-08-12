@@ -1467,6 +1467,42 @@ export class RoomRenderer {
     this.scene.tweens.add({ targets: impact, radius, alpha: 0, duration: 230, onComplete: () => impact.destroy() });
   }
 
+  showKnockbackEffect(sprite: Phaser.GameObjects.Sprite, fromX: number, fromY: number, toX: number, toY: number): void {
+    if (!sprite.active) return;
+    const ring = this.scene.add.circle(toX, toY, 8, 0xffbb33, 0.4)
+      .setStrokeStyle(3, 0xffea88, 0.95)
+      .setDepth(33);
+    this.scene.tweens.add({
+      targets: ring,
+      radius: 36,
+      alpha: 0,
+      duration: 180,
+      ease: "Quad.easeOut",
+      onComplete: () => ring.destroy(),
+    });
+
+    const line = this.scene.add.graphics().setDepth(32);
+    line.lineStyle(3, 0xffdd66, 0.85);
+    line.lineBetween(fromX, fromY, toX, toY);
+    this.scene.tweens.add({
+      targets: line,
+      alpha: 0,
+      duration: 140,
+      onComplete: () => line.destroy(),
+    });
+
+    const baseScaleX = sprite.scaleX;
+    const baseScaleY = sprite.scaleY;
+    this.scene.tweens.add({
+      targets: sprite,
+      scaleX: baseScaleX * 1.22,
+      scaleY: baseScaleY * 0.78,
+      duration: 65,
+      yoyo: true,
+      ease: "Quad.easeOut",
+    });
+  }
+
   private showCriticalImpact(x: number, y: number, color: number): void {
     const flash = this.scene.add.star(x, y, 8, 8, 25, color, 0.92)
       .setBlendMode(Phaser.BlendModes.ADD)
