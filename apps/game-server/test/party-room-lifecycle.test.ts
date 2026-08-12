@@ -303,6 +303,18 @@ test("input lease stops movement after a lost key-up frame", () => {
   assert.equal(player.inputY, 0);
 });
 
+test("input lease tolerates a short room-reveal rendering hitch", () => {
+  const player = { userId: "user-1", inputX: 1, inputY: 0 };
+  const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
+  harness.core = { players: new Map([[player.userId, player]]) };
+  harness.lastInputAt = new Map([[player.userId, 1_000]]);
+  const expire = (PartyRoom.prototype as unknown as {
+    expireStaleInputs(this: PartyRoom, now: number): void;
+  }).expireStaleInputs;
+  expire.call(harness as unknown as PartyRoom, 1_200);
+  assert.equal(player.inputX, 1);
+});
+
 test("schema sync removes retired enemies and their transform caches", () => {
   const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "schema-retirement", minimumPlayers: 1 });
   const invader = core.spawnInvader(1);

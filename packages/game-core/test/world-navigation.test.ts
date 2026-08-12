@@ -60,6 +60,57 @@ test("disc pathfinding routes a distant follower around an L-shaped wall", () =>
   assert.ok(Math.hypot(target.x - position.x, target.y - position.y) <= 4);
 });
 
+test("hidden-enemy navigation caches a leash-local slice of the official map", () => {
+  const core = new GameCore({
+    mode: "prototype",
+    difficulty: "normal",
+    seed: "hidden-local-navigation",
+    minimumPlayers: 1,
+    world: OFFICIAL_WORLD,
+  });
+  const hidden = [...core.enemies.values()].find((enemy) => enemy.kind === "hidden");
+  assert.ok(hidden);
+  const localWalkable = (core as unknown as {
+    hiddenNavigationWalkable(enemy: typeof hidden): readonly WorldRect[];
+  }).hiddenNavigationWalkable(hidden);
+  const cachedWalkable = (core as unknown as {
+    hiddenNavigationWalkable(enemy: typeof hidden): readonly WorldRect[];
+  }).hiddenNavigationWalkable(hidden);
+
+  assert.strictEqual(cachedWalkable, localWalkable, "the A* navigation grid must be reusable across ticks");
+  assert.ok(localWalkable.length > 0);
+  assert.ok(localWalkable.length < OFFICIAL_WORLD.walkable.length / 2, "hidden A* must not span the full official map");
+});
+
+test("entering Zone 1 room 3,68 does not stall the shared simulation", () => {
+  const core = new GameCore({
+    mode: "prototype",
+    difficulty: "normal",
+    seed: "zone-1-3-68",
+    minimumPlayers: 1,
+    world: OFFICIAL_WORLD,
+  });
+  const first = core.addPlayer({ userId: "p1", displayName: "선두", heroClass: "swordsman" });
+  const second = core.addPlayer({ userId: "p2", displayName: "후방", heroClass: "archer" });
+  core.setReady(first.userId, true);
+  core.setReady(second.userId, true);
+  core.movePlayerToRoom(first.userId, "editor:z1-hex-31");
+  const neighboringHidden = [...core.enemies.values()].find((enemy) => enemy.roomId === "editor:z1-hex-25" && enemy.kind === "hidden");
+  assert.ok(neighboringHidden, "Zone 1 3,68 must retain its neighboring hidden-monster encounter");
+  first.x = neighboringHidden.x;
+  first.y = neighboringHidden.y + 100;
+  first.roomId = "editor:z1-hex-31";
+  const before = second.x;
+  second.inputX = 1;
+
+  const startedAt = performance.now();
+  core.update(1 / 60);
+  const updateMs = performance.now() - startedAt;
+
+  assert.ok(second.x > before, "another player must continue moving when the hidden enemy wakes");
+  assert.ok(updateMs < 250, `shared simulation tick took ${updateMs.toFixed(1)}ms`);
+});
+
 test("a defeated AI follower respawns at base and follows one recovery path back to its leader", () => {
   const startRoomId = "editor:start" as const;
   const targetRoomId = "editor:target" as const;

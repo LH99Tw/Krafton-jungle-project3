@@ -78,7 +78,10 @@ const SIMULATION_STEP_MS = 1000 / 60;
 const WORLD_FRAME_INTERVAL_TICKS = 2;
 const SCHEMA_SYNC_INTERVAL_MS = 100;
 const MINIMAP_GEOMETRY_REFRESH_MS = 500;
-export const INPUT_LEASE_MS = 100;
+// A room reveal can briefly occupy the browser main thread while it refreshes
+// minimap and entity state. Keep the lease long enough to bridge that hitch;
+// explicit zero-input frames still stop movement immediately on key-up.
+export const INPUT_LEASE_MS = 300;
 const MAX_CATCH_UP_TICKS = 4;
 const KEYFRAME_INTERVAL_MS = 500;
 const DISCONTINUITY_DISTANCE = 96;

@@ -70,6 +70,7 @@ const ENEMY_AGGRO_SWITCH_MARGIN = 5;
 const HIDDEN_ACQUIRE_DISTANCE = 560;
 const HIDDEN_LEASH_DISTANCE = 900;
 const HIDDEN_RETURN_COMPLETE_DISTANCE = 10;
+const HIDDEN_NAVIGATION_PADDING = 160;
 const AUTHORED_MAP_TILE_WIDTH = 320;
 const AUTHORED_MAP_TILE_HEIGHT = 220;
 
@@ -134,6 +135,7 @@ export class GameCore {
   private readonly noticeCooldowns = new Map<string, number>();
   private readonly trapEnemyRooms = new Map<string, CoreRoomId>();
   private readonly returningHiddenEnemies = new Set<string>();
+  private readonly hiddenNavigationWalkableByEnemy = new Map<string, readonly WorldRect[]>();
 
   constructor(readonly options: GameCoreOptions) {
     this.minimumPlayers = options.minimumPlayers ?? 3;
@@ -2087,8 +2089,35 @@ export class GameCore {
     if (current?.alive && Math.hypot(current.x - enemy.spawnX, current.y - enemy.spawnY) <= HIDDEN_LEASH_DISTANCE) return current;
     if (this.returningHiddenEnemies.has(enemy.id)) return null;
     return ([...this.players.values()]
-      .filter((player) => player.alive && Math.hypot(player.x - enemy.x, player.y - enemy.y) <= HIDDEN_ACQUIRE_DISTANCE)
+      .filter((player) => player.alive
+        && Math.hypot(player.x - enemy.x, player.y - enemy.y) <= HIDDEN_ACQUIRE_DISTANCE
+        && Math.hypot(player.x - enemy.spawnX, player.y - enemy.spawnY) <= HIDDEN_LEASH_DISTANCE)
       .sort((left, right) => Math.hypot(left.x - enemy.x, left.y - enemy.y) - Math.hypot(right.x - enemy.x, right.y - enemy.y)))[0] ?? null;
+  }
+
+  /**
+   * Hidden enemies never pursue outside their leash. Building A* over the full
+   * authored map (roughly 10k x 18k in the official world) stalls the shared
+   * room simulation when the first hidden enemy wakes up. Keep one stable,
+   * cacheable walkable set around each spawn room instead.
+   */
+  private hiddenNavigationWalkable(enemy: CoreEnemy): readonly WorldRect[] {
+    if (!this.authoredWorld) return [];
+    const cached = this.hiddenNavigationWalkableByEnemy.get(enemy.id);
+    if (cached) return cached;
+    const reach = HIDDEN_LEASH_DISTANCE + ACTOR_COLLISION_RADIUS + HIDDEN_NAVIGATION_PADDING;
+    const minX = enemy.spawnX - reach;
+    const minY = enemy.spawnY - reach;
+    const maxX = enemy.spawnX + reach;
+    const maxY = enemy.spawnY + reach;
+    const walkable = this.authoredWalkable().filter((rect) => (
+      rect.x <= maxX
+      && rect.x + rect.width >= minX
+      && rect.y <= maxY
+      && rect.y + rect.height >= minY
+    ));
+    this.hiddenNavigationWalkableByEnemy.set(enemy.id, walkable);
+    return walkable;
   }
 
   private moveHiddenToward(enemy: CoreEnemy, x: number, y: number, delta: number): void {
@@ -2105,7 +2134,7 @@ export class GameCore {
       this.markEnemyTransform(enemy, previousX, previousY, previousRoomId, delta);
       return;
     }
-    const walkable = this.authoredWalkable();
+    const walkable = this.hiddenNavigationWalkable(enemy);
     const path = findWalkableDiscPath(walkable, enemy, { x, y }, ACTOR_COLLISION_RADIUS, 48, 2_000);
     const destination = path?.[0] ?? { x, y };
     this.moveEnemyToward(enemy, destination.x, destination.y, delta, false);
