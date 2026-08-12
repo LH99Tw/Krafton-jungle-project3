@@ -7,7 +7,7 @@ import type {
   UpgradeChoice,
   UpgradeId,
 } from "../domain/types";
-import type { CombatAttackEvent, InputFrame, WorldFrame } from "@five-days/protocol";
+import type { CombatActionEvent, InputFrame, WorldFrame } from "@five-days/protocol";
 
 type BridgeEvents = {
   snapshot: GameSnapshot;
@@ -19,7 +19,7 @@ type BridgeEvents = {
   network: NetworkWorldSnapshot;
   worldFrame: WorldFrame;
   localInput: InputFrame;
-  combatAttack: CombatAttackEvent;
+  combatAction: CombatActionEvent;
 };
 
 type BridgeEventName = keyof BridgeEvents;

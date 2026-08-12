@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { useEffect, useState } from "react";
 import type { EquipmentSummary, GameSnapshot, HeroClassId, PartyMemberSnapshot } from "@/src/game/domain/types";
 import { UpgradeDraft } from "./UpgradeDraft";
@@ -48,6 +49,7 @@ export function GameHud({
       ready: true,
       connected: true,
       alive: snapshot.hp > 0,
+      respawnRemaining: 0,
       roomId: snapshot.currentRoomId,
       x: 0,
       y: 0,
@@ -102,7 +104,7 @@ export function GameHud({
 
       <ExplorationHud snapshot={snapshot} />
 
-      <div className="hud-message" aria-live="polite"><span />{snapshot.message}</div>
+      {snapshot.message.trim() && <HudMessage key={snapshot.message} message={snapshot.message.trim()} />}
 
       {snapshot.bossHp !== null && snapshot.bossMaxHp !== null && (
         <div className="boss-health">
@@ -121,15 +123,34 @@ export function GameHud({
       {settingsOpen && !terminal && (
         <div className="modal-backdrop game-settings-backdrop" role="dialog" aria-modal="true" aria-labelledby="game-settings-title">
           <section className="game-settings-modal">
+            <Image className="game-settings-panel-art" src="/images/ui/result-screen/settings-panel.png" width={934} height={1550} alt="" aria-hidden="true" priority />
             <span>EXPEDITION MENU · ESC</span>
             <h2 id="game-settings-title">원정 설정</h2>
             <p>전투는 계속 진행됩니다. 퇴장하면 현재 캐릭터의 장비와 능력치를 이어받은 AI가 원정에 참전합니다.</p>
-            <button type="button" onClick={onExit}>게임 로비로 나가기</button>
+            <button type="button" className="game-settings-exit" onClick={onExit}>
+              <span>게임 로비로 나가기</span>
+            </button>
           </section>
         </div>
       )}
 
       <UpgradeDraft key={upgradeChoices.map((choice) => choice.id).join("|") || "no-upgrade"} choices={upgradeChoices} onChoose={onChoose} />
+    </div>
+  );
+}
+
+function HudMessage({ message }: { message: string }) {
+  const [visible, setVisible] = useState(true);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setVisible(false), 3000);
+    return () => window.clearTimeout(timeout);
+  }, []);
+
+  if (!visible) return null;
+  return (
+    <div className="hud-message" role="status" aria-live="polite" aria-atomic="true">
+      <span aria-hidden="true" />{message}
     </div>
   );
 }

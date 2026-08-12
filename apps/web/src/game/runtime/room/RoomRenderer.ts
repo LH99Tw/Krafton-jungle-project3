@@ -3,6 +3,7 @@ import { enemyFanPatternAngles, enemyFloorPatternCircles, enemyPatternConfig, ty
 import { CLASS_DEFINITIONS } from "../../content/classes";
 import type { HeroClassId } from "../../domain/types";
 import { createGameTextures } from "../../client/render/createTextures";
+import { combatSoundKey, type CombatSoundAction } from "../../client/audio/combatSounds";
 import {
   BASIC_ATTACK_SPRITES,
   SWORDSMAN_SLASH_DIRECTIONS,
@@ -72,6 +73,9 @@ export class RoomRenderer {
   private roomMasks: Phaser.Display.Masks.GeometryMask[] = [];
   private readonly enemyPatternObjects = new Map<string, { key: string; graphics: Phaser.GameObjects.Graphics }>();
   private readonly networkEnemyPool = new Map<EnemyKind, Phaser.GameObjects.Sprite[]>();
+  private progressionBarrierObjects: Phaser.GameObjects.GameObject[] = [];
+  private progressionBarrierTweens: Phaser.Tweens.Tween[] = [];
+  private progressionBarrierKey = "";
   private crosshair!: Phaser.GameObjects.Image;
 
   constructor(private readonly scene: Phaser.Scene) {}
@@ -187,6 +191,29 @@ export class RoomRenderer {
           backgroundColor: "#13211dcc",
           padding: { x: 7, y: 4 },
         }).setOrigin(0.5).setDepth(3),
+      );
+    }
+  }
+
+  updateProgressionBarriers(barriers: readonly Readonly<{ x: number; y: number; width: number; height: number }>[]): void {
+    const key = barriers.map((barrier) => `${barrier.x}:${barrier.y}:${barrier.width}:${barrier.height}`).join("|");
+    if (key === this.progressionBarrierKey) return;
+    this.progressionBarrierKey = key;
+    for (const tween of this.progressionBarrierTweens) tween.remove();
+    for (const object of this.progressionBarrierObjects) object.destroy();
+    this.progressionBarrierTweens = [];
+    this.progressionBarrierObjects = [];
+    for (const barrier of barriers) {
+      const glow = this.scene.add.rectangle(barrier.x, barrier.y, barrier.width + 18, barrier.height + 18, 0x75ddff, 0.12)
+        .setBlendMode(Phaser.BlendModes.ADD).setDepth(24);
+      const field = this.scene.add.rectangle(barrier.x, barrier.y, barrier.width, barrier.height, 0x83e4ff, 0.34)
+        .setStrokeStyle(3, 0xc8f5ff, 0.92).setBlendMode(Phaser.BlendModes.ADD).setDepth(25);
+      const core = this.scene.add.rectangle(barrier.x, barrier.y, Math.max(3, barrier.width * 0.18), Math.max(3, barrier.height * 0.18), 0xe8fbff, 0.82)
+        .setBlendMode(Phaser.BlendModes.ADD).setDepth(26);
+      this.progressionBarrierObjects.push(glow, field, core);
+      this.progressionBarrierTweens.push(
+        this.scene.tweens.add({ targets: glow, alpha: { from: 0.08, to: 0.3 }, scaleX: { from: 0.96, to: 1.08 }, scaleY: { from: 0.96, to: 1.08 }, duration: 720, yoyo: true, repeat: -1, ease: "Sine.easeInOut" }),
+        this.scene.tweens.add({ targets: core, alpha: { from: 0.35, to: 0.95 }, duration: 430, yoyo: true, repeat: -1, ease: "Sine.easeInOut" }),
       );
     }
   }
@@ -690,6 +717,7 @@ export class RoomRenderer {
     aimAngle?: number,
     critical = false,
   ): void {
+    this.playCombatSound(classId, "basic", attacker.x, attacker.y);
     const color = classColor(classId);
     const effectColor = critical ? CRITICAL_ATTACK_COLORS[classId] : color;
     const targetAngle = Phaser.Math.Angle.Between(attacker.x, attacker.y, targetX, targetY);
@@ -781,6 +809,7 @@ export class RoomRenderer {
   }
 
   showAutoSkill(classId: HeroClassId, skillId: "q" | "e", attacker: Phaser.GameObjects.Sprite, targetX: number, targetY: number, radius: number): void {
+    this.playCombatSound(classId, skillId, attacker.x, attacker.y);
     const color = classColor(classId);
     const angle = Phaser.Math.Angle.Between(attacker.x, attacker.y, targetX, targetY);
     attacker.setData("attackPoseUntil", this.scene.time.now + 180);
@@ -816,6 +845,19 @@ export class RoomRenderer {
       this.scene.tweens.add({ targets: rune, scale: 2.1, angle: 180, alpha: 0, duration: 460, onComplete: () => rune.destroy() });
       this.showImpact(targetX, targetY, radius, color);
     }
+  }
+
+  private playCombatSound(classId: HeroClassId, action: CombatSoundAction, x: number, y: number): void {
+    const camera = this.scene.cameras.main;
+    const distance = Phaser.Math.Distance.Between(camera.midPoint.x, camera.midPoint.y, x, y);
+    const audibleRadius = Math.max(camera.width, camera.height) * 0.85;
+    if (distance > audibleRadius) return;
+    const baseVolume = action === "basic" ? 0.34 : 0.5;
+    const distanceScale = Phaser.Math.Clamp(1 - distance / audibleRadius, 0.22, 1);
+    this.scene.sound.play(combatSoundKey(classId, action), {
+      volume: baseVolume * distanceScale,
+      rate: Phaser.Math.FloatBetween(0.96, 1.04),
+    });
   }
 
   showDodge(sprite: Phaser.GameObjects.Sprite, targetX: number, targetY: number): void {

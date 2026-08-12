@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { clampEditorPort, cloneEditorMap, DEFAULT_EDITOR_MAP, validateEditorMap, type EditorMapDefinition } from "../src/game/domain/mapEditor";
-import { buildEditorGeometry, editorRoomPort } from "../src/game/domain/editorGeometry";
+import { buildEditorConnectionRoute, buildEditorGeometry, editorRoomPort } from "../src/game/domain/editorGeometry";
 import { editorViewBox, fitEditorViewport, panEditorViewport, zoomEditorViewportAt } from "../src/game/domain/editorViewport";
 import { buildEditorRenderWorld, clampToWalkable, clipWalkableLine, isWalkableDisc, wallEnvelopeRects } from "../src/game/runtime/room/layout";
 import { GameCore } from "@five-days/game-core";
@@ -268,6 +268,23 @@ test("explicit ports anchor the route exactly and shorten a corner-facing corrid
   assert.deepEqual(route.points[0], { x: start.door.x * 50, y: start.door.y * 50 });
   assert.deepEqual(route.points.at(-1), { x: end.door.x * 50, y: end.door.y * 50 });
   assert.ok(route.length < legacy.length);
+});
+
+test("incremental corridor preview matches a full rebuild for an appended connection", () => {
+  const map = cloneEditorMap(DEFAULT_EDITOR_MAP);
+  const scale = { cellWidth: 50, cellHeight: 50, corridorWidth: 24 };
+  const existing = buildEditorGeometry(map, scale);
+  const connection = {
+    id: "path-incremental",
+    from: map.rooms[0]!.id,
+    to: map.rooms.at(-1)!.id,
+    fromPort: { side: "north" as const, offset: 0 },
+    toPort: { side: "south" as const, offset: 0 },
+  };
+  const candidate = { ...map, connections: [...map.connections, connection] };
+  const incremental = buildEditorConnectionRoute(candidate, connection, scale, existing);
+  const rebuilt = buildEditorGeometry(candidate, scale).routes.find((route) => route.connectionId === connection.id) ?? null;
+  assert.deepEqual(incremental, rebuilt);
 });
 
 test("port offsets clamp after a room is shrunk and malformed ports are rejected", () => {

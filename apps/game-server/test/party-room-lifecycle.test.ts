@@ -347,7 +347,8 @@ test("party room keeps simulation at 60Hz while schema work is limited to 10Hz",
     invaderSimulationTiers: { hot: 0, warm: 0, cold: 0 },
     invaderWorkMetrics: { microSpawned: 0, pendingReplans: 0, completedReplans: 0, oldestPendingWaveSeconds: 0, combatAttackEvents: 0, compensatedAttacks: 0 },
     takeNotices: () => [],
-    takeCombatAttackEvents: () => [],
+    takeCombatActionEvents: () => [],
+    setInvaderSchedulerEnabled: () => {},
   };
   harness.simulationAccumulatorMs = 0;
   harness.schemaSyncAccumulatorMs = 0;
@@ -401,7 +402,8 @@ test("a delayed room tick compensates skipped combat time without replaying unli
     invaderSimulationTiers: { hot: 0, warm: 0, cold: 0 },
     invaderWorkMetrics: { microSpawned: 0, pendingReplans: 0, completedReplans: 0, oldestPendingWaveSeconds: 0, combatAttackEvents: 0, compensatedAttacks: 1 },
     takeNotices: () => [],
-    takeCombatAttackEvents: () => [],
+    takeCombatActionEvents: () => [],
+    setInvaderSchedulerEnabled: () => {},
   };
   harness.clients = [];
   harness.simulationAccumulatorMs = 0;

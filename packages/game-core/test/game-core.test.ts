@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { PROTOCOL_VERSION } from "@five-days/protocol";
+import { NIGHT_ATTACK_RANGE_MULTIPLIER, PROTOCOL_VERSION } from "@five-days/protocol";
 import { GameCore } from "../src/index";
 
 test("starts when all required players are ready and rejects duplicate input", () => {
@@ -27,6 +27,17 @@ test("advances day phases deterministically", () => {
   core.setReady("u1", true);
   for (let index = 0; index < 601; index += 1) core.update(0.1);
   assert.equal(core.phase, "night");
+});
+
+test("night reduces the authoritative player attack range", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "night-range", minimumPlayers: 1 });
+  core.addPlayer({ userId: "u1", displayName: "궁수", heroClass: "archer" });
+  core.setReady("u1", true);
+  const dayRange = core.combatStats("u1")!.attackRange;
+
+  core.phase = "night";
+
+  assert.equal(core.combatStats("u1")!.attackRange, dayRange * NIGHT_ATTACK_RANGE_MULTIPLIER);
 });
 
 test("starts a solo expedition when the lobby fills empty slots with AI", () => {

@@ -50,6 +50,7 @@ import {
   unregisterConnection,
 } from "./security";
 import { consumeGameTicketNonce } from "@five-days/db/repositories";
+import { schedulerRollout } from "./scheduler-rollout";
 import {
   issueFastLaneOffer,
   registerFastLaneRoom,
@@ -87,15 +88,6 @@ type EnemySchemaSnapshot = {
   patternKind: string; patternPhase: string; patternRemaining: number;
   patternIndex: number; attackSequence: number;
 };
-
-function rolloutBucket(value: string): number {
-  let hash = 2_166_136_261;
-  for (let index = 0; index < value.length; index += 1) {
-    hash ^= value.charCodeAt(index);
-    hash = Math.imul(hash, 16_777_619);
-  }
-  return (hash >>> 0) % 100;
-}
 
 export function assertOfficialMapRevision(mapRevision: string): void {
   if (mapRevision !== OFFICIAL_MAP_MANIFEST.mapRevision) {
@@ -234,6 +226,7 @@ export class PartyRoom extends Room<PartyRoomState> {
   private exploration!: PartyExploration;
   private explorationAccumulatorMs = 0;
   private schemaSyncAccumulatorMs = 0;
+  private observedCombatActionCount = 0;
 
   static async onAuth(token: string, _options: unknown, context: AuthContext): Promise<GameTicketClaims> {
     return authorizeGameConnection(token, context, "party");
@@ -260,22 +253,22 @@ export class PartyRoom extends Room<PartyRoomState> {
     this.maxClients = options.partyMode === "solo" ? 1 : 3;
     this.setState(new PartyRoomState());
     this.state.protocolVersion = PROTOCOL_VERSION;
-    const multiratePercent = numericEnv("INVADER_MULTIRATE_PERCENT", 10, 0, 100);
-    this.multirateEnabled = rolloutBucket(this.roomId) < multiratePercent;
+    this.multirateEnabled = schedulerRollout.enabledFor(this.roomId);
     this.core = new GameCore({
       mode: options.sessionMode,
       difficulty: options.difficulty,
       seed: crypto.randomUUID(),
       minimumPlayers: options.partyMode === "solo" ? 1 : 3,
       maxLiveInvaders: numericEnv("MAX_LIVE_INVADERS", DEFAULT_MAX_LIVE_INVADERS, 32, ABSOLUTE_MAX_LIVE_INVADERS),
-      invaderUpdateRates: this.multirateEnabled
-        ? {
-          warmHz: numericEnv("INVADER_WARM_HZ", 20, 1, 60),
-          coldHz: numericEnv("INVADER_COLD_HZ", 10, 1, 60),
-        }
-        : { warmHz: 60, coldHz: 60 },
+      invaderUpdateRates: {
+        warmHz: numericEnv("INVADER_WARM_HZ", 20, 1, 60),
+        coldHz: numericEnv("INVADER_COLD_HZ", 5, 1, 60),
+        warmMovementHz: numericEnv("INVADER_WARM_MOVEMENT_HZ", 30, 1, 60),
+        coldMovementHz: numericEnv("INVADER_COLD_MOVEMENT_HZ", 10, 1, 60),
+      },
       world: OFFICIAL_WORLD,
     });
+    this.core.setInvaderSchedulerEnabled(this.multirateEnabled);
     this.exploration = new PartyExploration(this.core);
     this.state.seed = this.core.options.seed;
     for (const ai of aiPlayers) {
@@ -558,12 +551,15 @@ export class PartyRoom extends Room<PartyRoomState> {
       this.simulationAccumulatorMs = Math.max(0, this.simulationAccumulatorMs - skippedSimulationMs);
     }
     let simulatedTicks = 0;
+    let coreUpdatePeakMs = 0;
     const inputLeaseCheckAt = Date.now();
     while (simulatedTicks < simulationTicksToRun) {
       this.expireStaleInputs(inputLeaseCheckAt);
       const coreStartedAt = performance.now();
       this.core.update(SIMULATION_STEP_MS / 1000);
-      recordRealtimeTiming("coreUpdate", performance.now() - coreStartedAt);
+      const coreUpdateMs = performance.now() - coreStartedAt;
+      coreUpdatePeakMs = Math.max(coreUpdatePeakMs, coreUpdateMs);
+      recordRealtimeTiming("coreUpdate", coreUpdateMs);
       this.simulationAccumulatorMs -= SIMULATION_STEP_MS;
       this.serverTick += 1;
       simulatedTicks += 1;
@@ -574,7 +570,25 @@ export class PartyRoom extends Room<PartyRoomState> {
         if (client.userData?.userId === notice.userId) client.send("message", { code: notice.code, message: notice.message });
       }
     }
-    for (const attack of this.core.takeCombatAttackEvents()) this.broadcast("combat.attack", attack);
+    const combatActions = this.core.takeCombatActionEvents();
+    for (const action of combatActions) this.broadcast("combat.action", action);
+    const rolloutWork = this.core.invaderWorkMetrics;
+    const generatedActions = Math.max(0, rolloutWork.combatAttackEvents - this.observedCombatActionCount);
+    this.observedCombatActionCount = rolloutWork.combatAttackEvents;
+    schedulerRollout.observe({
+      elapsedMs: safeDeltaMs,
+      simulationTicks: simulatedTicks,
+      coreUpdateMs: coreUpdatePeakMs,
+      droppedCatchUp,
+      oldestPathWaitSeconds: rolloutWork.oldestPendingReplanSeconds,
+      generatedActions,
+      transmittedActions: combatActions.length,
+    });
+    const rolloutEnabled = schedulerRollout.enabledFor(this.roomId);
+    if (rolloutEnabled !== this.multirateEnabled) {
+      this.multirateEnabled = rolloutEnabled;
+      this.core.setInvaderSchedulerEnabled(rolloutEnabled);
+    }
     recordSimulationCatchUp(simulatedTicks - 1, droppedCatchUp);
     this.schemaSyncAccumulatorMs += safeDeltaMs;
     this.explorationAccumulatorMs += safeDeltaMs;
@@ -616,6 +630,12 @@ export class PartyRoom extends Room<PartyRoomState> {
         oldestPendingWaveSeconds: work.oldestPendingWaveSeconds,
         combatAttackEvents: work.combatAttackEvents,
         compensatedAttacks: work.compensatedAttacks,
+        hotExecutions: work.hotExecutions,
+        warmExecutions: work.warmExecutions,
+        coldExecutions: work.coldExecutions,
+        scheduleDelayTicks: work.scheduleDelayTicks,
+        movementBacklogSeconds: work.movementBacklogSeconds,
+        oldestPendingReplanSeconds: work.oldestPendingReplanSeconds,
       });
     }
     if (simulatedTicks > 0 && this.serverTick % WORLD_FRAME_INTERVAL_TICKS === 0) {
@@ -696,6 +716,7 @@ export class PartyRoom extends Room<PartyRoomState> {
         attackTargetId: player.lastAttackTargetId ?? "",
         attackCritical: player.lastAttackCritical,
         alive: player.alive,
+        respawnRemaining: player.respawnRemaining,
         ready: player.ready,
         connected: player.connected,
       });

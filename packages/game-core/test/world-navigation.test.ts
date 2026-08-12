@@ -60,7 +60,7 @@ test("disc pathfinding routes a distant follower around an L-shaped wall", () =>
   assert.ok(Math.hypot(target.x - position.x, target.y - position.y) <= 4);
 });
 
-test("a distant AI follower recovers through terrain when direct steering is blocked", () => {
+test("a defeated AI follower respawns at base and follows one recovery path back to its leader", () => {
   const startRoomId = "editor:start" as const;
   const targetRoomId = "editor:target" as const;
   const bossRoomId = "editor:boss" as const;
@@ -99,9 +99,20 @@ test("a distant AI follower recovers through terrain when direct steering is blo
   core.setReady(human.userId, true);
   core.addPlayer({ userId: "ai:defender", displayName: "수호자", heroClass: "swordsman" });
   const follower = core.addPlayer({ userId: "ai:follower", displayName: "동료", heroClass: "archer" });
-  follower.x = 60;
-  follower.y = 300;
   core.movePlayerToRoom(human.userId, targetRoomId);
+  core.movePlayerToRoom(follower.userId, targetRoomId);
+  const damagePlayer = (core as unknown as {
+    damagePlayer(target: typeof follower, damage: number): void;
+  }).damagePlayer.bind(core);
+  damagePlayer(follower, follower.maxHp * 10);
+
+  assert.equal(follower.roomId, targetRoomId);
+  assert.equal(follower.alive, false);
+  assert.equal(follower.deaths, 1);
+
+  for (let step = 0; step < 60; step += 1) core.update(0.05);
+  assert.equal(follower.roomId, startRoomId);
+  assert.equal(follower.alive, true);
 
   for (let step = 0; step < 300; step += 1) core.update(0.05);
 

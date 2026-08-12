@@ -12,6 +12,18 @@ const CARD_IMAGE_BY_RARITY: Record<UpgradeChoice["rarity"], string> = {
 
 const SELECTION_EXIT_MS = 480;
 const SELECTION_RETRY_MS = 1_800;
+let cardFramePreload: HTMLImageElement[] | null = null;
+
+function preloadCardFrames(): void {
+  if (cardFramePreload || typeof window === "undefined") return;
+  cardFramePreload = [...new Set(Object.values(CARD_IMAGE_BY_RARITY))].map((source) => {
+    const image = new window.Image();
+    image.decoding = "async";
+    image.src = source;
+    void image.decode().catch(() => undefined);
+    return image;
+  });
+}
 
 function primaryStat(description: string): string {
   const signedStat = description.match(/[+-]\d+(?:\.\d+)?(?:%p|%|초|발)?/);
@@ -25,6 +37,8 @@ export function UpgradeDraft({ choices, onChoose }: { choices: UpgradeChoice[]; 
   const commitTimerRef = useRef<number | null>(null);
   const retryTimerRef = useRef<number | null>(null);
   const [selectedId, setSelectedId] = useState<UpgradeId | null>(null);
+
+  useEffect(preloadCardFrames, []);
 
   const chooseWithExit = useCallback((id: UpgradeId) => {
     if (selectedRef.current || !choices.some((choice) => choice.id === id)) return;

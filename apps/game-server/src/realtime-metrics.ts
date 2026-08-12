@@ -1,4 +1,5 @@
 import { monitorEventLoopDelay } from "node:perf_hooks";
+import { schedulerRollout } from "./scheduler-rollout";
 
 type TransportChannel = "webtransport" | "websocket";
 type TimingStage = "coreUpdate" | "schemaSync" | "aoiUpdate" | "worldFrame";
@@ -48,6 +49,12 @@ type RoomInvaderMetrics = Readonly<{
   oldestPendingWaveSeconds?: number;
   combatAttackEvents?: number;
   compensatedAttacks?: number;
+  hotExecutions?: number;
+  warmExecutions?: number;
+  coldExecutions?: number;
+  scheduleDelayTicks?: number;
+  movementBacklogSeconds?: number;
+  oldestPendingReplanSeconds?: number;
 }>;
 
 const roomInvaderMetrics = new Map<string, RoomInvaderMetrics>();
@@ -136,6 +143,12 @@ export function realtimeMetricsSnapshot(): object {
         attackEvents: counters.combatAttackEvents,
         compensatedAttacks: counters.compensatedAttacks,
       },
+      scheduler: {
+        executions: currentInvaders.executions,
+        scheduleDelayTicks: currentInvaders.scheduleDelayTicks,
+        movementBacklogSeconds: currentInvaders.movementBacklogSeconds,
+        oldestPendingReplanSeconds: currentInvaders.oldestPendingReplanSeconds,
+      },
     },
     timings: Object.fromEntries(Object.entries(timingSamples).map(([stage, samples]) => [stage, timingSummary(samples)])),
     eventLoopDelay: {
@@ -144,6 +157,7 @@ export function realtimeMetricsSnapshot(): object {
       p99Ms: eventLoopDelay.percentile(99) / 1_000_000,
       maxMs: eventLoopDelay.max / 1_000_000,
     },
+    schedulerRollout: schedulerRollout.snapshot(),
   };
 }
 
@@ -154,6 +168,10 @@ function currentInvaderTotals(): {
   multirateRooms: number;
   pendingReplans: number;
   oldestPendingWaveSeconds: number;
+  executions: { hot: number; warm: number; cold: number };
+  scheduleDelayTicks: number;
+  movementBacklogSeconds: number;
+  oldestPendingReplanSeconds: number;
 } {
   return [...roomInvaderMetrics.values()].reduce((total, room) => ({
     active: total.active + room.active,
@@ -166,7 +184,26 @@ function currentInvaderTotals(): {
     multirateRooms: total.multirateRooms + (room.multirateEnabled ? 1 : 0),
     pendingReplans: total.pendingReplans + (room.pendingReplans ?? 0),
     oldestPendingWaveSeconds: Math.max(total.oldestPendingWaveSeconds, room.oldestPendingWaveSeconds ?? 0),
-  }), { active: 0, pending: 0, tiers: { hot: 0, warm: 0, cold: 0 }, multirateRooms: 0, pendingReplans: 0, oldestPendingWaveSeconds: 0 });
+    executions: {
+      hot: total.executions.hot + (room.hotExecutions ?? 0),
+      warm: total.executions.warm + (room.warmExecutions ?? 0),
+      cold: total.executions.cold + (room.coldExecutions ?? 0),
+    },
+    scheduleDelayTicks: total.scheduleDelayTicks + (room.scheduleDelayTicks ?? 0),
+    movementBacklogSeconds: total.movementBacklogSeconds + (room.movementBacklogSeconds ?? 0),
+    oldestPendingReplanSeconds: Math.max(total.oldestPendingReplanSeconds, room.oldestPendingReplanSeconds ?? 0),
+  }), {
+    active: 0,
+    pending: 0,
+    tiers: { hot: 0, warm: 0, cold: 0 },
+    multirateRooms: 0,
+    pendingReplans: 0,
+    oldestPendingWaveSeconds: 0,
+    executions: { hot: 0, warm: 0, cold: 0 },
+    scheduleDelayTicks: 0,
+    movementBacklogSeconds: 0,
+    oldestPendingReplanSeconds: 0,
+  });
 }
 
 function timingSummary(samples: readonly number[]): object {

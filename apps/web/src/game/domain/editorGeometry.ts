@@ -1,4 +1,5 @@
 import type {
+  EditorConnection,
   EditorConnectionPort,
   EditorMapDefinition,
   EditorRoom,
@@ -8,12 +9,14 @@ type EditorGeometryPoint = { x: number; y: number };
 export type EditorGeometryRect = { x: number; y: number; width: number; height: number };
 export type EditorWallSegment = { x1: number; y1: number; x2: number; y2: number };
 
-type EditorRouteGeometry = {
+export type EditorRouteGeometry = {
   connectionId: string;
   points: EditorGeometryPoint[];
   floorRects: EditorGeometryRect[];
   length: number;
   bends: number;
+  /** Grid cells reserved by this route, retained for incremental editor routing. */
+  cells: GridPoint[];
 };
 
 export type EditorMapGeometry = {
@@ -63,8 +66,9 @@ export function buildEditorGeometry(map: EditorMapDefinition, scale: EditorGeome
   const occupied = occupiedRoomCells(map.rooms);
   const usedRouteCells = new Set<string>();
   const routes: EditorRouteGeometry[] = [];
-  const connections = [...map.connections].sort((left, right) => left.id.localeCompare(right.id));
-  for (const connection of connections) {
+  // Stored order is the routing priority. Appending a connection can therefore
+  // be previewed incrementally without invalidating every established route.
+  for (const connection of map.connections) {
     const from = map.rooms.find((room) => room.id === connection.from);
     const to = map.rooms.find((room) => room.id === connection.to);
     if (!from || !to || from.id === to.id) continue;
@@ -90,10 +94,50 @@ export function buildEditorGeometry(map: EditorMapDefinition, scale: EditorGeome
       floorRects,
       length: polylineLength(points),
       bends: Math.max(0, points.length - 2),
+      cells: routed.cells,
     });
   }
   const floorRects = [...roomRects.values(), ...routes.flatMap((route) => route.floorRects)];
   return { roomRects, routes, floorRects, wallSegments: boundarySegments(floorRects), errors: unique(errors) };
+}
+
+/** Routes one new or edited connection without rebuilding existing routes or walls. */
+export function buildEditorConnectionRoute(
+  map: EditorMapDefinition,
+  connection: EditorConnection,
+  scale: EditorGeometryScale,
+  existingGeometry: EditorMapGeometry,
+): EditorRouteGeometry | null {
+  const from = map.rooms.find((room) => room.id === connection.from);
+  const to = map.rooms.find((room) => room.id === connection.to);
+  if (!from || !to || from.id === to.id) return null;
+  const usedRouteCells = new Set<string>();
+  for (const route of existingGeometry.routes) {
+    if (route.connectionId === connection.id) continue;
+    for (const cell of route.cells) usedRouteCells.add(cellKey(cell.x, cell.y));
+  }
+  const routed = routeConnection(
+    from,
+    to,
+    map.rooms,
+    occupiedRoomCells(map.rooms),
+    usedRouteCells,
+    connection.fromPort,
+    connection.toPort,
+  );
+  if (!routed) return null;
+  const points = compressPoints(routed.points).map((point) => ({
+    x: point.x * scale.cellWidth,
+    y: point.y * scale.cellHeight,
+  }));
+  return {
+    connectionId: connection.id,
+    points,
+    floorRects: routeFloorRects(points, scale.corridorWidth),
+    length: polylineLength(points),
+    bends: Math.max(0, points.length - 2),
+    cells: routed.cells,
+  };
 }
 
 function routeConnection(
@@ -230,7 +274,16 @@ export function boundarySegments(rects: readonly EditorGeometryRect[]): EditorWa
     ] as const;
     for (const edge of candidates) {
       const cuts = new Set([edge.start, edge.end]);
-      for (const other of rects) {
+      const outsideFixed = edge.fixed + (edge.axis === "h" ? edge.outsideY : edge.outsideX);
+      const relevant = rects.filter((other) => {
+        const projectionStart = edge.axis === "h" ? other.x : other.y;
+        const projectionEnd = projectionStart + (edge.axis === "h" ? other.width : other.height);
+        const crossesOutside = edge.axis === "h"
+          ? outsideFixed >= other.y && outsideFixed <= other.y + other.height
+          : outsideFixed >= other.x && outsideFixed <= other.x + other.width;
+        return crossesOutside && projectionEnd >= edge.start && projectionStart <= edge.end;
+      });
+      for (const other of relevant) {
         cuts.add(edge.axis === "h" ? other.x : other.y);
         cuts.add(edge.axis === "h" ? other.x + other.width : other.y + other.height);
       }
@@ -242,7 +295,7 @@ export function boundarySegments(rects: readonly EditorGeometryRect[]): EditorWa
         const midpoint = (start + end) / 2;
         const x = edge.axis === "h" ? midpoint + edge.outsideX : edge.fixed + edge.outsideX;
         const y = edge.axis === "h" ? edge.fixed + edge.outsideY : midpoint + edge.outsideY;
-        if (rects.some((other) => pointInRect(x, y, other))) continue;
+        if (relevant.some((other) => pointInRect(x, y, other))) continue;
         segments.push(edge.axis === "h"
           ? { x1: start, y1: edge.fixed, x2: end, y2: edge.fixed }
           : { x1: edge.fixed, y1: start, x2: edge.fixed, y2: end });

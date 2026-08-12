@@ -35,7 +35,7 @@ function frame(serverTime: number, transform: TransformSample): WorldFrame {
   };
 }
 
-test("interpolates between snapshots and caps extrapolation at 100ms", () => {
+test("interpolates between snapshots and decelerates bounded extrapolation", () => {
   const buffer = new RealtimeTransformBuffer();
   buffer.push(frame(1_000, sample({ x: 0, vx: 10 })), 10);
   buffer.push(frame(1_100, sample({ x: 100, vx: 10 })), 110);
@@ -46,7 +46,7 @@ test("interpolates between snapshots and caps extrapolation at 100ms", () => {
 
   const extrapolated = buffer.sample("remote-1", 1_400);
   assert.ok(extrapolated);
-  assert.ok(Math.abs(extrapolated.x - 101) < 0.01);
+  assert.ok(extrapolated.x > 100 && extrapolated.x < 101, "stale velocity should decay instead of snapping or running unbounded");
 });
 
 test("a discontinuity drops old interpolation history and hard-snaps to the new sample", () => {

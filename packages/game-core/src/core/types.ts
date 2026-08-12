@@ -40,6 +40,7 @@ export type CorePlayer = {
   level: number;
   teamPower: number;
   alive: boolean;
+  respawnRemaining: number;
   ready: boolean;
   connected: boolean;
   lastSeq: number;
@@ -86,7 +87,12 @@ export type GameCoreOptions = {
   /** Optional local-authored world. Omitted for the production procedural world. */
   world?: CoreWorldDefinition;
   /** Optional server-side LOD. The authoritative clock and combat remain 60Hz. */
-  invaderUpdateRates?: Readonly<{ warmHz: number; coldHz: number }>;
+  invaderUpdateRates?: Readonly<{
+    warmHz: number;
+    coldHz: number;
+    warmMovementHz?: number;
+    coldMovementHz?: number;
+  }>;
 };
 
 export type TeamProgress = Readonly<{
@@ -132,6 +138,8 @@ export type InvaderNavigation = {
   blockedUntil: number;
   accumulatedDelta: number;
   cohort: number;
+  lastUpdateAt: number;
+  nextDecisionTick: number;
 };
 
 export type InvaderSimulationTiers = Readonly<{ hot: number; warm: number; cold: number }>;

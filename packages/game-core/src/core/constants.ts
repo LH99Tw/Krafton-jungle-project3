@@ -7,6 +7,7 @@ export const RESOURCE_PRODUCTION_SECONDS = 5;
 export const STATIC_RESPAWN_SECONDS = { prototype: 30, full: 90 } as const;
 export const SIMULATION_EPSILON = 1e-9;
 export const ACTOR_COLLISION_RADIUS = 14;
+export const PLAYER_RESPAWN_SECONDS = 3;
 
 export const INVADER_AGGRO_RADIUS = 1_400;
 export const INVADER_RELEASE_RADIUS = 1_500;

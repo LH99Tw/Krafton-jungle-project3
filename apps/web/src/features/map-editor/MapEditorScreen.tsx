@@ -17,7 +17,7 @@ import {
   type EditorRoom,
   type EditorRoomType,
 } from "@/src/game/domain/mapEditor";
-import { buildEditorGeometry, editorRoomPorts } from "@/src/game/domain/editorGeometry";
+import { buildEditorConnectionRoute, buildEditorGeometry, editorRoomPorts } from "@/src/game/domain/editorGeometry";
 import {
   createStoredEditorMap,
   deleteStoredEditorMap,
@@ -109,17 +109,19 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
   const workspaceRef = useRef<HTMLElement | null>(null);
   const svgRef = useRef<SVGSVGElement | null>(null);
   const roomDragRef = useRef<RoomDrag | null>(null);
+  const roomDragFrameRef = useRef<number | null>(null);
+  const pendingRoomDragRef = useRef<{ id: string; x: number; y: number } | null>(null);
   const cameraDragRef = useRef<CameraDrag | null>(null);
   const spacePressedRef = useRef(false);
 
-  const failures = useMemo(() => validateEditorMap(map), [map]);
+  const geometry = useMemo(() => buildEditorGeometry(map, editorScale()), [map]);
+  const failures = useMemo(() => validateEditorMap(map, geometry), [geometry, map]);
   const isDirty = useMemo(() => {
     const saved = savedMaps.find((record) => record.id === activeMapId);
     return !saved || JSON.stringify(saved.map) !== JSON.stringify(map);
   }, [activeMapId, map, savedMaps]);
   const selected = map.rooms.find((room) => room.id === selectedId) ?? null;
   const selectedConnection = map.connections.find((connection) => connection.id === selectedConnectionId) ?? null;
-  const geometry = useMemo(() => buildEditorGeometry(map, editorScale()), [map]);
   const selectedRoute = geometry.routes.find((route) => route.connectionId === selectedConnectionId) ?? null;
   const viewBox = editorViewBox(viewport, canvasSize.width, canvasSize.height);
   const previewRoute = useMemo(() => {
@@ -132,9 +134,8 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
       fromPort: connectionStart.port,
       toPort: hoveredPort.port,
     };
-    return buildEditorGeometry({ ...map, connections: [...map.connections, preview] }, editorScale())
-      .routes.find((route) => route.connectionId === preview.id) ?? null;
-  }, [connectionStart, hoveredPort, map]);
+    return buildEditorConnectionRoute(map, preview, editorScale(), geometry);
+  }, [connectionStart, geometry, hoveredPort, map]);
   const previewInvalid = Boolean(connectionStart && hoveredPort && connectionStart.roomId !== hoveredPort.roomId && !previewRoute);
 
   useEffect(() => {
@@ -156,6 +157,10 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
     const observer = new ResizeObserver(update);
     observer.observe(element);
     return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => () => {
+    if (roomDragFrameRef.current !== null) window.cancelAnimationFrame(roomDragFrameRef.current);
   }, []);
 
   useEffect(() => {
@@ -190,6 +195,27 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
       });
       return { ...current, rooms, connections };
     });
+  };
+
+  const queueRoomDrag = (id: string, x: number, y: number) => {
+    pendingRoomDragRef.current = { id, x, y };
+    if (roomDragFrameRef.current !== null) return;
+    roomDragFrameRef.current = window.requestAnimationFrame(() => {
+      roomDragFrameRef.current = null;
+      const pending = pendingRoomDragRef.current;
+      pendingRoomDragRef.current = null;
+      if (pending) updateRoom(pending.id, { x: pending.x, y: pending.y });
+    });
+  };
+
+  const flushRoomDrag = () => {
+    if (roomDragFrameRef.current !== null) {
+      window.cancelAnimationFrame(roomDragFrameRef.current);
+      roomDragFrameRef.current = null;
+    }
+    const pending = pendingRoomDragRef.current;
+    pendingRoomDragRef.current = null;
+    if (pending) updateRoom(pending.id, { x: pending.x, y: pending.y });
   };
 
   const addRoom = (x: number, y: number) => {
@@ -248,7 +274,7 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
       toPort: port,
     };
     const candidate = { ...map, connections: [...map.connections, connection] };
-    if (!buildEditorGeometry(candidate, editorScale()).routes.some((route) => route.connectionId === connection.id)) {
+    if (!buildEditorConnectionRoute(candidate, connection, editorScale(), geometry)) {
       setRouteError("선택한 두 출입구 사이에 유효한 자동 경로가 없습니다.");
       return;
     }
@@ -487,16 +513,21 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
               const roomDrag = roomDragRef.current;
               if (!roomDrag) return;
               const point = pointInSvg(event);
-              updateRoom(roomDrag.id, { x: Math.round((point.x - roomDrag.offsetX) / CELL), y: Math.round((point.y - roomDrag.offsetY) / CELL) });
+              queueRoomDrag(
+                roomDrag.id,
+                Math.round((point.x - roomDrag.offsetX) / CELL),
+                Math.round((point.y - roomDrag.offsetY) / CELL),
+              );
             }}
             onPointerUp={(event) => {
               if (cameraDragRef.current?.pointerId === event.pointerId) {
                 cameraDragRef.current = null;
                 setIsPanning(false);
               }
+              flushRoomDrag();
               roomDragRef.current = null;
             }}
-            onPointerCancel={() => { cameraDragRef.current = null; roomDragRef.current = null; setIsPanning(false); }}
+            onPointerCancel={() => { cameraDragRef.current = null; flushRoomDrag(); roomDragRef.current = null; setIsPanning(false); }}
           >
             <defs>
               <pattern id="editor-grid-small" width={CELL} height={CELL} patternUnits="userSpaceOnUse"><path d={`M ${CELL} 0 L 0 0 0 ${CELL}`} fill="none" stroke="rgba(204,185,135,.12)" strokeWidth={1 / viewport.zoom} /></pattern>

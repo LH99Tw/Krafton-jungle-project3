@@ -1,4 +1,4 @@
-import { PROTOCOL_VERSION, type CombatAttackEvent, type HeroClassId, type PlayerInputCommand } from "@five-days/protocol";
+import { NIGHT_ATTACK_RANGE_MULTIPLIER, NIGHT_PLAYER_VISION_RADIUS, PLAYER_VISION_RADIUS, PROTOCOL_VERSION, type CombatActionEvent, type HeroClassId, type PlayerInputCommand } from "@five-days/protocol";
 import { rollPartyHiddenDrops, type EquipmentSlot, type PersonalHiddenDrop } from "../v02/equipment";
 import type { ThreeZoneMap, ZoneId } from "../v02/map";
 import {
@@ -47,7 +47,7 @@ import {
   type WorldRect,
   type WalkableSpatialIndex,
 } from "../v02/world";
-import { ACTOR_COLLISION_RADIUS, RESOURCE_PRODUCTION_SECONDS, SIMULATION_EPSILON, STATIC_RESPAWN_SECONDS, durations } from "./constants";
+import { ACTOR_COLLISION_RADIUS, PLAYER_RESPAWN_SECONDS, RESOURCE_PRODUCTION_SECONDS, SIMULATION_EPSILON, STATIC_RESPAWN_SECONDS, durations } from "./constants";
 import { aiAugmentScore, clamp, deterministicCombatRoll, invaderEdgeKey, pointInWorldRect, shouldAiYieldEquipment } from "./helpers";
 import { createAuthoredRuntimeWorld } from "./world-build";
 import { AiPlayersDirector } from "./systems/AiPlayersDirector";
@@ -95,8 +95,9 @@ export class GameCore {
   private readonly aiPlayersDirector: AiPlayersDirector;
   private hiddenDropSerial = 0;
   private compensatedPlayerAttacks = 0;
-  private combatAttackEventCount = 0;
-  private readonly combatAttackEvents: CombatAttackEvent[] = [];
+  private combatActionSequence = 0;
+  private combatActionEventCount = 0;
+  private readonly combatActionEvents: CombatActionEvent[] = [];
   private readonly resourceAccumulators = new Map<CoreRoomId, number>();
   private readonly vulnerableEnemies = new Map<string, { playerId: string; expiresAt: number }>();
   private readonly markedEnemies = new Map<string, { playerId: string; expiresAt: number }>();
@@ -104,6 +105,8 @@ export class GameCore {
   private readonly roomRects = new Map<CoreRoomId, WorldRect>();
   private readonly roomCenters = new Map<CoreRoomId, Readonly<{ x: number; y: number }>>();
   private readonly routeCache = new Map<string, readonly CoreRoomId[]>();
+  private readonly staticEnemyIdsByRoom = new Map<CoreRoomId, string[]>();
+  private readonly activeCombatRooms = new Set<CoreRoomId>();
   private authoredWalkableCache: { bossAccessible: boolean; rects: readonly WorldRect[] } | null = null;
   private readonly notices: CoreNotice[] = [];
   private readonly noticeCooldowns = new Map<string, number>();
@@ -125,6 +128,12 @@ export class GameCore {
       this.roomRects.set(room.id, rect);
       this.roomCenters.set(room.id, { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
       if (options.world) this.addRoomToSpatialCells(room.id, rect);
+    }
+    for (const enemy of this.enemies.values()) {
+      if (enemy.behavior === "invader") continue;
+      const bucket = this.staticEnemyIdsByRoom.get(enemy.roomId) ?? [];
+      bucket.push(enemy.id);
+      this.staticEnemyIdsByRoom.set(enemy.roomId, bucket);
     }
     for (const connection of options.world?.connections ?? []) {
       this.authoredConnectionsByEdge.set(invaderEdgeKey(connection.from, connection.to), connection);
@@ -179,25 +188,40 @@ export class GameCore {
     return this.invaderDirector.simulationTiers;
   }
 
+  setInvaderSchedulerEnabled(enabled: boolean): void {
+    this.invaderDirector.setSchedulerEnabled(enabled);
+  }
+
   /** @internal work accounting merged from the invader director and combat pipeline. */
   get invaderWorkMetrics(): Readonly<{
     microSpawned: number;
     pendingReplans: number;
     completedReplans: number;
     oldestPendingWaveSeconds: number;
+    hotExecutions: number;
+    warmExecutions: number;
+    coldExecutions: number;
+    scheduleDelayTicks: number;
+    movementBacklogSeconds: number;
+    oldestPendingReplanSeconds: number;
     combatAttackEvents: number;
     compensatedAttacks: number;
   }> {
     const work = this.invaderDirector.workMetrics;
     return {
       ...work,
-      combatAttackEvents: this.combatAttackEventCount,
+      combatAttackEvents: this.combatActionEventCount,
       compensatedAttacks: this.compensatedPlayerAttacks,
     };
   }
 
-  takeCombatAttackEvents(): CombatAttackEvent[] {
-    return this.combatAttackEvents.splice(0, this.combatAttackEvents.length);
+  takeCombatActionEvents(): CombatActionEvent[] {
+    return this.combatActionEvents.splice(0, this.combatActionEvents.length);
+  }
+
+  /** @deprecated Protocol v8 consumers should use takeCombatActionEvents. */
+  takeCombatAttackEvents(): CombatActionEvent[] {
+    return this.takeCombatActionEvents();
   }
 
   addPlayer(input: { userId: string; displayName: string; heroClass: HeroClassId }): CorePlayer {
@@ -222,6 +246,7 @@ export class GameCore {
       level: this.teamLevel,
       teamPower: rules.power,
       alive: true,
+      respawnRemaining: 0,
       ready: false,
       connected: true,
       lastSeq: -1,
@@ -327,6 +352,7 @@ export class GameCore {
     if (this.phase === "lobby" || this.phase === "ended") return;
     const delta = Math.max(0, Math.min(0.1, deltaSeconds));
     this.elapsed += delta;
+    this.updatePlayerRespawns(delta);
     this.aiPlayersDirector.update();
 
     for (const player of this.players.values()) {
@@ -344,6 +370,23 @@ export class GameCore {
       this.updateAutoSkills();
       for (const player of this.players.values()) {
         if (player.connected && player.alive && player.autoAttackCooldown <= 0) this.performAutoAttack(player.userId);
+      }
+    }
+    const previouslyActiveRooms = new Set(this.activeCombatRooms);
+    this.activeCombatRooms.clear();
+    for (const player of this.players.values()) {
+      if (player.alive) this.activeCombatRooms.add(player.roomId);
+    }
+    for (const roomId of previouslyActiveRooms) {
+      if (this.activeCombatRooms.has(roomId)) continue;
+      for (const enemyId of this.staticEnemyIdsByRoom.get(roomId) ?? []) {
+        const enemy = this.enemies.get(enemyId);
+        if (!enemy?.alive || enemy.kind !== "static") continue;
+        enemy.x = enemy.spawnX;
+        enemy.y = enemy.spawnY;
+        enemy.aggroed = false;
+        enemy.targetId = null;
+        enemy.lastMoveSpeed = 0;
       }
     }
     this.updateStaticEnemies(delta);
@@ -406,7 +449,7 @@ export class GameCore {
     const rangeMultiplier = 1 + (player.upgrades["area-power"] ?? 0) * 0.12
       + (player.heroClass === "swordsman" ? (player.upgrades.multishot ?? 0) * 0.2 : 0);
     const bladeRange = player.heroClass === "swordsman" && player.upgrades["swordsman-blade"] ? 240 : 0;
-    const range = Math.max(rules.attackRange * rangeMultiplier, bladeRange);
+    const range = this.playerAttackRange(Math.max(rules.attackRange * rangeMultiplier, bladeRange));
     const cone = rules.coneHalfAngle * (player.heroClass === "swordsman" && player.upgrades["swordsman-whirlwind"] ? 1.45 : 1);
     const aimedTargets = this.enemiesInAttackCone(player, range, cone);
     const targets = aimedTargets.length > 0 ? aimedTargets : this.enemiesInAttackCone(player, range, Math.PI);
@@ -432,19 +475,24 @@ export class GameCore {
       const secondaryMultiplier = index === 0 ? 1 : player.heroClass === "mage" ? 0.6 : 0.65;
       this.damageEnemy(userId, candidate.id, this.calculateAttackDamage(player, candidate) * secondaryMultiplier);
     }
-    this.combatAttackEvents.push({
+    this.combatActionEvents.push({
       v: PROTOCOL_VERSION,
-      sequence: player.attackCount,
+      sequence: ++this.combatActionSequence,
       attackerId: player.userId,
+      attackerType: "player",
+      actionKind: "basic",
       heroClass: player.heroClass,
       targetId: target.id,
+      startX: player.x,
+      startY: player.y,
       targetX: target.x,
       targetY: target.y,
       aim: player.aim,
       critical: player.lastAttackCritical,
+      patternKind: null,
       firedAt: this.elapsed,
     });
-    this.combatAttackEventCount += 1;
+    this.combatActionEventCount += 1;
     return target;
   }
 
@@ -706,7 +754,7 @@ export class GameCore {
       criticalChance: (player.upgrades.precision ?? 0) * 6,
       criticalDamage: 150 + (player.upgrades.ferocity ?? 0) * 20,
       attacksPerSecond: (1 + haste) / rules.attackInterval,
-      attackRange: Math.max(rules.attackRange * rangeMultiplier, bladeRange),
+      attackRange: this.playerAttackRange(Math.max(rules.attackRange * rangeMultiplier, bladeRange)),
       moveSpeed: rules.speed,
     };
   }
@@ -876,6 +924,10 @@ export class GameCore {
   discoverRoom(roomId: CoreRoomId): void {
     const room = this.rooms.get(roomId);
     if (!room) return;
+    const firstDiscovery = !room.discovered;
+    if (firstDiscovery && (room.kind === "static-monster" || room.kind === "hidden-monster")) {
+      this.placeUndiscoveredRoomEnemiesAwayFromPlayers(roomId);
+    }
     room.discovered = true;
     this.discoveredRooms.add(roomId);
     if (room.kind === "resource" && !this.resourceAccumulators.has(roomId)) {
@@ -886,6 +938,42 @@ export class GameCore {
       if (waypoint.roomId === roomId && (waypoint.kind === "start" || waypoint.kind === "central")) {
         waypoint.active = true;
       }
+    }
+  }
+
+  private placeUndiscoveredRoomEnemiesAwayFromPlayers(roomId: CoreRoomId): void {
+    const rect = this.roomRectOf(roomId);
+    const inset = Math.min(72, Math.max(ACTOR_COLLISION_RADIUS, Math.min(rect.width, rect.height) / 4));
+    const left = rect.x + inset;
+    const right = rect.x + rect.width - inset;
+    const top = rect.y + inset;
+    const bottom = rect.y + rect.height - inset;
+    const centerX = rect.x + rect.width / 2;
+    const centerY = rect.y + rect.height / 2;
+    const candidates = [
+      { x: left, y: top }, { x: right, y: top },
+      { x: right, y: bottom }, { x: left, y: bottom },
+      { x: centerX, y: top }, { x: right, y: centerY },
+      { x: centerX, y: bottom }, { x: left, y: centerY },
+    ];
+    const players = [...this.players.values()].filter((player) => player.alive && player.connected);
+    const visionRadius = this.phase === "night" ? NIGHT_PLAYER_VISION_RADIUS : PLAYER_VISION_RADIUS;
+    const score = (point: Readonly<{ x: number; y: number }>) => players.length === 0
+      ? visionRadius * visionRadius
+      : Math.min(...players.map((player) => (player.x - point.x) ** 2 + (player.y - point.y) ** 2));
+    const positions = [...candidates].sort((leftPoint, rightPoint) => score(rightPoint) - score(leftPoint));
+    const enemies = [...this.enemies.values()].filter((enemy) => (
+      enemy.alive && enemy.roomId === roomId && (enemy.kind === "static" || enemy.kind === "hidden")
+    ));
+    for (const [index, enemy] of enemies.entries()) {
+      const position = positions[index % positions.length]!;
+      if (enemy.x === position.x && enemy.y === position.y) continue;
+      enemy.x = position.x;
+      enemy.y = position.y;
+      enemy.spawnX = position.x;
+      enemy.spawnY = position.y;
+      enemy.transformRevision += 1;
+      enemy.lastMoveSpeed = 0;
     }
   }
 
@@ -929,16 +1017,12 @@ export class GameCore {
 
   /** @internal */
   damagePlayer(player: CorePlayer, rawDamage: number): void {
+    if (!player.alive) return;
     const defense = equipmentBonuses(player.equipment).defenseBonus;
     player.hp = Math.max(0, player.hp - Math.max(1, Math.round(rawDamage - defense)));
     if (player.hp > 0) return;
-    const startRoomId = this.startRoomId();
-    const startCenter = this.roomWorldCenterOf(startRoomId);
-    player.hp = player.maxHp;
-    player.alive = true;
-    player.roomId = startRoomId;
-    player.x = startCenter.x;
-    player.y = startCenter.y;
+    player.alive = false;
+    player.respawnRemaining = PLAYER_RESPAWN_SECONDS;
     player.aim = 0;
     player.inputX = 0;
     player.inputY = 0;
@@ -946,7 +1030,23 @@ export class GameCore {
     player.lastAttackTargetId = null;
     player.consecutiveHits = 0;
     player.deaths += 1;
-    this.discoverRoom(startRoomId);
+  }
+
+  private updatePlayerRespawns(delta: number): void {
+    for (const player of this.players.values()) {
+      if (player.alive || player.respawnRemaining <= 0) continue;
+      player.respawnRemaining = Math.max(0, player.respawnRemaining - delta);
+      if (player.respawnRemaining > SIMULATION_EPSILON) continue;
+      const startRoomId = this.startRoomId();
+      const startCenter = this.roomWorldCenterOf(startRoomId);
+      player.hp = player.maxHp;
+      player.alive = true;
+      player.roomId = startRoomId;
+      player.x = startCenter.x;
+      player.y = startCenter.y;
+      this.discoverRoom(startRoomId);
+      this.aiPlayersDirector.onRespawn(player);
+    }
   }
 
   /** @internal */
@@ -979,6 +1079,9 @@ export class GameCore {
         boss.spawnY = center.y;
       }
       this.enemies.set(boss.id, boss);
+      const bucket = this.staticEnemyIdsByRoom.get(boss.roomId) ?? [];
+      bucket.push(boss.id);
+      this.staticEnemyIdsByRoom.set(boss.roomId, bucket);
     }
   }
 
@@ -1007,7 +1110,7 @@ export class GameCore {
   private autoSkillTarget(player: CorePlayer, skillId: AutoSkillId): CoreEnemy | null {
     const definition = autoSkillDefinition(player.heroClass, skillId);
     const enemies = [...this.enemies.values()];
-    const rangeSquared = definition.range ** 2;
+    const rangeSquared = this.playerAttackRange(definition.range) ** 2;
     let best: CoreEnemy | null = null;
     let bestScore = -Infinity;
     let bestDistance = Infinity;
@@ -1025,6 +1128,10 @@ export class GameCore {
       }
     }
     return best;
+  }
+
+  private playerAttackRange(range: number): number {
+    return this.phase === "night" ? range * NIGHT_ATTACK_RANGE_MULTIPLIER : range;
   }
 
   private skillClusterScore(
@@ -1224,7 +1331,7 @@ export class GameCore {
   }
 
   private updateStaticEnemies(delta: number): void {
-    for (const enemy of this.enemies.values()) {
+    for (const enemy of this.activeStaticEnemies()) {
       if (!enemy.alive || enemy.kind !== "static") continue;
       enemy.attackCooldown = Math.max(0, enemy.attackCooldown - delta);
       const target = this.nearestPlayerInRoom(enemy.roomId, enemy.x, enemy.y, 560);
@@ -1241,13 +1348,14 @@ export class GameCore {
       else if (enemy.attackCooldown <= 0) {
         enemy.attackSequence += 1;
         enemy.attackCooldown = 0.9;
+        this.recordEnemyCombatAction(enemy, target, "melee");
         this.damagePlayer(target, enemy.damage);
       }
     }
   }
 
   private updatePatternEnemies(delta: number): void {
-    for (const enemy of this.enemies.values()) {
+    for (const enemy of this.activeStaticEnemies()) {
       if (!enemy.alive || !["hidden", "gate", "boss"].includes(enemy.kind)) continue;
       const tier = enemy.kind === "boss" ? "boss" : enemy.kind === "hidden" ? "hidden" : "gate";
       const config = enemyPatternConfig(tier);
@@ -1266,14 +1374,34 @@ export class GameCore {
         enemy.patternKind = enemy.patternIndex % 2 === 0 ? "fan" : "floor";
         enemy.patternPhase = "telegraph";
         enemy.patternRemaining = config.telegraphSeconds;
+        this.recordEnemyCombatAction(enemy, target, "pattern-telegraph");
         continue;
       }
       enemy.patternRemaining = Math.max(0, enemy.patternRemaining - delta);
       if (enemy.patternRemaining > SIMULATION_EPSILON) continue;
       this.resolveEnemyPattern(enemy);
+      this.recordEnemyCombatAction(enemy, target, "pattern-resolve");
       enemy.patternPhase = "idle";
       enemy.patternIndex += 1;
       enemy.attackCooldown = config.cooldownSeconds;
+    }
+  }
+
+  private *activeStaticEnemies(): IterableIterator<CoreEnemy> {
+    if ([...this.staticEnemyIdsByRoom.values()].some((ids) => ids.some((id) => !this.enemies.has(id)))) {
+      this.staticEnemyIdsByRoom.clear();
+      for (const enemy of this.enemies.values()) {
+        if (enemy.behavior === "invader") continue;
+        const bucket = this.staticEnemyIdsByRoom.get(enemy.roomId) ?? [];
+        bucket.push(enemy.id);
+        this.staticEnemyIdsByRoom.set(enemy.roomId, bucket);
+      }
+    }
+    for (const roomId of this.activeCombatRooms) {
+      for (const enemyId of this.staticEnemyIdsByRoom.get(roomId) ?? []) {
+        const enemy = this.enemies.get(enemyId);
+        if (enemy) yield enemy;
+      }
     }
   }
 
@@ -1298,6 +1426,34 @@ export class GameCore {
       }
       if (hit) this.damagePlayer(player, enemy.damage);
     }
+  }
+
+  /** @internal Unified reliable combat stream used by every enemy subsystem. */
+  recordEnemyCombatAction(
+    enemy: CoreEnemy,
+    target: CorePlayer | null,
+    actionKind: "melee" | "pattern-telegraph" | "pattern-resolve",
+  ): void {
+    const targetX = target?.x ?? enemy.x;
+    const targetY = target?.y ?? enemy.y;
+    this.combatActionEvents.push({
+      v: PROTOCOL_VERSION,
+      sequence: ++this.combatActionSequence,
+      attackerId: enemy.id,
+      attackerType: "enemy",
+      actionKind,
+      heroClass: null,
+      targetId: target?.userId ?? null,
+      startX: enemy.x,
+      startY: enemy.y,
+      targetX,
+      targetY,
+      aim: Math.atan2(targetY - enemy.y, targetX - enemy.x),
+      critical: false,
+      patternKind: actionKind === "melee" ? null : enemy.patternKind,
+      firedAt: this.elapsed,
+    });
+    this.combatActionEventCount += 1;
   }
 
   private updateStaticRespawns(delta: number): void {
@@ -1361,10 +1517,24 @@ export class GameCore {
 
   private movePlayer(player: CorePlayer, deltaX: number, deltaY: number): boolean {
     if (!this.authoredWorld) return movePlayerWorld(player, deltaX, deltaY, this.rooms);
+    const targetX = player.x + deltaX;
+    const targetY = player.y + deltaY;
+    if (this.lockedProgressionBarriers().some((barrier) => segmentIntersectsRect(
+      player.x,
+      player.y,
+      targetX,
+      targetY,
+      {
+        x: barrier.x - ACTOR_COLLISION_RADIUS,
+        y: barrier.y - ACTOR_COLLISION_RADIUS,
+        width: barrier.width + ACTOR_COLLISION_RADIUS * 2,
+        height: barrier.height + ACTOR_COLLISION_RADIUS * 2,
+      },
+    ))) return false;
     const resolved = resolveWalkableDiscPoint(
       this.authoredWalkable(),
-      player.x + deltaX,
-      player.y + deltaY,
+      targetX,
+      targetY,
       player.x,
       player.y,
       ACTOR_COLLISION_RADIUS,
@@ -1377,6 +1547,31 @@ export class GameCore {
     player.roomId = containing.id;
     if (containing.id === this.authoredWorld.bossRoomId && this.phase !== "boss") this.enterBossEncounter();
     return true;
+  }
+
+  private lockedProgressionBarriers(): Array<{ x: number; y: number; width: number; height: number }> {
+    if (!this.authoredWorld) return [];
+    const rooms = new Map(this.authoredWorld.rooms.map((room) => [room.id, room]));
+    return this.authoredWorld.connections.flatMap((connection) => {
+      const from = rooms.get(connection.from);
+      const to = rooms.get(connection.to);
+      if (!from || !to) return [];
+      const bossConnection = from.id === this.authoredWorld!.bossRoomId || to.id === this.authoredWorld!.bossRoomId;
+      const lowerZone = Math.min(from.zone, to.zone) as ZoneId;
+      const locked = bossConnection
+        ? this.day < 3 || this.hasLivingAuthoredGate()
+        : from.zone !== to.zone && this.hasLivingGateInZone(lowerZone);
+      if (!locked) return [];
+      const segment = [...connection.floorRects].sort((left, right) => Math.max(right.width, right.height) - Math.max(left.width, left.height))[0];
+      if (!segment) return [];
+      const horizontal = segment.width >= segment.height;
+      return [{
+        x: segment.x + segment.width / 2 - (horizontal ? 9 : Math.max(44, segment.width - 18) / 2),
+        y: segment.y + segment.height / 2 - (horizontal ? Math.max(44, segment.height - 18) / 2 : 9),
+        width: horizontal ? 18 : Math.max(44, segment.width - 18),
+        height: horizontal ? Math.max(44, segment.height - 18) : 18,
+      }];
+    });
   }
 
   private canEnterRoom(player: CorePlayer, destinationId: CoreRoomId): boolean {
@@ -1426,4 +1621,24 @@ export class GameCore {
       }
     }
   }
+}
+
+function segmentIntersectsRect(x1: number, y1: number, x2: number, y2: number, rect: { x: number; y: number; width: number; height: number }): boolean {
+  let near = 0;
+  let far = 1;
+  for (const [origin, delta, min, max] of [
+    [x1, x2 - x1, rect.x, rect.x + rect.width],
+    [y1, y2 - y1, rect.y, rect.y + rect.height],
+  ] as const) {
+    if (Math.abs(delta) < 1e-9) {
+      if (origin < min || origin > max) return false;
+      continue;
+    }
+    const first = (min - origin) / delta;
+    const second = (max - origin) / delta;
+    near = Math.max(near, Math.min(first, second));
+    far = Math.min(far, Math.max(first, second));
+    if (near > far) return false;
+  }
+  return true;
 }

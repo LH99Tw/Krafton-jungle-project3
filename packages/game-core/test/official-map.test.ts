@@ -37,7 +37,14 @@ test("official monster-room enemies never leave their spawn room", () => {
   const monster = [...core.enemies.values()].find((enemy) => enemy.kind === "static")!;
   monster.hp = monster.maxHp = 1_000_000;
   const spawnRoomId = monster.spawnRoomId;
+  const originalSpawn = { x: monster.x, y: monster.y };
   core.movePlayerToRoom(player.userId, spawnRoomId);
+  assert.ok(
+    Math.hypot(monster.x - player.x, monster.y - player.y)
+      > Math.hypot(originalSpawn.x - player.x, originalSpawn.y - player.y),
+    "a newly discovered monster room should place its enemy farther from player vision",
+  );
+  assert.deepEqual({ x: monster.spawnX, y: monster.spawnY }, { x: monster.x, y: monster.y });
   for (let index = 0; index < 30; index += 1) core.update(0.1);
   assert.equal(monster.roomId, spawnRoomId);
   core.movePlayerToRoom(player.userId, OFFICIAL_WORLD.baseRoomId);
