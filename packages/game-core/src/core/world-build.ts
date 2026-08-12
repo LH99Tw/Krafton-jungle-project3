@@ -2,7 +2,6 @@ import {
   createSeededRoomEnemy,
   doorId,
   waypointId,
-  WAYPOINT_HOLD_SECONDS,
   FAST_TRAVEL_HOLD_SECONDS,
   type CoreDoor,
   type CoreEnemy,
