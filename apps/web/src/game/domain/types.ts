@@ -95,6 +95,12 @@ export type PartyMemberSnapshot = {
   skillTargetY?: number;
   skillRadius?: number;
   combatStats?: PlayerCombatStats;
+  inventory?: Array<{ id: string; slot: EquipmentSummary["slot"]; rarity: EquipmentSummary["rarity"]; upgradeLevel: number } | null>;
+  respawnRoomId?: string;
+  gambleAttempts?: number;
+  altarAttempts?: number;
+  shrineBuff?: string;
+  shrineBuffRemaining?: number;
 };
 
 export type PlayerCombatStats = {
@@ -112,7 +118,8 @@ export type RoomMapCell = {
   zone: number;
   x: number;
   y: number;
-  type: "start" | "gate" | "resource" | "static-monster" | "empty" | "central-waypoint" | "hidden-monster" | "boss";
+  type: "start" | "gate" | "resource" | "static-monster" | "empty" | "central-waypoint" | "hidden-monster" | "boss"
+    | "gate-candidate" | "shop" | "shrine" | "trap" | "checkpoint" | "gamble" | "altar" | "gold";
   visited: boolean;
   current: boolean;
   cleared: boolean;
@@ -167,7 +174,7 @@ export type NetworkDropSnapshot = {
   ownerUserId: string;
   roomId: string;
   slot: EquipmentSummary["slot"];
-  rarity: "legendary" | "mythic";
+  rarity: EquipmentSummary["rarity"];
   x: number;
   y: number;
   specialOptionCount: number;
@@ -213,6 +220,8 @@ export type NetworkWorldSnapshot = {
   } | null;
   stats: TeamStats;
   minimap: MiniMapSnapshot | null;
+  specialRooms: Array<{ roomId: string; kind: string; shrineKind: string; shrineClaimedBy: string; shrineClaimingBy: string; shrineClaimProgress: number; trapPhase: string; trapDebuff: string; trapParticipants: string[]; goldClaimed: boolean }>;
+  shopOffers: Array<{ id: string; playerId: string; roomId: string; kind: string; slot: string; rarity: string; price: number; sold: boolean; locked: boolean }>;
 };
 
 export type GameSnapshot = {
@@ -255,6 +264,17 @@ export type GameSnapshot = {
   buildSupported: boolean;
   inBuildZone: boolean;
   waypoint: WaypointSnapshot;
+  specialRoom?: {
+    kind: string;
+    state: NetworkWorldSnapshot["specialRooms"][number] | null;
+    offers: NetworkWorldSnapshot["shopOffers"];
+    inventory: NonNullable<PartyMemberSnapshot["inventory"]>;
+    respawnRoomId: string;
+    gambleAttempts: number;
+    altarAttempts: number;
+    shrineBuff: string;
+    shrineBuffRemaining: number;
+  } | null;
 };
 
 export type GameStartOptions = {

@@ -12,6 +12,7 @@ import {
   type RuntimeWorld,
 } from "../v02/simulation";
 import type { ThreeZoneMap } from "../v02/map";
+import { createSeededRandom } from "../v02/random";
 import type { GameCoreOptions } from "./types";
 
 export function createAuthoredRuntimeWorld(
@@ -19,26 +20,30 @@ export function createAuthoredRuntimeWorld(
   seed: string,
   difficulty: GameCoreOptions["difficulty"],
 ): RuntimeWorld {
+  const activeGateCandidates = selectGateCandidates(definition, seed);
   const rooms = new Map<CoreRoomId, CoreRoom>();
   const doors = new Map<string, CoreDoor>();
   const enemies = new Map<string, CoreEnemy>();
   const waypoints = new Map<string, CoreWaypoint>();
   for (const room of definition.rooms) {
+    const runtimeKind = room.kind === "gate-candidate"
+      ? activeGateCandidates.has(room.id) ? "gate" : "static-monster"
+      : room.kind;
     rooms.set(room.id, {
       id: room.id,
       zone: room.zone,
       gridX: room.mapX,
       gridY: room.mapY,
-      kind: room.kind,
+      kind: runtimeKind,
       depth: room.depth,
       connections: room.connections,
       discovered: room.id === definition.baseRoomId,
-      cleared: ["start", "resource", "empty", "central-waypoint"].includes(room.kind),
+      cleared: ["start", "empty", "central-waypoint", "shop", "shrine", "checkpoint", "gamble", "altar", "gold"].includes(runtimeKind),
       rect: room.rect,
     });
-    const enemyKind = room.kind === "static-monster" ? "static"
-      : room.kind === "hidden-monster" ? "hidden"
-        : room.kind === "gate" ? "gate" : null;
+    const enemyKind = runtimeKind === "static-monster" ? "static"
+      : runtimeKind === "hidden-monster" ? "hidden"
+        : runtimeKind === "gate" ? "gate" : null;
     if (enemyKind) {
       const enemy = createSeededRoomEnemy(
         seed,
@@ -88,7 +93,7 @@ export function createAuthoredRuntimeWorld(
     const authoredRooms = definition.rooms.filter((room) => room.zone === zone && room.kind !== "boss");
     const fallback = authoredRooms[0]?.id ?? definition.baseRoomId;
     const startRoomId = zone === 1 ? definition.baseRoomId : fallback;
-    const gateRoomId = authoredRooms.find((room) => room.kind === "gate")?.id ?? fallback;
+    const gateRoomId = [...rooms.values()].find((room) => room.zone === zone && room.kind === "gate")?.id ?? fallback;
     return {
       seed,
       zone,
@@ -109,4 +114,21 @@ export function createAuthoredRuntimeWorld(
   });
   const maps = { seed, zones } as unknown as ThreeZoneMap;
   return { maps, rooms, doors, enemies, waypoints };
+}
+
+function selectGateCandidates(definition: CoreWorldDefinition, seed: string): Set<CoreRoomId> {
+  const selected = new Set<CoreRoomId>(definition.gateRoomIds);
+  const candidates = new Set(definition.gateCandidateRoomIds ?? []);
+  for (const zone of [1, 2, 3] as const) {
+    const pool = definition.rooms
+      .filter((room) => room.zone === zone && room.kind === "gate-candidate" && candidates.has(room.id))
+      .map((room) => room.id);
+    const random = createSeededRandom(`gate-candidates:${seed}:zone:${zone}`);
+    for (let index = pool.length - 1; index > 0; index -= 1) {
+      const swap = Math.floor(random.next() * (index + 1));
+      [pool[index], pool[swap]] = [pool[swap]!, pool[index]!];
+    }
+    for (const roomId of pool.slice(0, 3)) selected.add(roomId);
+  }
+  return selected;
 }

@@ -463,7 +463,6 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     <GameHud snapshot={snapshot} heroClass={activeOptions.heroClass} onExit={returnToLobby} upgradeChoices={result ? [] : upgradeChoices} onChoose={chooseUpgrade} terminal={Boolean(result)} />
     <ResultOverlay
       result={result}
-      heroClass={activeOptions.heroClass}
       onLobby={returnToLobby}
       returnLabel={activeOptions.editorMap ? "맵 에디터로 돌아가기" : "게임 로비로 나가기"}
     />

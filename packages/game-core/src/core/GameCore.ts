@@ -1,5 +1,5 @@
 import { NIGHT_ATTACK_RANGE_MULTIPLIER, NIGHT_PLAYER_VISION_RADIUS, PLAYER_VISION_RADIUS, PROTOCOL_VERSION, type CombatActionEvent, type HeroClassId, type PlayerInputCommand } from "@five-days/protocol";
-import { rollPartyHiddenDrops, type EquipmentSlot, type PersonalHiddenDrop } from "../v02/equipment";
+import { EQUIPMENT_RARITIES, EQUIPMENT_SLOTS, rollPartyHiddenDrops, type EquipmentRarity, type EquipmentSlot, type PersonalHiddenDrop } from "../v02/equipment";
 import type { ThreeZoneMap, ZoneId } from "../v02/map";
 import {
   addAugmentStack,
@@ -16,6 +16,7 @@ import {
   augmentAttackBonus,
   createBossEnemy,
   createEmptyEquipment,
+  createSeededRoomEnemy,
   createRuntimeWorld,
   enemyFanPatternAngles,
   enemyFloorPatternCircles,
@@ -32,6 +33,7 @@ import {
   type CoreRoomId,
   type CoreWaypoint,
   type CoreWorldDefinition,
+  PERSONAL_INVENTORY_SIZE,
   type TravelIntent,
 } from "../v02/simulation";
 import { autoSkillDefinition, type AutoSkillId } from "../v02/skills";
@@ -42,18 +44,20 @@ import {
   isWalkableDiscLine,
   isWalkableDiscLineIndexed,
   isWalkableLine,
+  findWalkableDiscPath,
   resolveWalkableDiscPoint,
   roomWorldRect,
   type WorldRect,
   type WalkableSpatialIndex,
 } from "../v02/world";
-import { ACTOR_COLLISION_RADIUS, PLAYER_RESPAWN_SECONDS, RESOURCE_PRODUCTION_SECONDS, SIMULATION_EPSILON, STATIC_RESPAWN_SECONDS, durations } from "./constants";
+import { ACTOR_COLLISION_RADIUS, GOLD_ROOM_REWARDS, PLAYER_RESPAWN_SECONDS, RESOURCE_PRODUCTION_SECONDS, SIMULATION_EPSILON, STATIC_RESPAWN_SECONDS, durations } from "./constants";
 import { aiAugmentScore, clamp, deterministicCombatRoll, invaderEdgeKey, pointInWorldRect, shouldAiYieldEquipment } from "./helpers";
 import { createAuthoredRuntimeWorld } from "./world-build";
 import { AiPlayersDirector } from "./systems/AiPlayersDirector";
 import { InvaderDirector } from "./systems/InvaderDirector";
 import { TravelDirector } from "./systems/TravelDirector";
-import type { CoreCombatStats, CoreNotice, CorePhase, CorePlayer, CoreResult, GameCoreOptions, InvaderSimulationTiers, TeamProgress } from "./types";
+import type { CoreAltarStat, CoreCombatStats, CoreNotice, CorePhase, CorePlayer, CoreResult, CoreShopOffer, CoreShopStock, CoreShrineKind, CoreSpecialRoomState, GameCoreOptions, InvaderSimulationTiers, TeamProgress } from "./types";
+import { createSeededRandom, hashSeed } from "../v02/random";
 
 const authoredWalkableWithoutBossCache = new WeakMap<CoreWorldDefinition, readonly WorldRect[]>();
 const ENEMY_AGGRO_MEMORY_SECONDS = 12;
@@ -63,6 +67,11 @@ const ENEMY_AGGRO_PROXIMITY_SCORE = 24;
 const ENEMY_AGGRO_CURRENT_TARGET_BONUS = 8;
 const ENEMY_AGGRO_SWITCH_RATIO = 1.25;
 const ENEMY_AGGRO_SWITCH_MARGIN = 5;
+const HIDDEN_ACQUIRE_DISTANCE = 560;
+const HIDDEN_LEASH_DISTANCE = 900;
+const HIDDEN_RETURN_COMPLETE_DISTANCE = 10;
+const AUTHORED_MAP_TILE_WIDTH = 320;
+const AUTHORED_MAP_TILE_HEIGHT = 220;
 
 type EnemyThreatEntry = { value: number; updatedAt: number };
 
@@ -75,6 +84,9 @@ export class GameCore {
   readonly waypoints: Map<string, CoreWaypoint>;
   readonly drops = new Map<string, CoreDrop>();
   readonly discoveredRooms = new Set<CoreRoomId>();
+  readonly activatedEnemyRooms = new Set<CoreRoomId>();
+  readonly specialRooms = new Map<CoreRoomId, CoreSpecialRoomState>();
+  readonly shopStocks = new Map<string, CoreShopStock>();
 
   phase: CorePhase = "lobby";
   currentZone: ZoneId = 1;
@@ -120,6 +132,8 @@ export class GameCore {
   private authoredWalkableCache: { bossAccessible: boolean; rects: readonly WorldRect[] } | null = null;
   private readonly notices: CoreNotice[] = [];
   private readonly noticeCooldowns = new Map<string, number>();
+  private readonly trapEnemyRooms = new Map<string, CoreRoomId>();
+  private readonly returningHiddenEnemies = new Set<string>();
 
   constructor(readonly options: GameCoreOptions) {
     this.minimumPlayers = options.minimumPlayers ?? 3;
@@ -138,6 +152,12 @@ export class GameCore {
       this.roomRects.set(room.id, rect);
       this.roomCenters.set(room.id, { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
       if (options.world) this.addRoomToSpatialCells(room.id, rect);
+      if (["shop", "shrine", "trap", "checkpoint", "gamble", "altar", "gold"].includes(room.kind)) {
+        const state: CoreSpecialRoomState = { roomId: room.id, kind: room.kind as CoreSpecialRoomState["kind"] };
+        if (room.kind === "shrine") state.shrineKind = this.rollShrineKind(room.id);
+        if (room.kind === "trap") state.trapPhase = "idle";
+        this.specialRooms.set(room.id, state);
+      }
     }
     for (const enemy of this.enemies.values()) {
       if (enemy.behavior === "invader") continue;
@@ -265,6 +285,12 @@ export class GameCore {
       inputX: 0,
       inputY: 0,
       equipment: createEmptyEquipment(),
+      inventory: Array.from({ length: PERSONAL_INVENTORY_SIZE }, () => null),
+      respawnRoomId: startRoomId,
+      gambleAttempts: 0,
+      altarAttempts: 0,
+      altarMultipliers: { attack: 1, attackSpeed: 1, maxHp: 1, moveSpeed: 1, criticalDamage: 1 },
+      shrineBuff: null,
       upgrades: {},
       upgradeDraft: null,
       pendingUpgradeLevels: [],
@@ -365,6 +391,7 @@ export class GameCore {
     const delta = Math.max(0, Math.min(0.1, deltaSeconds));
     this.elapsed += delta;
     this.updatePlayerRespawns(delta);
+    this.updateSpecialRooms(delta);
     this.aiPlayersDirector.update();
 
     for (const player of this.players.values()) {
@@ -373,8 +400,8 @@ export class GameCore {
       player.eCooldown = Math.max(0, player.eCooldown - delta);
       player.dashCooldown = Math.max(0, player.dashCooldown - delta);
       if (!player.alive) continue;
-      const rules = CLASS_COMBAT_RULES[player.heroClass];
-      const transitioned = this.movePlayer(player, player.inputX * rules.speed * delta, player.inputY * rules.speed * delta);
+      const speed = this.effectiveMoveSpeed(player);
+      const transitioned = this.movePlayer(player, player.inputX * speed * delta, player.inputY * speed * delta);
       if (transitioned) this.discoverRoom(player.roomId);
     }
 
@@ -409,6 +436,7 @@ export class GameCore {
     this.invaderDirector.update(delta);
     this.invaderDirector.retireInactive();
     this.invaderDirector.updateSpawning(delta);
+    this.updateResourcePickups();
     this.updateResourceProduction(delta);
     this.travelDirector.update(delta);
     this.refreshCurrentZone();
@@ -459,6 +487,7 @@ export class GameCore {
     if (!player || !player.alive || player.autoAttackCooldown > 0 || this.phase === "lobby" || this.phase === "ended") {
       return null;
     }
+    if (this.trapDebuff(player) === "basic-disabled") return null;
     const rules = CLASS_COMBAT_RULES[player.heroClass];
     const rangeMultiplier = 1 + (player.upgrades["area-power"] ?? 0) * 0.12
       + (player.heroClass === "swordsman" ? (player.upgrades.multishot ?? 0) * 0.2 : 0);
@@ -476,9 +505,11 @@ export class GameCore {
       player.lastAttackTargetId = target.id;
       player.consecutiveHits = 1;
     }
-    const haste = (player.upgrades.haste ?? 0) * 0.12;
+    const shrine = this.activeShrine(player);
+    const haste = (player.upgrades.haste ?? 0) * 0.12 + (["berserker", "wind"].includes(shrine ?? "") ? 0.5 : 0);
     const equipmentHaste = equipmentBonuses(player.equipment).attackSpeedBonus / 100;
-    player.autoAttackCooldown = Math.max(0.12, rules.attackInterval / (1 + haste + equipmentHaste));
+    const trapRate = this.trapDebuff(player) === "attack-speed" ? 0.5 : 1;
+    player.autoAttackCooldown = Math.max(0.12, rules.attackInterval / ((1 + haste + equipmentHaste) * player.altarMultipliers.attackSpeed * trapRate));
     let additionalTargets = player.heroClass === "swordsman" ? 0 : (player.upgrades.multishot ?? 0);
     if (player.heroClass === "archer") {
       additionalTargets += (player.upgrades["archer-volley"] ?? 0) + (player.upgrades["archer-piercing"] ?? 0) * 2 + (player.upgrades["archer-ricochet"] ?? 0);
@@ -513,6 +544,7 @@ export class GameCore {
   castSkill(userId: string, skillId: "q" | "e" | "dash", aim: number): boolean {
     const player = this.players.get(userId);
     if (!player || !player.alive || this.phase === "lobby" || this.phase === "ended") return false;
+    if (skillId !== "dash" && this.trapDebuff(player) === "skills-disabled") return false;
     player.aim = aim;
     if (skillId === "dash") {
       if (player.dashCooldown > 0) return false;
@@ -542,16 +574,18 @@ export class GameCore {
     if (player[cooldownKey] > 0) return false;
     const anchor = this.autoSkillTarget(player, skillId);
     if (!anchor) return false;
-    const cooldownReduction = Math.min(0.6, (player.upgrades["skill-haste"] ?? 0) * 0.03
+    const shrineReduction = this.activeShrine(player) === "infinity" ? 0.7 : 0;
+    const cooldownReduction = Math.min(0.7, shrineReduction + (player.upgrades["skill-haste"] ?? 0) * 0.03
       + (player.heroClass === "mage" && player.upgrades["mage-tempo"] ? 0.125 : 0));
     player[cooldownKey] = definition.cooldownSeconds * (1 - cooldownReduction);
     const skillPower = 1 + (player.upgrades["skill-power"] ?? 0) * 0.11;
-    const areaMultiplier = 1 + (player.upgrades["area-power"] ?? 0) * 0.06
-      + (player.heroClass === "mage" && player.upgrades["mage-nova"] ? 0.275 : 0);
+    const areaMultiplier = (1 + (player.upgrades["area-power"] ?? 0) * 0.06
+      + (player.heroClass === "mage" && player.upgrades["mage-nova"] ? 0.275 : 0));
+    const shrineAreaMultiplier = this.activeShrine(player) === "giant" ? 2 : 1;
     const targetX = anchor.x;
     const targetY = anchor.y;
-    const range = definition.range * areaMultiplier;
-    const radius = definition.radius * areaMultiplier;
+    const range = definition.range * areaMultiplier * shrineAreaMultiplier;
+    const radius = definition.radius * areaMultiplier * shrineAreaMultiplier;
     const targets = [...this.enemies.values()]
       .filter((enemy) => enemy.alive && this.hasPlayerLineOfSight(player, enemy))
       .filter((enemy) => {
@@ -635,6 +669,155 @@ export class GameCore {
     this.activateNextDraft(player);
     this.recalculateTeamPower(player);
     return true;
+  }
+
+  getShopStock(userId: string, roomId: CoreRoomId): CoreShopStock | null {
+    const player = this.players.get(userId);
+    const room = this.rooms.get(roomId);
+    if (!player || !room || room.kind !== "shop") return null;
+    const key = `${roomId}:${userId}`;
+    let stock = this.shopStocks.get(key);
+    if (!stock) {
+      stock = { roomId, playerId: userId, rerolls: 0, offers: this.rollShopOffers(room, player, 0) };
+      this.shopStocks.set(key, stock);
+    }
+    return stock;
+  }
+
+  shopBuy(userId: string, offerId: string): boolean {
+    const player = this.players.get(userId);
+    if (!player || !this.canUseSpecialRoom(player, "shop")) return false;
+    const stock = this.getShopStock(userId, player.roomId);
+    const offer = stock?.offers.find((candidate) => candidate.id === offerId);
+    if (!stock || !offer || offer.sold || this.gold < offer.price) return false;
+    if (offer.kind === "equipment" && player.inventory.every(Boolean)) return false;
+    this.gold -= offer.price;
+    player.goldSpent += offer.price;
+    if (offer.kind === "heal") player.hp = Math.min(player.maxHp, player.hp + Math.ceil(player.maxHp * 0.5));
+    else if (offer.item) player.inventory[player.inventory.findIndex((item) => !item)] = offer.item;
+    stock.offers = stock.offers.map((candidate) => candidate.id === offerId ? { ...candidate, sold: true, locked: false } : candidate);
+    return true;
+  }
+
+  shopReroll(userId: string): boolean {
+    const player = this.players.get(userId);
+    if (!player || !this.canUseSpecialRoom(player, "shop")) return false;
+    const stock = this.getShopStock(userId, player.roomId);
+    if (!stock) return false;
+    const zone = this.rooms.get(player.roomId)?.zone ?? 1;
+    const cost = 10 * zone + stock.rerolls * 5 * zone;
+    if (this.gold < cost) return false;
+    this.gold -= cost;
+    player.goldSpent += cost;
+    const preserved = stock.offers.find((offer) => offer.locked && !offer.sold);
+    stock.rerolls += 1;
+    stock.offers = this.rollShopOffers(this.rooms.get(player.roomId)!, player, stock.rerolls, preserved ? { ...preserved, locked: false } : undefined);
+    return true;
+  }
+
+  shopLock(userId: string, offerId: string): boolean {
+    const player = this.players.get(userId);
+    if (!player || !this.canUseSpecialRoom(player, "shop")) return false;
+    const stock = this.getShopStock(userId, player.roomId);
+    if (!stock || !stock.offers.some((offer) => offer.id === offerId && !offer.sold)) return false;
+    stock.offers = stock.offers.map((offer) => ({ ...offer, locked: offer.id === offerId }));
+    return true;
+  }
+
+  shopSell(userId: string, inventoryIndex: number): boolean {
+    const player = this.players.get(userId);
+    if (!player || !this.canUseSpecialRoom(player, "shop") || !Number.isInteger(inventoryIndex)) return false;
+    const item = player.inventory[inventoryIndex];
+    if (!item) return false;
+    this.gold += Math.floor(this.equipmentPrice(item, this.rooms.get(player.roomId)?.zone ?? 1) * 0.4);
+    player.inventory[inventoryIndex] = null;
+    return true;
+  }
+
+  shopUpgrade(userId: string, inventoryIndex: number): boolean {
+    const player = this.players.get(userId);
+    if (!player || !this.canUseSpecialRoom(player, "shop") || !Number.isInteger(inventoryIndex)) return false;
+    const item = player.inventory[inventoryIndex];
+    const zone = this.rooms.get(player.roomId)?.zone ?? 1;
+    const level = item?.upgradeLevel ?? 0;
+    const cost = [35, 70, 105][level];
+    if (!item || level >= zone || cost === undefined || this.gold < cost) return false;
+    this.gold -= cost;
+    player.goldSpent += cost;
+    player.inventory[inventoryIndex] = { ...item, upgradeLevel: level + 1 };
+    this.recalculateTeamPower(player);
+    return true;
+  }
+
+  equipInventoryItem(userId: string, inventoryIndex: number): boolean {
+    const player = this.players.get(userId);
+    if (!player || !Number.isInteger(inventoryIndex)) return false;
+    const item = player.inventory[inventoryIndex];
+    if (!item) return false;
+    const previous = player.equipment[item.slot];
+    player.inventory[inventoryIndex] = previous;
+    this.equipItem(player, item);
+    return true;
+  }
+
+  claimShrine(userId: string): boolean {
+    const player = this.players.get(userId);
+    const state = player ? this.specialRooms.get(player.roomId) : null;
+    if (!player || !state || state.kind !== "shrine" || state.shrineClaimedBy) return false;
+    if (!this.isNearRoomCenter(player, 115)) return false;
+    state.shrineClaimingBy = userId;
+    state.shrineClaimProgress = 0;
+    return true;
+  }
+
+  setCheckpoint(userId: string): boolean {
+    const player = this.players.get(userId);
+    if (!player || !this.canUseSpecialRoom(player, "checkpoint") || !this.isNearRoomCenter(player, 145)) return false;
+    player.respawnRoomId = player.roomId;
+    return true;
+  }
+
+  claimGoldRoom(userId: string): number | null {
+    const player = this.players.get(userId);
+    const state = player ? this.specialRooms.get(player.roomId) : null;
+    if (!player || !state || state.kind !== "gold" || state.goldClaimed || !this.isNearRoomCenter(player, 145)) return null;
+    const zone = this.rooms.get(player.roomId)?.zone ?? 1;
+    const reward = GOLD_ROOM_REWARDS[zone];
+    state.goldClaimed = true;
+    this.gold += reward;
+    return reward;
+  }
+
+  playGamble(userId: string): number | null {
+    const player = this.players.get(userId);
+    if (!player || !this.canUseSpecialRoom(player, "gamble") || player.gambleAttempts >= 3) return null;
+    const zone = this.rooms.get(player.roomId)?.zone ?? 1;
+    const stake = 25 * zone;
+    if (this.gold < stake) return null;
+    this.gold -= stake;
+    player.goldSpent += stake;
+    const roll = createSeededRandom(`gamble:${this.options.seed}:${player.roomId}:${userId}:${player.gambleAttempts}`).next();
+    player.gambleAttempts += 1;
+    const multiplier = roll < 0.5 ? 0 : roll < 0.85 ? 2 : roll < 0.98 ? 4 : 10;
+    const payout = stake * multiplier;
+    this.gold += payout;
+    return payout;
+  }
+
+  rerollAltar(userId: string): Readonly<{ increased: CoreAltarStat; decreased: CoreAltarStat }> | null {
+    const player = this.players.get(userId);
+    if (!player || !this.canUseSpecialRoom(player, "altar") || player.altarAttempts >= 3) return null;
+    const stats: CoreAltarStat[] = ["attack", "attackSpeed", "maxHp", "moveSpeed", "criticalDamage"];
+    const random = createSeededRandom(`altar:${this.options.seed}:${player.roomId}:${userId}:${player.altarAttempts}`);
+    const increased = random.pick(stats);
+    const decreased = random.pick(stats.filter((stat) => stat !== increased));
+    const previousMaxHp = player.maxHp;
+    player.altarMultipliers[increased] = clamp(player.altarMultipliers[increased] * 1.25, 0.5, 2);
+    player.altarMultipliers[decreased] = clamp(player.altarMultipliers[decreased] * 0.85, 0.5, 2);
+    player.altarAttempts += 1;
+    this.recalculateMaxHp(player, previousMaxHp);
+    this.recalculateTeamPower(player);
+    return { increased, decreased };
   }
 
   requestTravel(userId: string, waypointIdValue: string, destinationId?: string): boolean {
@@ -773,18 +956,21 @@ export class GameCore {
     if (!player) return null;
     const rules = CLASS_COMBAT_RULES[player.heroClass];
     const equipment = equipmentBonuses(player.equipment);
-    const haste = (player.upgrades.haste ?? 0) * 0.12 + equipment.attackSpeedBonus / 100;
+    const shrine = this.activeShrine(player);
+    const haste = ((player.upgrades.haste ?? 0) * 0.12 + equipment.attackSpeedBonus / 100)
+      * player.altarMultipliers.attackSpeed + (shrine === "berserker" || shrine === "wind" ? 0.5 : 0);
     const rangeMultiplier = 1 + (player.upgrades["area-power"] ?? 0) * 0.12
       + (player.heroClass === "swordsman" ? (player.upgrades.multishot ?? 0) * 0.2 : 0);
     const bladeRange = player.heroClass === "swordsman" && player.upgrades["swordsman-blade"] ? 240 : 0;
     return {
-      attackDamage: rules.attackDamage + equipment.attackBonus + augmentAttackBonus(player.upgrades),
+      attackDamage: (rules.attackDamage + equipment.attackBonus + augmentAttackBonus(player.upgrades))
+        * player.altarMultipliers.attack * (["berserker", "doom"].includes(shrine ?? "") ? 2 : shrine === "giant" ? 1.5 : 1),
       defense: equipment.defenseBonus,
-      criticalChance: (player.upgrades.precision ?? 0) * 6,
-      criticalDamage: 150 + (player.upgrades.ferocity ?? 0) * 20,
+      criticalChance: shrine === "assassin" || shrine === "doom" ? 100 : (player.upgrades.precision ?? 0) * 6,
+      criticalDamage: (150 + (player.upgrades.ferocity ?? 0) * 20 + (shrine === "assassin" ? 50 : 0)) * player.altarMultipliers.criticalDamage,
       attacksPerSecond: (1 + haste) / rules.attackInterval,
       attackRange: this.playerAttackRange(Math.max(rules.attackRange * rangeMultiplier, bladeRange)),
-      moveSpeed: rules.speed,
+      moveSpeed: this.effectiveMoveSpeed(player),
     };
   }
 
@@ -953,14 +1139,10 @@ export class GameCore {
   discoverRoom(roomId: CoreRoomId): void {
     const room = this.rooms.get(roomId);
     if (!room) return;
-    const firstDiscovery = !room.discovered;
-    if (firstDiscovery && (room.kind === "static-monster" || room.kind === "hidden-monster")) {
-      this.placeUndiscoveredRoomEnemiesAwayFromPlayers(roomId);
-    }
     room.discovered = true;
     this.discoveredRooms.add(roomId);
-    if (room.kind === "resource" && !this.resourceAccumulators.has(roomId)) {
-      this.resourceAccumulators.set(roomId, 0);
+    for (const candidate of this.rooms.values()) {
+      if (this.isInsideEnemyActivationNeighborhood(room, candidate)) this.activateRoomEnemies(candidate.id);
     }
     if (roomId === this.bossRoomId()) return;
     for (const waypoint of this.waypoints.values()) {
@@ -968,6 +1150,37 @@ export class GameCore {
         waypoint.active = true;
       }
     }
+  }
+
+  private isInsideEnemyActivationNeighborhood(origin: CoreRoom, candidate: CoreRoom): boolean {
+    if (!this.authoredWorld) {
+      return origin.zone === candidate.zone
+        && Math.abs(origin.gridX - candidate.gridX) <= 1
+        && Math.abs(origin.gridY - candidate.gridY) <= 1;
+    }
+    const originRect = this.roomRectOf(origin.id);
+    const candidateRect = this.roomRectOf(candidate.id);
+    const horizontalGap = Math.max(
+      0,
+      candidateRect.x - (originRect.x + originRect.width),
+      originRect.x - (candidateRect.x + candidateRect.width),
+    );
+    const verticalGap = Math.max(
+      0,
+      candidateRect.y - (originRect.y + originRect.height),
+      originRect.y - (candidateRect.y + candidateRect.height),
+    );
+    return horizontalGap <= AUTHORED_MAP_TILE_WIDTH && verticalGap <= AUTHORED_MAP_TILE_HEIGHT;
+  }
+
+  private activateRoomEnemies(roomId: CoreRoomId): void {
+    if (this.activatedEnemyRooms.has(roomId)) return;
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    if (room.kind === "static-monster" || room.kind === "hidden-monster") {
+      this.placeUndiscoveredRoomEnemiesAwayFromPlayers(roomId);
+    }
+    this.activatedEnemyRooms.add(roomId);
   }
 
   private placeUndiscoveredRoomEnemiesAwayFromPlayers(roomId: CoreRoomId): void {
@@ -1066,7 +1279,8 @@ export class GameCore {
       if (player.alive || player.respawnRemaining <= 0) continue;
       player.respawnRemaining = Math.max(0, player.respawnRemaining - delta);
       if (player.respawnRemaining > SIMULATION_EPSILON) continue;
-      const startRoomId = this.startRoomId();
+      player.respawnRemaining = 0;
+      const startRoomId = this.rooms.has(player.respawnRoomId) ? player.respawnRoomId : this.startRoomId();
       const startCenter = this.roomWorldCenterOf(startRoomId);
       player.hp = player.maxHp;
       player.alive = true;
@@ -1181,12 +1395,15 @@ export class GameCore {
 
   private calculateAttackDamage(player: CorePlayer, enemy: CoreEnemy): number {
     const rules = CLASS_COMBAT_RULES[player.heroClass];
-    let damage = rules.attackDamage + equipmentBonuses(player.equipment).attackBonus + augmentAttackBonus(player.upgrades);
-    const criticalChance = (player.upgrades.precision ?? 0) * 0.06;
+    const shrine = this.activeShrine(player);
+    let damage = (rules.attackDamage + equipmentBonuses(player.equipment).attackBonus + augmentAttackBonus(player.upgrades))
+      * player.altarMultipliers.attack * (["berserker", "doom"].includes(shrine ?? "") ? 2 : shrine === "giant" ? 1.5 : 1);
+    if (this.trapDebuff(player) === "attack") damage *= 0.5;
+    const criticalChance = shrine === "assassin" || shrine === "doom" ? 1 : (player.upgrades.precision ?? 0) * 0.06;
     const critical = deterministicCombatRoll(this.options.seed, player.userId, player.attackCount) < criticalChance;
     player.lastAttackCritical = critical;
     if (critical) {
-      damage *= 1.5 + (player.upgrades.ferocity ?? 0) * 0.2;
+      damage *= (1.5 + (player.upgrades.ferocity ?? 0) * 0.2 + (shrine === "assassin" ? 0.5 : 0)) * player.altarMultipliers.criticalDamage;
     }
     const momentumStacks = player.upgrades.momentum ?? 0;
     if (momentumStacks > 0) damage *= 1 + Math.min(0.2 * momentumStacks, player.consecutiveHits * 0.04 * momentumStacks);
@@ -1248,7 +1465,7 @@ export class GameCore {
     this.enemyThreat.delete(enemy.id);
     enemy.patternPhase = "idle";
     enemy.patternRemaining = 0;
-    enemy.respawnRemaining = enemy.kind === "static" ? STATIC_RESPAWN_SECONDS[this.options.mode] : null;
+    enemy.respawnRemaining = enemy.kind === "static" && !this.trapEnemyRooms.has(enemy.id) ? STATIC_RESPAWN_SECONDS[this.options.mode] : null;
     killer.kills += 1;
     this.gold += enemy.goldReward;
     if (enemy.xpReward > 0) this.addTeamExperience(enemy.xpReward);
@@ -1308,9 +1525,14 @@ export class GameCore {
 
   private equipItem(player: CorePlayer, item: PersonalHiddenDrop): void {
     const previousMaxHp = player.maxHp;
+    const previous = player.equipment[item.slot as EquipmentSlot];
+    if (previous) {
+      const empty = player.inventory.findIndex((entry) => !entry);
+      if (empty < 0) return;
+      player.inventory[empty] = previous;
+    }
     player.equipment[item.slot as EquipmentSlot] = item;
-    player.maxHp = CLASS_COMBAT_RULES[player.heroClass].hp + equipmentBonuses(player.equipment).maxHpBonus;
-    player.hp = Math.min(player.maxHp, Math.max(1, player.hp + (player.maxHp - previousMaxHp)));
+    this.recalculateMaxHp(player, previousMaxHp);
     this.recalculateTeamPower(player);
   }
 
@@ -1321,6 +1543,260 @@ export class GameCore {
       + (player.level - 1) * 12
       + equipmentScore
       + augmentScore;
+  }
+
+  private canUseSpecialRoom(player: CorePlayer, kind: CoreSpecialRoomState["kind"]): boolean {
+    return player.alive && this.rooms.get(player.roomId)?.kind === kind && this.specialRooms.get(player.roomId)?.kind === kind
+      && (kind !== "shop" || this.isInPersonalShopZone(player));
+  }
+
+  private isInPersonalShopZone(player: CorePlayer): boolean {
+    const members = [...this.players.keys()].sort();
+    const index = members.indexOf(player.userId);
+    if (index < 0) return false;
+    const center = this.roomWorldCenterOf(player.roomId);
+    const angles = [-Math.PI / 2, Math.PI / 6, Math.PI * 5 / 6];
+    const angle = angles[index % angles.length]!;
+    const target = { x: center.x + Math.cos(angle) * 180, y: center.y + Math.sin(angle) * 150 };
+    return Math.hypot(player.x - target.x, player.y - target.y) <= 92;
+  }
+
+  private isNearRoomCenter(player: CorePlayer, radius: number): boolean {
+    const center = this.roomWorldCenterOf(player.roomId);
+    return Math.hypot(player.x - center.x, player.y - center.y) <= radius;
+  }
+
+  private equipmentPrice(item: PersonalHiddenDrop, zone: ZoneId): number {
+    const base: Record<EquipmentRarity, number> = { normal: 30, rare: 50, epic: 80, legendary: 120, mythic: 180 };
+    return base[item.rarity] + zone * 10;
+  }
+
+  private rollShopOffers(room: CoreRoom, player: CorePlayer, reroll: number, preserved?: CoreShopOffer): CoreShopOffer[] {
+    const random = createSeededRandom(`shop:${this.options.seed}:${room.id}:${player.userId}:${reroll}`);
+    const slots = Object.keys(EQUIPMENT_SLOTS) as EquipmentSlot[];
+    const offers: CoreShopOffer[] = preserved ? [preserved] : [];
+    while (offers.filter((offer) => offer.kind === "equipment").length < 4) {
+      const index = offers.length;
+      const rarity = this.rollShopRarity(room.zone, random.next());
+      const rule = EQUIPMENT_RARITIES[rarity];
+      const slot = random.pick(slots);
+      const fingerprint = hashSeed(`shop-item:${this.options.seed}:${room.id}:${player.userId}:${reroll}:${index}`).toString(16);
+      const item: PersonalHiddenDrop = {
+        id: `shop-${room.zone}-${fingerprint}`,
+        ownerPlayerId: player.userId,
+        zone: room.zone,
+        hiddenRoomId: room.id,
+        dropIndex: reroll * 10 + index,
+        rarity,
+        slot,
+        statMultiplier: rule.statMultiplier,
+        specialOptionCount: rule.specialOptionCount,
+        upgradeLevel: 0,
+      };
+      offers.push({ id: `offer:${item.id}`, kind: "equipment", price: this.equipmentPrice(item, room.zone), sold: false, locked: false, item });
+    }
+    if (!offers.some((offer) => offer.kind === "heal")) {
+      offers.push({ id: `offer:heal:${room.id}:${player.userId}:${reroll}`, kind: "heal", price: [30, 45, 60][room.zone - 1]!, sold: false, locked: false, item: null });
+    }
+    return offers.slice(0, 5);
+  }
+
+  private rollShopRarity(zone: ZoneId, roll: number): EquipmentRarity {
+    const table: Record<ZoneId, Array<readonly [EquipmentRarity, number]>> = {
+      1: [["normal", 0.65], ["rare", 0.3], ["epic", 0.05]],
+      2: [["normal", 0.25], ["rare", 0.45], ["epic", 0.25], ["legendary", 0.05]],
+      3: [["rare", 0.25], ["epic", 0.4], ["legendary", 0.28], ["mythic", 0.07]],
+    };
+    let cumulative = 0;
+    for (const [rarity, chance] of table[zone]) {
+      cumulative += chance;
+      if (roll < cumulative) return rarity;
+    }
+    return table[zone].at(-1)![0];
+  }
+
+  private rollShrineKind(roomId: CoreRoomId): CoreShrineKind {
+    const random = createSeededRandom(`shrine:${this.options.seed}:${roomId}`);
+    if (random.next() < 0.05) return "doom";
+    return random.pick(["berserker", "assassin", "giant", "wind", "infinity"] as const);
+  }
+
+  private activeShrine(player: CorePlayer): CoreShrineKind | null {
+    return player.shrineBuff && player.shrineBuff.expiresAt > this.elapsed ? player.shrineBuff.kind : null;
+  }
+
+  private effectiveMoveSpeed(player: CorePlayer): number {
+    const shrine = this.activeShrine(player);
+    const shrineMultiplier = shrine === "wind" || shrine === "doom" ? 2 : shrine === "giant" ? 0.8 : 1;
+    const trapMultiplier = this.trapDebuff(player) === "move-speed" ? 0.5 : 1;
+    return CLASS_COMBAT_RULES[player.heroClass].speed * player.altarMultipliers.moveSpeed * shrineMultiplier * trapMultiplier;
+  }
+
+  private trapDebuff(player: CorePlayer): string | null {
+    const state = this.specialRooms.get(player.roomId);
+    return state?.kind === "trap" && state.trapParticipants?.includes(player.userId) ? state.trapDebuff ?? null : null;
+  }
+
+  private recalculateMaxHp(player: CorePlayer, previousMaxHp = player.maxHp): void {
+    const ratio = previousMaxHp > 0 ? player.hp / previousMaxHp : 1;
+    const base = CLASS_COMBAT_RULES[player.heroClass].hp + equipmentBonuses(player.equipment).maxHpBonus;
+    const trapMultiplier = this.trapDebuff(player) === "max-hp" ? 0.5 : 1;
+    player.maxHp = Math.max(1, Math.round(base * player.altarMultipliers.maxHp * trapMultiplier));
+    player.hp = Math.max(1, Math.min(player.maxHp, Math.round(player.maxHp * ratio)));
+  }
+
+  private updateSpecialRooms(delta: number): void {
+    for (const player of this.players.values()) {
+      if (player.alive && this.rooms.get(player.roomId)?.kind === "shop") this.getShopStock(player.userId, player.roomId);
+      if (player.shrineBuff && player.shrineBuff.expiresAt <= this.elapsed) {
+        if (player.shrineBuff.kind === "doom" && player.alive) player.hp = 1;
+        player.shrineBuff = null;
+      }
+    }
+    for (const state of this.specialRooms.values()) {
+      if (state.kind === "shrine" && state.shrineClaimingBy && !state.shrineClaimedBy) {
+        const player = this.players.get(state.shrineClaimingBy);
+        if (!player?.alive || player.roomId !== state.roomId || !this.isNearRoomCenter(player, 115)) {
+          state.shrineClaimingBy = undefined;
+          state.shrineClaimProgress = 0;
+        } else {
+          state.shrineClaimProgress = (state.shrineClaimProgress ?? 0) + delta;
+          if (state.shrineClaimProgress >= 3) {
+            const durations: Record<CoreShrineKind, number> = { berserker: 60, assassin: 45, giant: 60, wind: 60, infinity: 45, doom: 30 };
+            player.shrineBuff = { kind: state.shrineKind!, expiresAt: this.elapsed + durations[state.shrineKind!] };
+            state.shrineClaimedBy = player.userId;
+            state.shrineClaimingBy = undefined;
+            state.shrineClaimProgress = 3;
+          }
+        }
+      }
+      if (state.kind === "trap") this.updateTrapRoom(state, delta);
+    }
+  }
+
+  private updateTrapRoom(state: CoreSpecialRoomState, delta: number): void {
+    const participantsInRoom = [...this.players.values()].filter((player) => player.alive && player.roomId === state.roomId);
+    if (state.trapPhase === "idle" && participantsInRoom.length > 0) {
+      state.trapParticipants = participantsInRoom.map((player) => player.userId).sort();
+      state.trapDebuff = this.rollTrapDebuff(state.roomId, state.trapParticipants.length);
+      state.trapPhase = "warning";
+      state.trapProgress = 0;
+      this.moveTrapParticipantsClearOfDoorway(state);
+      const room = this.rooms.get(state.roomId);
+      if (room) room.cleared = false;
+    }
+    if (state.trapPhase === "warning") {
+      state.trapProgress = (state.trapProgress ?? 0) + delta;
+      if (state.trapProgress >= 1) {
+        this.spawnTrapWave(state.roomId);
+        state.trapPhase = "wave";
+      }
+    }
+    if (state.trapPhase === "wave") {
+      const livingWave = [...this.trapEnemyRooms].some(([enemyId, roomId]) => roomId === state.roomId && this.enemies.get(enemyId)?.alive);
+      if (!livingWave) {
+        this.spawnTrapHidden(state.roomId);
+        state.trapPhase = "hidden";
+      }
+    }
+    if (state.trapPhase === "hidden") {
+      const living = [...this.trapEnemyRooms].some(([enemyId, roomId]) => roomId === state.roomId && this.enemies.get(enemyId)?.alive);
+      if (!living) {
+        state.trapPhase = "cleared";
+        state.trapDebuff = undefined;
+        const room = this.rooms.get(state.roomId);
+        if (room) room.cleared = true;
+      }
+    }
+    if (["warning", "wave", "hidden"].includes(state.trapPhase ?? "")) {
+      const livingParticipants = (state.trapParticipants ?? []).some((id) => this.players.get(id)?.alive);
+      if (!livingParticipants) this.resetTrap(state);
+      if (state.trapDebuff === "tether") this.applyTetherDamage(state, delta);
+    }
+  }
+
+  private rollTrapDebuff(roomId: CoreRoomId, participants: number): string {
+    const choices = ["move-speed", "attack", "attack-speed", "skills-disabled", "basic-disabled", "max-hp", "healing-disabled", "vision"];
+    if (participants > 1) choices.push("tether");
+    return createSeededRandom(`trap:${this.options.seed}:${roomId}:${this.elapsed}`).pick(choices);
+  }
+
+  private spawnTrapWave(roomId: CoreRoomId): void {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    const rect = this.roomRectOf(roomId);
+    for (let index = 0; index < 10; index += 1) {
+      const enemy = createSeededRoomEnemy(`${this.options.seed}:trap:${index}`, roomId, room.zone, "static", this.options.difficulty, rect.x, rect.y, rect.width, rect.height);
+      enemy.id = `enemy:trap:${roomId}:${index}`;
+      enemy.x = enemy.spawnX = rect.x + rect.width * (0.16 + (index % 5) * 0.17);
+      enemy.y = enemy.spawnY = rect.y + rect.height * (index < 5 ? 0.3 : 0.7);
+      enemy.respawnRemaining = null;
+      this.enemies.set(enemy.id, enemy);
+      this.trapEnemyRooms.set(enemy.id, roomId);
+      const bucket = this.staticEnemyIdsByRoom.get(roomId) ?? [];
+      bucket.push(enemy.id);
+      this.staticEnemyIdsByRoom.set(roomId, bucket);
+    }
+  }
+
+  private moveTrapParticipantsClearOfDoorway(state: CoreSpecialRoomState): void {
+    if (!this.authoredWorld) return;
+    const room = this.rooms.get(state.roomId);
+    const roomRect = this.authoredWorld.rooms.find((entry) => entry.id === state.roomId)?.rect;
+    if (!room || !roomRect) return;
+    const barriers = this.authoredWorld.connections
+      .filter((connection) => connection.from === state.roomId || connection.to === state.roomId)
+      .flatMap((connection) => connection.trapBarrier ? [connection.trapBarrier] : []);
+    for (const userId of state.trapParticipants ?? []) {
+      const player = this.players.get(userId);
+      if (!player) continue;
+      for (const barrier of barriers) {
+        const expanded = expandedBarrier(barrier);
+        if (!pointInWorldRect(player.x, player.y, expanded)) continue;
+        if (barrier.height >= barrier.width) {
+          const direction = Math.sign(roomRect.x + roomRect.width / 2 - (barrier.x + barrier.width / 2)) || 1;
+          player.x = barrier.x + barrier.width / 2 + direction * (barrier.width / 2 + ACTOR_COLLISION_RADIUS + 6);
+          player.y = clamp(player.y, roomRect.y + ACTOR_COLLISION_RADIUS, roomRect.y + roomRect.height - ACTOR_COLLISION_RADIUS);
+        } else {
+          const direction = Math.sign(roomRect.y + roomRect.height / 2 - (barrier.y + barrier.height / 2)) || 1;
+          player.y = barrier.y + barrier.height / 2 + direction * (barrier.height / 2 + ACTOR_COLLISION_RADIUS + 6);
+          player.x = clamp(player.x, roomRect.x + ACTOR_COLLISION_RADIUS, roomRect.x + roomRect.width - ACTOR_COLLISION_RADIUS);
+        }
+      }
+    }
+  }
+
+  private spawnTrapHidden(roomId: CoreRoomId): void {
+    const room = this.rooms.get(roomId);
+    if (!room) return;
+    const rect = this.roomRectOf(roomId);
+    const enemy = createSeededRoomEnemy(`${this.options.seed}:trap:hidden`, roomId, room.zone, "hidden", this.options.difficulty, rect.x, rect.y, rect.width, rect.height);
+    enemy.id = `enemy:trap-hidden:${roomId}`;
+    this.enemies.set(enemy.id, enemy);
+    this.trapEnemyRooms.set(enemy.id, roomId);
+    const bucket = this.staticEnemyIdsByRoom.get(roomId) ?? [];
+    bucket.push(enemy.id);
+    this.staticEnemyIdsByRoom.set(roomId, bucket);
+  }
+
+  private resetTrap(state: CoreSpecialRoomState): void {
+    for (const [enemyId, roomId] of this.trapEnemyRooms) if (roomId === state.roomId) {
+      this.enemies.delete(enemyId);
+      this.trapEnemyRooms.delete(enemyId);
+      const bucket = this.staticEnemyIdsByRoom.get(roomId);
+      if (bucket) this.staticEnemyIdsByRoom.set(roomId, bucket.filter((id) => id !== enemyId));
+    }
+    state.trapPhase = "idle";
+    state.trapDebuff = undefined;
+    state.trapParticipants = [];
+    state.trapProgress = 0;
+  }
+
+  private applyTetherDamage(state: CoreSpecialRoomState, delta: number): void {
+    const players = (state.trapParticipants ?? []).map((id) => this.players.get(id)).filter((player): player is CorePlayer => Boolean(player?.alive));
+    for (const player of players) if (players.some((other) => other !== player && Math.hypot(other.x - player.x, other.y - player.y) > 500)) {
+      this.damagePlayer(player, player.maxHp * 0.05 * delta);
+    }
   }
 
   private activateNextDraft(player: CorePlayer): void {
@@ -1389,22 +1865,38 @@ export class GameCore {
       const tier = enemy.kind === "boss" ? "boss" : enemy.kind === "hidden" ? "hidden" : "gate";
       const config = enemyPatternConfig(tier);
       enemy.attackCooldown = Math.max(0, enemy.attackCooldown - delta);
-      const target = this.selectEnemyAggroTarget(enemy, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY);
+      const target = enemy.kind === "hidden"
+        ? this.selectHiddenTarget(enemy)
+        : this.selectEnemyAggroTarget(enemy, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY);
       if (!target) {
         this.clearEnemyTarget(enemy);
         enemy.patternPhase = "idle";
         enemy.patternRemaining = 0;
-        if (enemy.kind === "hidden") this.moveEnemyToward(enemy, enemy.spawnX, enemy.spawnY, delta);
+        if (enemy.kind === "hidden") {
+          this.returningHiddenEnemies.add(enemy.id);
+          this.moveHiddenToward(enemy, enemy.spawnX, enemy.spawnY, delta);
+          if (Math.hypot(enemy.x - enemy.spawnX, enemy.y - enemy.spawnY) <= HIDDEN_RETURN_COMPLETE_DISTANCE) {
+            enemy.roomId = enemy.spawnRoomId;
+            this.returningHiddenEnemies.delete(enemy.id);
+          }
+        }
         continue;
       }
+      this.returningHiddenEnemies.delete(enemy.id);
       enemy.aggroed = true;
       enemy.targetId = target.userId;
       const targetDistance = Math.hypot(target.x - enemy.x, target.y - enemy.y);
-      if (enemy.kind === "hidden" && targetDistance > enemy.attackRange) {
-        enemy.patternPhase = "idle";
-        enemy.patternRemaining = 0;
-        this.moveEnemyToward(enemy, target.x, target.y, delta);
-        continue;
+      if (enemy.kind === "hidden") {
+        // Hidden monsters are visually large. Stopping at their ranged attack
+        // distance made them appear rooted in place, so they keep closing in
+        // while their ranged pattern state continues to advance.
+        const pursuitDistance = Math.min(72, enemy.attackRange * 0.5);
+        if (targetDistance > pursuitDistance) this.moveHiddenToward(enemy, target.x, target.y, delta);
+        if (targetDistance > enemy.attackRange) {
+          enemy.patternPhase = "idle";
+          enemy.patternRemaining = 0;
+          continue;
+        }
       }
       if (enemy.patternPhase === "idle") {
         if (enemy.attackCooldown > 0) continue;
@@ -1434,11 +1926,19 @@ export class GameCore {
         this.staticEnemyIdsByRoom.set(enemy.roomId, bucket);
       }
     }
+    const yielded = new Set<string>();
     for (const roomId of this.activeCombatRooms) {
       for (const enemyId of this.staticEnemyIdsByRoom.get(roomId) ?? []) {
         const enemy = this.enemies.get(enemyId);
-        if (enemy) yield enemy;
+        if (enemy) {
+          yielded.add(enemy.id);
+          yield enemy;
+        }
       }
+    }
+    for (const enemy of this.enemies.values()) {
+      if (yielded.has(enemy.id) || enemy.kind !== "hidden" || (!enemy.aggroed && !this.returningHiddenEnemies.has(enemy.id))) continue;
+      yield enemy;
     }
   }
 
@@ -1580,7 +2080,40 @@ export class GameCore {
     enemy.targetId = null;
   }
 
-  private moveEnemyToward(enemy: CoreEnemy, x: number, y: number, delta: number): void {
+  private selectHiddenTarget(enemy: CoreEnemy): CorePlayer | null {
+    const distanceFromSpawn = Math.hypot(enemy.x - enemy.spawnX, enemy.y - enemy.spawnY);
+    if (distanceFromSpawn >= HIDDEN_LEASH_DISTANCE) return null;
+    const current = enemy.targetId ? this.players.get(enemy.targetId) : null;
+    if (current?.alive && Math.hypot(current.x - enemy.spawnX, current.y - enemy.spawnY) <= HIDDEN_LEASH_DISTANCE) return current;
+    if (this.returningHiddenEnemies.has(enemy.id)) return null;
+    return ([...this.players.values()]
+      .filter((player) => player.alive && Math.hypot(player.x - enemy.x, player.y - enemy.y) <= HIDDEN_ACQUIRE_DISTANCE)
+      .sort((left, right) => Math.hypot(left.x - enemy.x, left.y - enemy.y) - Math.hypot(right.x - enemy.x, right.y - enemy.y)))[0] ?? null;
+  }
+
+  private moveHiddenToward(enemy: CoreEnemy, x: number, y: number, delta: number): void {
+    if (!this.authoredWorld) {
+      const dx = x - enemy.x;
+      const dy = y - enemy.y;
+      const distance = Math.hypot(dx, dy);
+      if (distance <= 0) return;
+      const step = Math.min(distance, enemy.speed * delta);
+      const previousX = enemy.x;
+      const previousY = enemy.y;
+      const previousRoomId = enemy.roomId;
+      movePlayerWorld(enemy, dx / distance * step, dy / distance * step, this.rooms);
+      this.markEnemyTransform(enemy, previousX, previousY, previousRoomId, delta);
+      return;
+    }
+    const walkable = this.authoredWalkable();
+    const path = findWalkableDiscPath(walkable, enemy, { x, y }, ACTOR_COLLISION_RADIUS, 48, 2_000);
+    const destination = path?.[0] ?? { x, y };
+    this.moveEnemyToward(enemy, destination.x, destination.y, delta, false);
+    const roomId = this.authoredRoomAt(enemy.x, enemy.y);
+    if (roomId) enemy.roomId = roomId;
+  }
+
+  private moveEnemyToward(enemy: CoreEnemy, x: number, y: number, delta: number, clampToSpawnRoom = true): void {
     const previousX = enemy.x;
     const previousY = enemy.y;
     const dx = x - enemy.x;
@@ -1593,8 +2126,8 @@ export class GameCore {
     const nextX = enemy.x + dx / distance * step;
     const nextY = enemy.y + dy / distance * step;
     const inset = this.authoredWorld ? ACTOR_COLLISION_RADIUS : 0;
-    enemy.x = bounds ? clamp(nextX, bounds.x + inset, bounds.x + bounds.width - inset) : nextX;
-    enemy.y = bounds ? clamp(nextY, bounds.y + inset, bounds.y + bounds.height - inset) : nextY;
+    enemy.x = clampToSpawnRoom && bounds ? clamp(nextX, bounds.x + inset, bounds.x + bounds.width - inset) : nextX;
+    enemy.y = clampToSpawnRoom && bounds ? clamp(nextY, bounds.y + inset, bounds.y + bounds.height - inset) : nextY;
     this.markEnemyTransform(enemy, previousX, previousY, enemy.roomId, delta);
   }
 
@@ -1602,17 +2135,12 @@ export class GameCore {
     if (!this.authoredWorld) return movePlayerWorld(player, deltaX, deltaY, this.rooms);
     const targetX = player.x + deltaX;
     const targetY = player.y + deltaY;
-    if (this.lockedProgressionBarriers().some((barrier) => segmentIntersectsRect(
+    if (this.lockedProgressionBarriers().some((barrier) => movementCrossesBarrier(
       player.x,
       player.y,
       targetX,
       targetY,
-      {
-        x: barrier.x - ACTOR_COLLISION_RADIUS,
-        y: barrier.y - ACTOR_COLLISION_RADIUS,
-        width: barrier.width + ACTOR_COLLISION_RADIUS * 2,
-        height: barrier.height + ACTOR_COLLISION_RADIUS * 2,
-      },
+      expandedBarrier(barrier),
     ))) return false;
     const resolved = resolveWalkableDiscPoint(
       this.authoredWalkable(),
@@ -1641,10 +2169,15 @@ export class GameCore {
       if (!from || !to) return [];
       const bossConnection = from.id === this.authoredWorld!.bossRoomId || to.id === this.authoredWorld!.bossRoomId;
       const lowerZone = Math.min(from.zone, to.zone) as ZoneId;
-      const locked = bossConnection
+      const trapRoomId = from.kind === "trap" ? from.id : to.kind === "trap" ? to.id : null;
+      const trapState = trapRoomId ? this.specialRooms.get(trapRoomId) : null;
+      const trapLocked = trapState?.kind === "trap" && ["warning", "wave", "hidden"].includes(trapState.trapPhase ?? "");
+      const locked = trapLocked || (bossConnection
         ? this.day < 3 || this.hasLivingAuthoredGate()
-        : from.zone !== to.zone && this.hasLivingGateInZone(lowerZone);
+        : from.zone !== to.zone && this.hasLivingGateInZone(lowerZone));
       if (!locked) return [];
+      if (trapLocked && connection.trapBarrier) return [{ ...connection.trapBarrier }];
+      if (connection.lockBarrier) return [{ ...connection.lockBarrier }];
       const segment = [...connection.floorRects].sort((left, right) => Math.max(right.width, right.height) - Math.max(left.width, left.height))[0];
       if (!segment) return [];
       const horizontal = segment.width >= segment.height;
@@ -1660,6 +2193,9 @@ export class GameCore {
   private canEnterRoom(player: CorePlayer, destinationId: CoreRoomId): boolean {
     const destination = this.rooms.get(destinationId);
     const source = this.rooms.get(player.roomId);
+    const destinationTrap = this.specialRooms.get(destinationId);
+    if (destinationTrap?.kind === "trap" && ["warning", "wave", "hidden"].includes(destinationTrap.trapPhase ?? "")
+      && !destinationTrap.trapParticipants?.includes(player.userId)) return false;
     if (!destination || !source || destination.zone <= this.currentZone) return true;
     if (!this.hasLivingGateInZone(this.currentZone)) return true;
     this.pushZoneGateWarning(player.userId, this.currentZone);
@@ -1676,6 +2212,19 @@ export class GameCore {
         this.gold += 1;
       }
       this.resourceAccumulators.set(roomId, Math.max(0, next));
+    }
+  }
+
+  private updateResourcePickups(): void {
+    for (const player of this.players.values()) {
+      if (!player.alive) continue;
+      const room = this.rooms.get(player.roomId);
+      if (!room || room.kind !== "resource" || this.resourceAccumulators.has(room.id)) continue;
+      const center = this.roomWorldCenterOf(room.id);
+      if (Math.hypot(player.x - center.x, player.y - center.y) > 64) continue;
+      this.resourceAccumulators.set(room.id, 0);
+      room.cleared = true;
+      this.gold += 15;
     }
   }
 
@@ -1724,4 +2273,27 @@ function segmentIntersectsRect(x1: number, y1: number, x2: number, y2: number, r
     if (near > far) return false;
   }
   return true;
+}
+
+function expandedBarrier(barrier: { x: number; y: number; width: number; height: number }): { x: number; y: number; width: number; height: number } {
+  return {
+    x: barrier.x - ACTOR_COLLISION_RADIUS,
+    y: barrier.y - ACTOR_COLLISION_RADIUS,
+    width: barrier.width + ACTOR_COLLISION_RADIUS * 2,
+    height: barrier.height + ACTOR_COLLISION_RADIUS * 2,
+  };
+}
+
+function movementCrossesBarrier(x1: number, y1: number, x2: number, y2: number, rect: { x: number; y: number; width: number; height: number }): boolean {
+  const startsInside = pointInWorldRect(x1, y1, rect);
+  const endsInside = pointInWorldRect(x2, y2, rect);
+  // A barrier may appear while an entrant still overlaps its collision margin.
+  // Let movement escape that margin, but never let a free actor enter or cross it.
+  if (startsInside) {
+    if (!endsInside) return false;
+    const centerX = rect.x + rect.width / 2;
+    const centerY = rect.y + rect.height / 2;
+    return Math.hypot(x2 - centerX, y2 - centerY) < Math.hypot(x1 - centerX, y1 - centerY);
+  }
+  return segmentIntersectsRect(x1, y1, x2, y2, rect);
 }

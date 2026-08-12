@@ -121,6 +121,12 @@ type PlayerStateLike = {
     defenseBonus?: number;
     attackSpeedBonus?: number;
   };
+  inventory?: SchemaCollection<{ id?: string; slot?: string; rarity?: string; upgradeLevel?: number }>;
+  respawnRoomId?: string;
+  gambleAttempts?: number;
+  altarAttempts?: number;
+  shrineBuff?: string;
+  shrineBuffRemaining?: number;
 };
 
 type RoomStateLike = {
@@ -179,6 +185,8 @@ type DropStateLike = {
   specialOptionCount?: number;
   claimed?: boolean;
 };
+type SpecialRoomStateLike = { roomId?: string; kind?: string; shrineKind?: string; shrineClaimedBy?: string; shrineClaimingBy?: string; shrineClaimProgress?: number; trapPhase?: string; trapDebuff?: string; trapParticipants?: SchemaCollection<string>; goldClaimed?: boolean };
+type ShopOfferStateLike = { id?: string; playerId?: string; roomId?: string; kind?: string; slot?: string; rarity?: string; price?: number; sold?: boolean; locked?: boolean };
 
 type PartyStateLike = {
   matchId?: string;
@@ -204,6 +212,8 @@ type PartyStateLike = {
   waypoints?: SchemaCollection<WaypointStateLike>;
   enemies?: SchemaCollection<EnemyStateLike>;
   drops?: SchemaCollection<DropStateLike>;
+  specialRooms?: SchemaCollection<SpecialRoomStateLike>;
+  shopOffers?: SchemaCollection<ShopOfferStateLike>;
 };
 
 class ColyseusTransport {
@@ -323,6 +333,10 @@ class ColyseusTransport {
 
   equip(dropId: string): void {
     this.send("equipment.equip", { dropId });
+  }
+
+  specialCommand(type: "shop.buy" | "shop.reroll" | "shop.lock" | "shop.sell" | "shop.upgrade" | "equipment.inventory-equip" | "shrine.claim" | "checkpoint.set" | "gamble.play" | "altar.reroll" | "gold.claim", payload: Record<string, string | number> = {}): void {
+    this.send(type, payload);
   }
 
   chooseUpgrade(draftId: string, upgradeId: UpgradeId): void {
@@ -686,6 +700,14 @@ class ColyseusTransport {
       attackCritical: player.attackCritical ?? false,
       isLocal: player.userId === this.localUserId,
       equipment: equipmentSummaries(player.equipment),
+      inventory: collectionValues(player.inventory).map((item) => item.id && isDropSlot(item.slot) && isDropRarity(item.rarity) ? {
+        id: item.id, slot: item.slot, rarity: item.rarity, upgradeLevel: item.upgradeLevel ?? 0,
+      } : null),
+      respawnRoomId: player.respawnRoomId ?? "",
+      gambleAttempts: player.gambleAttempts ?? 0,
+      altarAttempts: player.altarAttempts ?? 0,
+      shrineBuff: player.shrineBuff ?? "",
+      shrineBuffRemaining: player.shrineBuffRemaining ?? 0,
       qCooldown: player.qCooldown ?? 0,
       eCooldown: player.eCooldown ?? 0,
       dashCooldown: player.dashCooldown ?? 0,
@@ -836,6 +858,17 @@ class ColyseusTransport {
       localUpgradeDraft,
       stats,
       minimap: this.minimapForRoom(localRoomId),
+      specialRooms: collectionValues(state.specialRooms).map((entry) => ({
+        roomId: entry.roomId ?? "", kind: entry.kind ?? "", shrineKind: entry.shrineKind ?? "",
+        shrineClaimedBy: entry.shrineClaimedBy ?? "", shrineClaimingBy: entry.shrineClaimingBy ?? "",
+        shrineClaimProgress: entry.shrineClaimProgress ?? 0, trapPhase: entry.trapPhase ?? "", trapDebuff: entry.trapDebuff ?? "",
+        goldClaimed: entry.goldClaimed ?? false,
+        trapParticipants: collectionValues(entry.trapParticipants),
+      })),
+      shopOffers: collectionValues(state.shopOffers).filter((offer) => offer.playerId === this.localUserId).map((offer) => ({
+        id: offer.id ?? "", playerId: offer.playerId ?? "", roomId: offer.roomId ?? "", kind: offer.kind ?? "",
+        slot: offer.slot ?? "", rarity: offer.rarity ?? "", price: offer.price ?? 0, sold: offer.sold ?? false, locked: offer.locked ?? false,
+      })),
     };
     this.latestState = snapshot;
     gameBridge.emit("network", snapshot);
@@ -903,7 +936,8 @@ function isNetworkResult(value: string | undefined): value is Exclude<NetworkWor
 }
 
 function isRoomType(value: string | undefined): value is RoomMapCell["type"] {
-  return value === "start" || value === "gate" || value === "resource" || value === "static-monster" || value === "empty" || value === "central-waypoint" || value === "hidden-monster" || value === "boss";
+  return value === "start" || value === "gate" || value === "resource" || value === "static-monster" || value === "empty" || value === "central-waypoint" || value === "hidden-monster" || value === "boss"
+    || value === "shop" || value === "shrine" || value === "trap" || value === "checkpoint" || value === "gamble" || value === "altar";
 }
 
 function isEnemyBehavior(value: string | undefined): value is NetworkEnemySnapshot["behavior"] {
@@ -919,7 +953,7 @@ function isDropSlot(value: string | undefined): value is NetworkDropSnapshot["sl
 }
 
 function isDropRarity(value: string | undefined): value is NetworkDropSnapshot["rarity"] {
-  return value === "legendary" || value === "mythic";
+  return value === "normal" || value === "rare" || value === "epic" || value === "legendary" || value === "mythic";
 }
 
 async function withDeadline<T>(

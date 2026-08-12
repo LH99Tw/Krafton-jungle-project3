@@ -49,7 +49,8 @@ export type RenderableRoom = {
   zone: number;
   x: number;
   y: number;
-  type: "start" | "gate" | "resource" | "static-monster" | "empty" | "central-waypoint" | "hidden-monster" | "boss";
+  type: "start" | "gate" | "resource" | "static-monster" | "empty" | "central-waypoint" | "hidden-monster" | "boss"
+    | "gate-candidate" | "shop" | "shrine" | "trap" | "checkpoint" | "gamble" | "altar" | "gold";
   connections: readonly string[];
 };
 

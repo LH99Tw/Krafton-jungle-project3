@@ -34,7 +34,8 @@ export const BOSS_ROOM_ID = "boss:arena" as const;
 
 export type AuthoredRoomId = `editor:${string}`;
 export type CoreRoomId = RoomId | typeof BOSS_ROOM_ID | AuthoredRoomId;
-export type CoreRoomKind = RoomType | "boss";
+export type SpecialRoomKind = "shop" | "shrine" | "trap" | "checkpoint" | "gamble" | "altar" | "gold";
+export type CoreRoomKind = RoomType | "boss" | "gate-candidate" | SpecialRoomKind;
 export type CoreEnemyKind = "static" | "hidden" | "gate" | "invader" | "boss";
 export type CoreEnemyBehavior = "static" | "gate" | "invader" | "boss";
 export type EnemyPatternKind = "fan" | "floor";
@@ -61,6 +62,10 @@ export type CoreWorldConnectionDefinition = Readonly<{
   floorRects: readonly WorldRect[];
   points: readonly Readonly<{ x: number; y: number }>[];
   portal: Readonly<{ x: number; y: number }>;
+  /** Canonical progression barrier shared by authoritative collision and rendering. */
+  lockBarrier?: WorldRect;
+  /** Doorway barrier used only while a connected trap room is locked down. */
+  trapBarrier?: WorldRect;
 }>;
 
 /** Geometry-neutral authored world consumed by the same GameCore used on Colyseus. */
@@ -83,6 +88,7 @@ export type CoreWorldDefinition = Readonly<{
   baseRoomId: AuthoredRoomId;
   bossRoomId: AuthoredRoomId;
   gateRoomIds: readonly AuthoredRoomId[];
+  gateCandidateRoomIds?: readonly AuthoredRoomId[];
 }>;
 
 export type CoreDoor = {
@@ -155,6 +161,7 @@ export type CoreDrop = PersonalHiddenDrop & {
 };
 
 export type CoreEquipmentLoadout = Record<EquipmentSlot, PersonalHiddenDrop | null>;
+export const PERSONAL_INVENTORY_SIZE = 6;
 
 export type CoreEquipmentBonuses = {
   attackBonus: number;
@@ -211,10 +218,13 @@ export type ClassCombatRule = {
   coneHalfAngle: number;
 };
 
+export const PLAYER_MOVE_SPEED_MULTIPLIER = 1.2;
+export const MONSTER_MOVE_SPEED = 280;
+
 export const CLASS_COMBAT_RULES: Readonly<Record<HeroClassId, ClassCombatRule>> = {
   swordsman: {
     hp: 150,
-    speed: 230,
+    speed: 230 * PLAYER_MOVE_SPEED_MULTIPLIER,
     power: 115,
     attackDamage: 11,
     attackRange: 118,
@@ -223,7 +233,7 @@ export const CLASS_COMBAT_RULES: Readonly<Record<HeroClassId, ClassCombatRule>> 
   },
   archer: {
     hp: 105,
-    speed: 255,
+    speed: 255 * PLAYER_MOVE_SPEED_MULTIPLIER,
     power: 120,
     attackDamage: 7,
     attackRange: 460,
@@ -232,7 +242,7 @@ export const CLASS_COMBAT_RULES: Readonly<Record<HeroClassId, ClassCombatRule>> 
   },
   mage: {
     hp: 95,
-    speed: 240,
+    speed: 240 * PLAYER_MOVE_SPEED_MULTIPLIER,
     power: 125,
     attackDamage: 9,
     attackRange: 390,
@@ -255,8 +265,8 @@ const ENEMY_RULES: Readonly<Record<Exclude<CoreEnemyKind, "invader" | "boss">, {
   xp: number;
   gold: number;
 }>> = {
-  static: { hp: 34, damage: 7, speed: 72, attackRange: 38, xp: 18, gold: 5 },
-  hidden: { hp: 450, damage: 16, speed: 78, attackRange: 165, xp: 120, gold: 45 },
+  static: { hp: 34, damage: 7, speed: MONSTER_MOVE_SPEED, attackRange: 38, xp: 18, gold: 5 },
+  hidden: { hp: 450, damage: 16, speed: MONSTER_MOVE_SPEED, attackRange: 165, xp: 120, gold: 45 },
   gate: { hp: 190, damage: 18, speed: 55, attackRange: 250, xp: 75, gold: 24 },
 };
 
@@ -281,7 +291,7 @@ export function createRuntimeWorld(
         depth: room.depthScore,
         connections: room.connections,
         discovered: room.id === maps.zones[0].startRoomId,
-        cleared: room.type === "start" || room.type === "resource" || room.type === "empty" || room.type === "central-waypoint",
+        cleared: room.type === "start" || room.type === "empty" || room.type === "central-waypoint",
       });
       for (const connection of room.connections) {
         if (room.id.localeCompare(connection) >= 0) continue;
@@ -389,7 +399,7 @@ export function createInvaderEnemy(
     hp,
     maxHp: hp,
     damage: Math.round((7 + zone * 2) * multiplier.damage),
-    speed: 92,
+    speed: MONSTER_MOVE_SPEED,
     attackRange: 42,
     attackCooldown: 0,
     xpReward: 10 + zone * 3,
@@ -527,9 +537,12 @@ export function createEmptyEquipment(): CoreEquipmentLoadout {
 }
 
 export function equipmentBonuses(loadout: CoreEquipmentLoadout): CoreEquipmentBonuses {
-  const weaponMultiplier = loadout.weapon?.statMultiplier ?? 0;
-  const armorMultiplier = loadout.armor?.statMultiplier ?? 0;
-  const accessoryMultiplier = loadout.accessory?.statMultiplier ?? 0;
+  const multiplier = (item: PersonalHiddenDrop | null) => item
+    ? item.statMultiplier * (1 + (item.upgradeLevel ?? 0) * 0.2)
+    : 0;
+  const weaponMultiplier = multiplier(loadout.weapon);
+  const armorMultiplier = multiplier(loadout.armor);
+  const accessoryMultiplier = multiplier(loadout.accessory);
   return {
     attackBonus: Math.round(20 * weaponMultiplier),
     maxHpBonus: Math.round(80 * armorMultiplier),
@@ -541,7 +554,7 @@ export function equipmentBonuses(loadout: CoreEquipmentLoadout): CoreEquipmentBo
 export function equipmentPower(item: PersonalHiddenDrop | null): number {
   if (!item) return 0;
   const rarity = EQUIPMENT_RARITIES[item.rarity];
-  return Math.round(rarity.statMultiplier * 100 + rarity.specialOptionCount * 18);
+  return Math.round(rarity.statMultiplier * 100 * (1 + (item.upgradeLevel ?? 0) * 0.2) + rarity.specialOptionCount * 18);
 }
 
 export function augmentAttackBonus(stacks: AugmentStacks): number {

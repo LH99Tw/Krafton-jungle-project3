@@ -30,6 +30,34 @@ test("official world starts at the authored base and connects through the boss",
   assert.equal(visited.has(OFFICIAL_WORLD.bossRoomId), true);
 });
 
+test("official vertical hex map activates three of nine gate candidates per zone deterministically", () => {
+  assert.equal(OFFICIAL_WORLD.gateCandidateRoomIds?.length, 27);
+  const first = new GameCore({ mode: "prototype", difficulty: "normal", seed: "hex-gates", minimumPlayers: 1, world: OFFICIAL_WORLD });
+  const repeat = new GameCore({ mode: "prototype", difficulty: "normal", seed: "hex-gates", minimumPlayers: 1, world: OFFICIAL_WORLD });
+  const other = new GameCore({ mode: "prototype", difficulty: "normal", seed: "hex-gates-other", minimumPlayers: 1, world: OFFICIAL_WORLD });
+  const gateRooms = (core: GameCore) => [...core.enemies.values()].filter((enemy) => enemy.kind === "gate").map((enemy) => enemy.roomId).sort();
+  const selected = gateRooms(first);
+  assert.equal(selected.length, 9);
+  assert.deepEqual(selected, gateRooms(repeat));
+  assert.notDeepEqual(selected, gateRooms(other));
+  for (const zone of [1, 2, 3]) {
+    assert.equal(selected.filter((roomId) => first.rooms.get(roomId)?.zone === zone).length, 3);
+    assert.equal([...first.rooms.values()].filter((room) => room.zone === zone && room.kind === "static-monster").length >= 6, true);
+  }
+  assert.equal([...first.rooms.values()].filter((room) => room.kind === "gate-candidate").length, 0);
+});
+
+test("official hex zones contain attached content rooms and only secret/transition authored corridors", () => {
+  const counts = new Map<number, number>();
+  for (const room of OFFICIAL_WORLD.rooms) {
+    if (room.kind === "boss" || room.kind === "gold" || room.kind === "altar") continue;
+    counts.set(room.zone, (counts.get(room.zone) ?? 0) + 1);
+  }
+  assert.deepEqual([...counts.entries()], [[1, 38], [2, 38], [3, 38]]);
+  assert.equal(OFFICIAL_MAP_MANIFEST.map.connections.filter((connection) => connection.id.includes("secret")).length, 4);
+  assert.equal(OFFICIAL_MAP_MANIFEST.map.connections.filter((connection) => connection.id.includes("transition")).length, 3);
+});
+
 test("official monster-room enemies never leave their spawn room", () => {
   const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "official-static", minimumPlayers: 1, world: OFFICIAL_WORLD });
   const player = core.addPlayer({ userId: "player", displayName: "Player", heroClass: "swordsman" });
@@ -58,9 +86,7 @@ test("an undiscovered official gate spawns invaders that pathfind to and damage 
   const player = core.addPlayer({ userId: "player", displayName: "Player", heroClass: "swordsman" });
   core.setReady(player.userId, true);
   core.setConnected(player.userId, false);
-  const updateInvaderSpawning = (core as unknown as { updateInvaderSpawning(delta: number): void }).updateInvaderSpawning.bind(core);
-  updateInvaderSpawning(60 / 8);
-  updateInvaderSpawning(0.1);
+  for (let index = 0; index < 100; index += 1) core.update(0.1);
   const invader = [...core.enemies.values()].find((enemy) => enemy.kind === "invader")!;
   const gate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate" && enemy.roomId === invader.spawnRoomId)!;
   assert.equal(core.rooms.get(gate.roomId)?.zone, 1);
@@ -89,8 +115,7 @@ test("advancing to zone two stops zone-one waves and only uses the zone-two gate
   const updateInvaderSpawning = (core as unknown as { updateInvaderSpawning(delta: number): void }).updateInvaderSpawning.bind(core);
   const waveInterval = 60 / 8;
 
-  updateInvaderSpawning(waveInterval);
-  updateInvaderSpawning(0.1);
+  for (let index = 0; index < 100; index += 1) core.update(0.1);
   const zoneOneInvaders = [...core.enemies.values()].filter((enemy) => enemy.kind === "invader");
   assert.ok(zoneOneInvaders.length > 0);
   assert.ok(zoneOneInvaders.every((enemy) => core.rooms.get(enemy.spawnRoomId)?.zone === 1));

@@ -69,13 +69,14 @@ export class PlayerVisionFog {
     playerX: number,
     playerY: number,
     radius: number = PLAYER_VISION_RADIUS,
+    partySources: Iterable<VisionRevealSource> = [],
   ): void {
     const sources = selectVisionRevealSources({
       id: PLAYER_SOURCE_ID,
       x: playerX,
       y: playerY,
       radius,
-    }, this.installedSources.values());
+    }, [...partySources, ...this.installedSources.values()]);
 
     const signature = sources.map((source) => `${source.id}:${Math.round(source.x / 4)}:${Math.round(source.y / 4)}:${source.radius}`).join("|");
     if (signature === this.lastDrawSignature) return;

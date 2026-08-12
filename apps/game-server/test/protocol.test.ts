@@ -74,6 +74,7 @@ test("accepts the v8 interaction, travel, recall, and equipment commands", () =>
     { ...base, type: "travel.request", payload: { waypointId: "wp-start", destinationId: "wp-center" } },
     { ...base, type: "recall.request", payload: {} },
     { ...base, type: "equipment.equip", payload: { dropId: "drop-mythic-1" } },
+    { ...base, type: "gold.claim", payload: {} },
   ];
 
   for (const command of commands) assert.equal(clientCommandSchema.safeParse(command).success, true);

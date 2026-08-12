@@ -6,6 +6,9 @@ import {
   clampEditorPort,
   cloneEditorMap,
   DEFAULT_EDITOR_MAP,
+  editorConnectionWidth,
+  editorPortSpan,
+  editorRoomJoins,
   EDITOR_MAP_STORAGE_KEY,
   EDITOR_MAX_COORDINATE,
   EDITOR_MIN_COORDINATE,
@@ -42,8 +45,16 @@ const ROOM_TYPES: Array<{ type: EditorRoomType; label: string; mark: string }> =
   { type: "static-monster", label: "몬스터 방", mark: "⚔" },
   { type: "hidden-monster", label: "숨겨진 몬스터 방", mark: "✦" },
   { type: "gate", label: "몬스터 게이트", mark: "♜" },
+  { type: "gate-candidate", label: "게이트 후보", mark: "?" },
   { type: "boss", label: "보스룸", mark: "♛" },
   { type: "start", label: "시작 베이스", mark: "⌂" },
+  { type: "shop", label: "상점방", mark: "¤" },
+  { type: "shrine", label: "임시 성소", mark: "✺" },
+  { type: "trap", label: "함정방", mark: "⚠" },
+  { type: "checkpoint", label: "체크포인트", mark: "◎" },
+  { type: "gamble", label: "도박방", mark: "♠" },
+  { type: "altar", label: "제단방", mark: "†" },
+  { type: "gold", label: "비밀 골드방", mark: "₲" },
 ];
 const THEMES: Array<{ id: EditorAssetTheme; label: string; image: string }> = [
   { id: "forest", label: "녹음 지대", image: "/Asset/zone-1-vegetation.png" },
@@ -99,6 +110,7 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
   const [selectedId, setSelectedId] = useState<string>(() => map.rooms[0]?.id ?? "");
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   const [connectionStart, setConnectionStart] = useState<PortSelection | null>(null);
+  const [connectionWidth, setConnectionWidth] = useState(1);
   const [hoveredPort, setHoveredPort] = useState<PortSelection | null>(null);
   const [portEdit, setPortEdit] = useState<PortEdit | null>(null);
   const [routeError, setRouteError] = useState("");
@@ -123,6 +135,8 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
   const selected = map.rooms.find((room) => room.id === selectedId) ?? null;
   const selectedConnection = map.connections.find((connection) => connection.id === selectedConnectionId) ?? null;
   const selectedRoute = geometry.routes.find((route) => route.connectionId === selectedConnectionId) ?? null;
+  const selectedJoin = geometry.joins.find((join) => join.connectionId === selectedConnectionId) ?? null;
+  const selectedConnectionMaxWidth = selectedConnection ? connectionMaxWidth(map, selectedConnection) : 1;
   const viewBox = editorViewBox(viewport, canvasSize.width, canvasSize.height);
   const previewRoute = useMemo(() => {
     if (!connectionStart || !hoveredPort || connectionStart.roomId === hoveredPort.roomId) return null;
@@ -133,9 +147,10 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
       to: hoveredPort.roomId,
       fromPort: connectionStart.port,
       toPort: hoveredPort.port,
+      width: connectionWidth,
     };
     return buildEditorConnectionRoute(map, preview, editorScale(), geometry);
-  }, [connectionStart, geometry, hoveredPort, map]);
+  }, [connectionStart, connectionWidth, geometry, hoveredPort, map]);
   const previewInvalid = Boolean(connectionStart && hoveredPort && connectionStart.roomId !== hoveredPort.roomId && !previewRoute);
 
   useEffect(() => {
@@ -189,9 +204,21 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
       const changed = rooms.find((room) => room.id === id);
       const connections = current.connections.map((connection) => {
         if (!changed) return connection;
-        if (connection.from === id && connection.fromPort) return { ...connection, fromPort: clampEditorPort(changed, connection.fromPort) };
-        if (connection.to === id && connection.toPort) return { ...connection, toPort: clampEditorPort(changed, connection.toPort) };
-        return connection;
+        if (connection.from !== id && connection.to !== id) return connection;
+        const otherId = connection.from === id ? connection.to : connection.from;
+        const other = rooms.find((room) => room.id === otherId);
+        if (!other) return connection;
+        const ownPort = connection.from === id ? connection.fromPort : connection.toPort;
+        const otherPort = connection.from === id ? connection.toPort : connection.fromPort;
+        const ownSpan = ownPort ? editorPortSpan(changed, ownPort.side) : 6;
+        const otherSpan = other && otherPort ? editorPortSpan(other, otherPort.side) : 6;
+        const width = Math.min(editorConnectionWidth(connection), ownSpan, otherSpan);
+        return {
+          ...connection,
+          width: width === 1 ? undefined : width,
+          fromPort: connection.fromPort ? clampEditorPort(connection.from === id ? changed : other, connection.fromPort, width) : undefined,
+          toPort: connection.toPort ? clampEditorPort(connection.to === id ? changed : other, connection.toPort, width) : undefined,
+        };
       });
       return { ...current, rooms, connections };
     });
@@ -272,6 +299,7 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
       to: roomId,
       fromPort: connectionStart.port,
       toPort: port,
+      width: connectionWidth === 1 ? undefined : connectionWidth,
     };
     const candidate = { ...map, connections: [...map.connections, connection] };
     if (!buildEditorConnectionRoute(candidate, connection, editorScale(), geometry)) {
@@ -286,13 +314,58 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
     setTool("select");
   };
 
+  const chooseConnectionWidth = (width: number) => {
+    setConnectionWidth(width);
+    setRouteError("");
+    setConnectionStart((current) => {
+      if (!current) return null;
+      const room = map.rooms.find((candidate) => candidate.id === current.roomId);
+      if (!room || width > editorPortSpan(room, current.port.side)) return null;
+      return { ...current, port: clampEditorPort(room, current.port, width) };
+    });
+  };
+
+  const resizeSelectedConnection = (width: number) => {
+    if (!selectedConnection) return;
+    const from = map.rooms.find((room) => room.id === selectedConnection.from);
+    const to = map.rooms.find((room) => room.id === selectedConnection.to);
+    if (!from || !to) return;
+    const currentWidth = editorConnectionWidth(selectedConnection);
+    if ((selectedConnection.fromPort && width > editorPortSpan(from, selectedConnection.fromPort.side))
+      || (selectedConnection.toPort && width > editorPortSpan(to, selectedConnection.toPort.side))) {
+      setRouteError(`선택한 출입구에서는 최대 ${selectedConnectionMaxWidth}칸까지 만들 수 있습니다.`);
+      return;
+    }
+    const resizePort = (room: EditorRoom, port: EditorConnectionPort | undefined) => port ? clampEditorPort(room, {
+      ...port,
+      offset: Math.round(port.offset + (currentWidth - width) / 2),
+    }, width) : undefined;
+    const replacement = {
+      ...selectedConnection,
+      width: width === 1 ? undefined : width,
+      fromPort: resizePort(from, selectedConnection.fromPort),
+      toPort: resizePort(to, selectedConnection.toPort),
+    };
+    const candidate = { ...map, connections: map.connections.map((connection) => connection.id === replacement.id ? replacement : connection) };
+    const candidateGeometry = buildEditorGeometry(candidate, editorScale());
+    if (candidateGeometry.errors.length > 0 || (!candidateGeometry.routes.some((route) => route.connectionId === replacement.id) && !candidateGeometry.joins.some((join) => join.connectionId === replacement.id))) {
+      setRouteError(`현재 공간에서는 ${width}칸 통로를 만들 수 없습니다.`);
+      return;
+    }
+    setMap(candidate);
+    setConnectionWidth(width);
+    setRouteError("");
+  };
+
   const selectConnection = (connectionId: string) => {
+    const connection = map.connections.find((candidate) => candidate.id === connectionId);
     setSelectedConnectionId(connectionId);
     setSelectedId("");
     setTool("select");
     setConnectionStart(null);
     setPortEdit(null);
     setRouteError("");
+    if (connection) setConnectionWidth(editorConnectionWidth(connection));
   };
 
   const pointInSvg = (event: Readonly<{ clientX: number; clientY: number }>) => {
@@ -455,6 +528,15 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
             <button type="button" aria-pressed={tool === "select"} onClick={() => { setTool("select"); setConnectionStart(null); setPortEdit(null); }}>↖<small>선택</small></button>
             <button type="button" aria-pressed={tool === "connect"} onClick={() => { setTool("connect"); setConnectionStart(null); setPortEdit(null); setRouteError(""); }}>⌁<small>통로</small></button>
           </div>
+          <div className="corridor-width-tool" aria-label="새 통로 폭">
+            <span>통로 폭 <b>{connectionWidth}칸</b></span>
+            <div>{[1, 2, 3, 4, 5, 6].map((width) => {
+              const startRoom = connectionStart ? map.rooms.find((room) => room.id === connectionStart.roomId) : null;
+              const disabled = Boolean(startRoom && connectionStart && width > editorPortSpan(startRoom, connectionStart.port.side));
+              return <button key={width} type="button" disabled={disabled} aria-pressed={connectionWidth === width} onClick={() => chooseConnectionWidth(width)}>{width}</button>;
+            })}</div>
+            <small>출입구 변 길이까지 확장</small>
+          </div>
           <div className="editor-section-title"><span>02</span><strong>방 생성</strong></div>
           <div className="room-palette">
             {ROOM_TYPES.map((item) => <button key={item.type} type="button" aria-pressed={tool === "room" && placementType === item.type} onClick={() => { setPlacementType(item.type); setTool("room"); setConnectionStart(null); setPortEdit(null); }}><i>{item.mark}</i><span>{item.label}</span></button>)}
@@ -541,13 +623,14 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
               const connection = map.connections.find((candidate) => candidate.id === route.connectionId);
               const fromName = map.rooms.find((room) => room.id === connection?.from)?.name ?? "방";
               const toName = map.rooms.find((room) => room.id === connection?.to)?.name ?? "방";
-              return <g key={route.connectionId} role="button" tabIndex={0} aria-label={`통로: ${fromName} ↔ ${toName}`} className={`editor-corridor ${selectedConnectionId === route.connectionId ? "selected" : ""}`} onClick={(event) => { event.stopPropagation(); selectConnection(route.connectionId); }} onKeyDown={(event) => {
+              const floorWidth = 24 + (route.width - 1) * CELL;
+              return <g key={route.connectionId} role="button" tabIndex={0} aria-label={`통로: ${fromName} ↔ ${toName}, 폭 ${route.width}칸`} className={`editor-corridor ${selectedConnectionId === route.connectionId ? "selected" : ""}`} onClick={(event) => { event.stopPropagation(); selectConnection(route.connectionId); }} onKeyDown={(event) => {
                 if (event.key !== "Enter" && event.key !== " ") return;
                 event.preventDefault();
                 selectConnection(route.connectionId);
-              }}><path className="corridor-wall" d={path} /><path className="corridor-floor" d={path} /><path className="corridor-center" d={path} /><path className="corridor-hit" d={path} /></g>;
+              }}><path className="corridor-wall" d={path} style={{ strokeWidth: floorWidth + 14 }} /><path className="corridor-floor" d={path} style={{ strokeWidth: floorWidth }} /><path className="corridor-center" d={path} /><path className="corridor-hit" d={path} style={{ strokeWidth: floorWidth + 24 }} /></g>;
             })}
-            {previewRoute && <g className="editor-corridor preview" pointerEvents="none"><path className="corridor-wall" d={polylinePath(previewRoute.points)} /><path className="corridor-floor" d={polylinePath(previewRoute.points)} /><path className="corridor-center" d={polylinePath(previewRoute.points)} /></g>}
+            {previewRoute && <g className="editor-corridor preview" pointerEvents="none"><path className="corridor-wall" d={polylinePath(previewRoute.points)} style={{ strokeWidth: 38 + (previewRoute.width - 1) * CELL }} /><path className="corridor-floor" d={polylinePath(previewRoute.points)} style={{ strokeWidth: 24 + (previewRoute.width - 1) * CELL }} /><path className="corridor-center" d={polylinePath(previewRoute.points)} /></g>}
             {map.rooms.map((room) => {
               const info = ROOM_TYPES.find((item) => item.type === room.type)!;
               const isSelected = selectedId === room.id;
@@ -571,21 +654,29 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
                 {isSelected ? <path className="selected-corner" d={`M 0 20 V 0 H 20 M ${room.width * CELL - 20} 0 H ${room.width * CELL} V 20 M ${room.width * CELL} ${room.height * CELL - 20} V ${room.height * CELL} H ${room.width * CELL - 20} M 20 ${room.height * CELL} H 0 V ${room.height * CELL - 20}`} /> : null}
               </g>;
             })}
+            <g className="editor-open-joins" pointerEvents="none">
+              {geometry.joins.map((join) => join.axis === "vertical"
+                ? <line key={join.connectionId} x1={join.opening.x + join.opening.width / 2} y1={join.opening.y} x2={join.opening.x + join.opening.width / 2} y2={join.opening.y + join.opening.height} />
+                : <line key={join.connectionId} x1={join.opening.x} y1={join.opening.y + join.opening.height / 2} x2={join.opening.x + join.opening.width} y2={join.opening.y + join.opening.height / 2} />)}
+            </g>
             <g className="editor-auto-walls" pointerEvents="none">
               {geometry.wallSegments.map((wall, index) => <g key={`${wall.x1}:${wall.y1}:${index}`}><line className="wall-base" x1={wall.x1} y1={wall.y1} x2={wall.x2} y2={wall.y2} /><line className="wall-cap" x1={wall.x1} y1={wall.y1} x2={wall.x2} y2={wall.y2} /></g>)}
             </g>
             <g className="editor-port-layer">
               {map.rooms.flatMap((room) => shouldShowPorts(room, tool, connectionStart, portEdit, selectedConnection)
-                ? editorRoomPorts(room).map((candidate) => {
+                ? editorRoomPorts(room, portEdit && selectedConnection ? editorConnectionWidth(selectedConnection) : connectionWidth).map((candidate) => {
+                    const activeWidth = portEdit && selectedConnection ? editorConnectionWidth(selectedConnection) : connectionWidth;
+                    const spanLine = portSpanLine(room, candidate.port, activeWidth);
                     const active = connectionStart?.roomId === room.id && samePort(connectionStart.port, candidate.port);
                     const hovered = hoveredPort?.roomId === room.id && samePort(hoveredPort.port, candidate.port);
-                    return <circle
-                      key={`${room.id}:${candidate.port.side}:${candidate.port.offset}`}
+                    return <line
+                      key={`${room.id}:${candidate.port.side}:${candidate.port.offset}:${activeWidth}`}
                       className={`editor-port ${active ? "active" : ""} ${hovered ? "hovered" : ""} ${hovered && previewInvalid ? "invalid" : ""}`}
-                      cx={candidate.door.x * CELL}
-                      cy={candidate.door.y * CELL}
-                      r={8 / viewport.zoom}
-                      strokeWidth={2 / viewport.zoom}
+                      x1={spanLine.x1 * CELL}
+                      y1={spanLine.y1 * CELL}
+                      x2={spanLine.x2 * CELL}
+                      y2={spanLine.y2 * CELL}
+                      strokeWidth={Math.max(6, 10 / viewport.zoom)}
                       onPointerEnter={() => setHoveredPort({ roomId: room.id, port: candidate.port })}
                       onPointerLeave={() => setHoveredPort((current) => current?.roomId === room.id && samePort(current.port, candidate.port) ? null : current)}
                       onPointerDown={(event) => {
@@ -605,17 +696,19 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
             <div className="corridor-inspector-mark">⌁</div>
             <dl className="corridor-inspector-data">
               <div><dt>시작 방</dt><dd>{map.rooms.find((room) => room.id === selectedConnection.from)?.name ?? "-"}</dd></div>
-              <div><dt>시작 출입구</dt><dd>{formatPort(selectedConnection.fromPort)}</dd></div>
+              <div><dt>시작 출입구</dt><dd>{formatPort(selectedConnection.fromPort, editorConnectionWidth(selectedConnection))}</dd></div>
               <div><dt>도착 방</dt><dd>{map.rooms.find((room) => room.id === selectedConnection.to)?.name ?? "-"}</dd></div>
-              <div><dt>도착 출입구</dt><dd>{formatPort(selectedConnection.toPort)}</dd></div>
-              <div><dt>직교 길이</dt><dd>{selectedRoute ? `${Math.round(selectedRoute.length)}px` : "경로 없음"}</dd></div>
-              <div><dt>꺾임</dt><dd>{selectedRoute ? `${selectedRoute.bends}회` : "-"}</dd></div>
+              <div><dt>도착 출입구</dt><dd>{formatPort(selectedConnection.toPort, editorConnectionWidth(selectedConnection))}</dd></div>
+              <div><dt>통로 폭</dt><dd>{editorConnectionWidth(selectedConnection)}칸</dd></div>
+              <div><dt>직교 길이</dt><dd>{selectedRoute ? `${Math.round(selectedRoute.length)}px` : selectedJoin ? `열린 경계 ${selectedJoin.length}칸` : "경로 없음"}</dd></div>
+              <div><dt>꺾임</dt><dd>{selectedRoute ? `${selectedRoute.bends}회` : selectedJoin ? "접합" : "-"}</dd></div>
             </dl>
+            <div className="corridor-width-inspector"><span>폭 조절</span><div>{[1, 2, 3, 4, 5, 6].map((width) => <button key={width} type="button" disabled={width > selectedConnectionMaxWidth} aria-pressed={editorConnectionWidth(selectedConnection) === width} onClick={() => resizeSelectedConnection(width)}>{width}</button>)}</div></div>
             <div className="corridor-port-actions">
               <button type="button" aria-pressed={portEdit?.endpoint === "from"} onClick={() => { setPortEdit({ connectionId: selectedConnection.id, endpoint: "from" }); setRouteError(""); }}>시작 위치 변경</button>
               <button type="button" aria-pressed={portEdit?.endpoint === "to"} onClick={() => { setPortEdit({ connectionId: selectedConnection.id, endpoint: "to" }); setRouteError(""); }}>도착 위치 변경</button>
             </div>
-            <p className={selectedRoute ? "corridor-route-ok" : "corridor-route-error"}>{selectedRoute ? "✓ 지정 출입구 사이 자동 경로" : "× 다른 방이나 통로를 피할 경로가 없습니다."}</p>
+            <p className={selectedRoute || selectedJoin ? "corridor-route-ok" : "corridor-route-error"}>{selectedJoin ? "✓ 공유 벽이 제거된 열린 경계" : selectedRoute ? "✓ 지정 출입구 사이 자동 경로" : "× 다른 방이나 통로를 피할 경로가 없습니다."}</p>
             <button type="button" className="delete-room" onClick={() => {
               setMap((current) => ({ ...current, connections: current.connections.filter((connection) => connection.id !== selectedConnection.id) }));
               setSelectedConnectionId(null);
@@ -626,7 +719,7 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
             <label>방 종류<select value={selected.type} onChange={(event) => updateRoom(selected.id, { type: event.target.value as EditorRoomType })}>{ROOM_TYPES.map((item) => <option key={item.type} value={item.type}>{item.label}</option>)}</select></label>
             <div className="inspector-size"><label>가로 <input type="number" min="2" max="6" value={selected.width} onChange={(event) => updateRoom(selected.id, { width: clampSize(event.target.value) })} /></label><label>세로 <input type="number" min="2" max="5" value={selected.height} onChange={(event) => updateRoom(selected.id, { height: clampSize(event.target.value, 5) })} /></label></div>
             <div className="size-presets"><button type="button" onClick={() => updateRoom(selected.id, { width: 2, height: 2 })}>S</button><button type="button" onClick={() => updateRoom(selected.id, { width: 3, height: 3 })}>M</button><button type="button" onClick={() => updateRoom(selected.id, { width: 5, height: 4 })}>L</button></div>
-            <dl><div><dt>좌표</dt><dd>{selected.x}, {selected.y}</dd></div><div><dt>연결 통로</dt><dd>{map.connections.filter((path) => path.from === selected.id || path.to === selected.id).length}개</dd></div><div><dt>에셋</dt><dd>{selected.asset}</dd></div></dl>
+            <dl><div><dt>좌표</dt><dd>{selected.x}, {selected.y}</dd></div><div><dt>연결 통로</dt><dd>{map.connections.filter((path) => path.from === selected.id || path.to === selected.id).length}개</dd></div><div><dt>열린 경계</dt><dd>{editorRoomJoins(map).filter((join) => join.from === selected.id || join.to === selected.id).reduce((sum, join) => sum + join.length, 0)}칸</dd></div><div><dt>에셋</dt><dd>{selected.asset}</dd></div></dl>
             <button type="button" className="delete-room" onClick={() => {
               setMap((current) => ({ ...current, rooms: current.rooms.filter((room) => room.id !== selected.id), connections: current.connections.filter((path) => path.from !== selected.id && path.to !== selected.id) }));
               setSelectedId("");
@@ -697,10 +790,28 @@ function samePort(left: EditorConnectionPort, right: EditorConnectionPort): bool
   return left.side === right.side && left.offset === right.offset;
 }
 
-function formatPort(port?: EditorConnectionPort): string {
+function formatPort(port?: EditorConnectionPort, width = 1): string {
   if (!port) return "자동";
   const label = { north: "위", east: "오른쪽", south: "아래", west: "왼쪽" }[port.side];
-  return `${label} ${port.offset + 1}`;
+  return width === 1 ? `${label} ${port.offset + 1}` : `${label} ${port.offset + 1}–${port.offset + width}`;
+}
+
+function portSpanLine(room: EditorRoom, port: EditorConnectionPort, width: number) {
+  if (port.side === "north" || port.side === "south") {
+    const y = port.side === "north" ? room.y : room.y + room.height;
+    return { x1: room.x + port.offset + 0.12, y1: y, x2: room.x + port.offset + width - 0.12, y2: y };
+  }
+  const x = port.side === "west" ? room.x : room.x + room.width;
+  return { x1: x, y1: room.y + port.offset + 0.12, x2: x, y2: room.y + port.offset + width - 0.12 };
+}
+
+function connectionMaxWidth(map: EditorMapDefinition, connection: EditorConnection): number {
+  const from = map.rooms.find((room) => room.id === connection.from);
+  const to = map.rooms.find((room) => room.id === connection.to);
+  if (!from || !to) return 1;
+  const fromSpan = connection.fromPort ? editorPortSpan(from, connection.fromPort.side) : Math.max(from.width, from.height);
+  const toSpan = connection.toPort ? editorPortSpan(to, connection.toPort.side) : Math.max(to.width, to.height);
+  return Math.min(6, fromSpan, toSpan);
 }
 
 function editorHint(tool: Tool, connectionStart: PortSelection | null, portEdit: PortEdit | null): string {

@@ -1,4 +1,5 @@
 import type { HeroClassId } from "@five-days/protocol";
+import type { PersonalHiddenDrop } from "../v02/equipment";
 import type { ZoneId } from "../v02/map";
 import type { AugmentStacks } from "../v02/progression";
 import type {
@@ -49,6 +50,12 @@ export type CorePlayer = {
   inputX: number;
   inputY: number;
   equipment: CoreEquipmentLoadout;
+  inventory: Array<PersonalHiddenDrop | null>;
+  respawnRoomId: CoreRoomId;
+  gambleAttempts: number;
+  altarAttempts: number;
+  altarMultipliers: CoreAltarMultipliers;
+  shrineBuff: CoreShrineBuff | null;
   upgrades: AugmentStacks;
   upgradeDraft: CoreUpgradeDraft | null;
   pendingUpgradeLevels: number[];
@@ -77,6 +84,41 @@ export type CorePlayer = {
   gatesDestroyed: number;
   /** Assigned to AI-controlled party members so the server can drive them. */
   aiRole?: "follower" | "defender";
+};
+
+export type CoreAltarStat = "attack" | "attackSpeed" | "maxHp" | "moveSpeed" | "criticalDamage";
+export type CoreAltarMultipliers = Record<CoreAltarStat, number>;
+export type CoreShrineKind = "berserker" | "assassin" | "giant" | "wind" | "infinity" | "doom";
+export type CoreShrineBuff = Readonly<{ kind: CoreShrineKind; expiresAt: number }>;
+
+export type CoreShopOffer = Readonly<{
+  id: string;
+  kind: "equipment" | "heal";
+  price: number;
+  sold: boolean;
+  locked: boolean;
+  item: PersonalHiddenDrop | null;
+}>;
+
+export type CoreShopStock = {
+  roomId: CoreRoomId;
+  playerId: string;
+  rerolls: number;
+  offers: CoreShopOffer[];
+};
+
+export type CoreSpecialRoomState = {
+  roomId: CoreRoomId;
+  kind: "shop" | "shrine" | "trap" | "checkpoint" | "gamble" | "altar" | "gold";
+  goldClaimed?: boolean;
+  shrineKind?: CoreShrineKind;
+  shrineClaimedBy?: string;
+  shrineClaimingBy?: string;
+  shrineClaimProgress?: number;
+  trapPhase?: "idle" | "warning" | "wave" | "hidden" | "cleared";
+  trapDebuff?: string;
+  trapParticipants?: string[];
+  trapProgress?: number;
 };
 
 export type GameCoreOptions = {
@@ -124,9 +166,12 @@ export type CoreViewSnapshot = Readonly<{
   enemies: readonly CoreEnemy[];
   drops: readonly CoreDrop[];
   waypoints: readonly CoreWaypoint[];
+  specialRooms: readonly CoreSpecialRoomState[];
+  shopStocks: readonly CoreShopStock[];
 }>;
 
 export type InvaderNavigation = {
+  targetPreference: "base" | "player";
   replanSequence: number;
   targetRoomId: CoreRoomId | null;
   portalPassed: boolean;

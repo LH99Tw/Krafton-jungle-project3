@@ -143,7 +143,7 @@ export function predictPlayerTransform(input: {
   if (input.movementWorld) {
     const attemptedX = input.x + deltaX;
     const attemptedY = input.y + deltaY;
-    if (input.movementWorld.blockedRects?.some((rect) => segmentIntersectsRect(
+    if (input.movementWorld.blockedRects?.some((rect) => movementCrossesBarrier(
       input.x,
       input.y,
       attemptedX,
@@ -222,6 +222,17 @@ function segmentIntersectsRect(x1: number, y1: number, x2: number, y2: number, r
     if (near > far) return false;
   }
   return true;
+}
+
+function movementCrossesBarrier(x1: number, y1: number, x2: number, y2: number, rect: WorldRect): boolean {
+  const contains = (x: number, y: number) => x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
+  if (contains(x1, y1)) {
+    if (!contains(x2, y2)) return false;
+    const centerX = rect.x + rect.width / 2;
+    const centerY = rect.y + rect.height / 2;
+    return Math.hypot(x2 - centerX, y2 - centerY) < Math.hypot(x1 - centerX, y1 - centerY);
+  }
+  return segmentIntersectsRect(x1, y1, x2, y2, rect);
 }
 
 function stripTime(sample: TimedTransform): TransformSample {

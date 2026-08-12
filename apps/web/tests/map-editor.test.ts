@@ -228,10 +228,15 @@ test("local map library drops records with malformed nested map fields", () => {
   assert.deepEqual(library?.maps.map((record) => record.id), ["valid"]);
 });
 
-test("editor validation requires a wall-and-corridor gap between touching rooms", () => {
+test("touching rooms become one continuous walkable field without an internal wall", () => {
   const map = cloneEditorMap(DEFAULT_EDITOR_MAP);
   map.rooms[0] = { ...map.rooms[0]!, width: 4 };
-  assert.match(validateEditorMap(map).join(" "), /통로용 한 칸/);
+  assert.deepEqual(validateEditorMap(map), []);
+  const geometry = buildEditorGeometry(map, { cellWidth: 50, cellHeight: 50, corridorWidth: 24 });
+  const join = geometry.joins.find((candidate) => candidate.from === map.rooms[0]!.id || candidate.to === map.rooms[0]!.id);
+  assert.ok(join);
+  assert.equal(join.axis, "vertical");
+  assert.equal(geometry.wallSegments.some((wall) => wall.x1 === 250 && wall.x2 === 250 && wall.y1 < 500 && wall.y2 > 350), false);
 });
 
 test("negative room coordinates remain valid inside the 256-cell virtual canvas", () => {
@@ -268,6 +273,93 @@ test("explicit ports anchor the route exactly and shorten a corner-facing corrid
   assert.deepEqual(route.points[0], { x: start.door.x * 50, y: start.door.y * 50 });
   assert.deepEqual(route.points.at(-1), { x: end.door.x * 50, y: end.door.y * 50 });
   assert.ok(route.length < legacy.length);
+});
+
+test("corridor widths reserve contiguous doorway cells and compile to true walkable width", () => {
+  const map: EditorMapDefinition = {
+    version: 1,
+    title: "wide route",
+    rooms: [
+      { id: "left", name: "left", type: "start", asset: "forest", x: 0, y: 0, width: 6, height: 5 },
+      { id: "right", name: "right", type: "boss", asset: "wastes", x: 10, y: 0, width: 6, height: 5 },
+    ],
+    connections: [{
+      id: "wide",
+      from: "left",
+      to: "right",
+      fromPort: { side: "east", offset: 1 },
+      toPort: { side: "west", offset: 1 },
+      width: 3,
+    }],
+  };
+  const route = buildEditorGeometry(map, { cellWidth: 50, cellHeight: 50, corridorWidth: 24 }).routes[0]!;
+  assert.equal(route.width, 3);
+  assert.ok(route.floorRects.some((rect) => rect.height === 124), "three slots must widen a horizontal corridor by two full cells");
+  assert.equal(route.points[0]!.y, (1 + 3 / 2) * 50);
+
+  map.connections[0] = { ...map.connections[0]!, width: 5, fromPort: { side: "east", offset: 1 } };
+  assert.match(validateEditorMap(map).join(" "), /시작 출입구/);
+});
+
+test("a corridor can expand across an entire six-cell room side", () => {
+  const map: EditorMapDefinition = {
+    version: 1,
+    title: "full width",
+    rooms: [
+      { id: "top", name: "top", type: "start", asset: "forest", x: 0, y: 0, width: 6, height: 2 },
+      { id: "bottom", name: "bottom", type: "boss", asset: "wastes", x: 0, y: 5, width: 6, height: 2 },
+    ],
+    connections: [{ id: "full", from: "top", to: "bottom", fromPort: { side: "south", offset: 0 }, toPort: { side: "north", offset: 0 }, width: 6 }],
+  };
+  const route = buildEditorGeometry(map, { cellWidth: 50, cellHeight: 50, corridorWidth: 24 }).routes[0]!;
+  assert.equal(route.width, 6);
+  assert.ok(route.floorRects.some((rect) => rect.width === 274));
+});
+
+test("corner-only contact does not create an implicit room connection", () => {
+  const map = cloneEditorMap(DEFAULT_EDITOR_MAP);
+  map.rooms = [
+    { id: "start", name: "start", type: "start", asset: "forest", x: 0, y: 0, width: 2, height: 2 },
+    { id: "boss", name: "boss", type: "boss", asset: "wastes", x: 2, y: 2, width: 2, height: 2 },
+  ];
+  map.connections = [];
+  const geometry = buildEditorGeometry(map, { cellWidth: 50, cellHeight: 50, corridorWidth: 24 });
+  assert.equal(geometry.joins.length, 0);
+  assert.match(validateEditorMap(map, geometry).join(" "), /모든 방/);
+});
+
+test("compiled touching rooms keep semantic ids and receive a full shared-edge lock barrier", () => {
+  const map = cloneEditorMap(DEFAULT_EDITOR_MAP);
+  map.rooms[0] = { ...map.rooms[0]!, width: 4 };
+  const world = buildEditorCoreWorld(map);
+  const connection = world.connections.find((candidate) => candidate.id === "path-base-forest")!;
+  assert.equal(connection.floorRects.length, 0);
+  assert.equal(connection.points.length, 1);
+  assert.equal(connection.lockBarrier?.width, 18);
+  assert.equal(connection.lockBarrier?.height, 3 * 220);
+  assert.ok(world.rooms.find((room) => room.id === world.baseRoomId)?.connections.includes("editor:room-forest"));
+});
+
+test("a cross-zone open edge is fully blocked until its lower-zone gate is destroyed", () => {
+  const map = cloneEditorMap(DEFAULT_EDITOR_MAP);
+  map.rooms[0] = { ...map.rooms[0]!, width: 4 };
+  map.rooms[1] = { ...map.rooms[1]!, asset: "marsh" };
+  map.rooms[3] = { ...map.rooms[3]!, asset: "forest" };
+  const world = buildEditorCoreWorld(map);
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "joined-zone-lock", minimumPlayers: 1, world });
+  const player = core.addPlayer({ userId: "walker", displayName: "walker", heroClass: "swordsman" });
+  core.setReady(player.userId, true);
+  const base = world.rooms.find((room) => room.id === world.baseRoomId)!;
+  player.x = base.rect.x + base.rect.width - 36;
+  player.y = base.rect.y + base.rect.height / 2;
+  core.applyInput(player.userId, { v: PROTOCOL_VERSION, type: "player.input", seq: 1, clientTime: 1, payload: { x: 1, y: 0, aim: 0, buttons: 0 } });
+  for (let index = 0; index < 30; index += 1) core.update(0.1);
+  assert.equal(player.roomId, world.baseRoomId);
+
+  const lowerZoneGate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate" && core.rooms.get(enemy.roomId)?.zone === 1)!;
+  lowerZoneGate.alive = false;
+  for (let index = 0; index < 30; index += 1) core.update(0.1);
+  assert.equal(player.roomId, "editor:room-forest");
 });
 
 test("incremental corridor preview matches a full rebuild for an appended connection", () => {

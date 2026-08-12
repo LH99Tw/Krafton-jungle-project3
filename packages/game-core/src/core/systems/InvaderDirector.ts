@@ -18,6 +18,7 @@ import {
   INVADER_COMBAT_RADIUS,
   INVADER_CORRIDOR_LANE_OFFSET,
   INVADER_DAY_WAVES,
+  INVADER_INITIAL_SPAWN_DELAY_SECONDS,
   INVADER_MICRO_SPAWN_COUNT,
   INVADER_MICRO_SPAWN_INTERVAL_SECONDS,
   INVADER_NIGHT_WAVES,
@@ -60,6 +61,7 @@ export class InvaderDirector {
   private invaderSpawnAccumulator = 0;
   private invaderSpawnReleaseAccumulator = 0;
   private invaderWaveIndex = 0;
+  private initialSpawnDelayCompleted = false;
   private invaderSerial = 0;
   private retiredInvaders = 0;
   private invaderCapHits = 0;
@@ -205,10 +207,19 @@ export class InvaderDirector {
       invader.spawnX = spawn.x;
       invader.spawnY = spawn.y;
     }
+    const targetPreference = spawnIndex % 2 === 0 ? "player" : "base";
+    const navigation = this.createInvaderNavigation(invader, targetPreference);
+    if (targetPreference === "player") {
+      const nearbyPlayer = this.nearestInvaderPlayerTarget(invader);
+      if (nearbyPlayer) {
+        invader.targetId = nearbyPlayer.userId;
+        navigation.targetRoomId = nearbyPlayer.roomId;
+      }
+    }
     this.invaderSerial += 1;
     this.liveInvaders += 1;
     this.core.enemies.set(invader.id, invader);
-    this.invaderNavigation.set(invader.id, this.createInvaderNavigation(invader));
+    this.invaderNavigation.set(invader.id, navigation);
     this.invaderTiers.set(invader.id, "cold");
     this.scheduleSimulation(invader.id, this.invaderSimulationTick + 1);
     if (deferReplan) this.scheduleInvaderReplan(invader.id, true);
@@ -414,6 +425,16 @@ export class InvaderDirector {
       this.pendingInvaders = 0;
       return;
     }
+    if (!this.initialSpawnDelayCompleted) {
+      if (this.core.elapsed + SIMULATION_EPSILON < INVADER_INITIAL_SPAWN_DELAY_SECONDS) {
+        this.invaderSpawnAccumulator = 0;
+        this.invaderSpawnReleaseAccumulator = 0;
+        return;
+      }
+      this.initialSpawnDelayCompleted = true;
+      this.invaderWaveIndex = 1;
+      this.enqueueInvaderWave(spawnGate.id, this.core.currentZone, 1);
+    }
     this.invaderSpawnReleaseAccumulator += delta;
     while (this.invaderSpawnReleaseAccumulator + SIMULATION_EPSILON >= INVADER_MICRO_SPAWN_INTERVAL_SECONDS) {
       this.invaderSpawnReleaseAccumulator -= INVADER_MICRO_SPAWN_INTERVAL_SECONDS;
@@ -422,7 +443,10 @@ export class InvaderDirector {
     if (this.core.phase !== "day" && this.core.phase !== "night") return;
     const isNight = this.core.phase === "night";
     const waveCount = isNight ? INVADER_NIGHT_WAVES : INVADER_DAY_WAVES;
-    const interval = durations[this.core.options.mode][this.core.phase] / waveCount;
+    const initialDay = this.core.day === 1 && this.core.phase === "day";
+    const interval = initialDay
+      ? (durations[this.core.options.mode].day - INVADER_INITIAL_SPAWN_DELAY_SECONDS) / Math.max(1, waveCount - 1)
+      : durations[this.core.options.mode][this.core.phase] / waveCount;
     this.invaderSpawnAccumulator += delta;
     if (this.invaderSpawnAccumulator + SIMULATION_EPSILON < interval) return;
     this.invaderSpawnAccumulator = Math.max(0, this.invaderSpawnAccumulator - interval);
@@ -496,6 +520,7 @@ export class InvaderDirector {
     }
     for (const enemy of this.core.enemies.values()) {
       if (!enemy.alive || enemy.behavior !== "invader") continue;
+      if (this.invaderNavigation.get(enemy.id)?.targetPreference === "base") continue;
       const enemyZone = this.core.rooms.get(enemy.roomId)?.zone;
       let selected: CorePlayer | null = null;
       let selectedDistanceSquared = Number.POSITIVE_INFINITY;
@@ -515,6 +540,25 @@ export class InvaderDirector {
       }
       if (selected) output.set(enemy.id, selected);
     }
+  }
+
+  private nearestInvaderPlayerTarget(enemy: CoreEnemy): CorePlayer | null {
+    const enemyZone = this.core.rooms.get(enemy.roomId)?.zone;
+    let selected: CorePlayer | null = null;
+    let selectedDistanceSquared = Number.POSITIVE_INFINITY;
+    for (const player of this.core.players.values()) {
+      if (!player.alive || !player.connected || this.core.rooms.get(player.roomId)?.zone !== enemyZone) continue;
+      const dx = player.x - enemy.x;
+      const dy = player.y - enemy.y;
+      const distanceSquared = dx * dx + dy * dy;
+      if (distanceSquared > INVADER_AGGRO_RADIUS * INVADER_AGGRO_RADIUS) continue;
+      if (distanceSquared < selectedDistanceSquared
+        || (distanceSquared === selectedDistanceSquared && player.userId.localeCompare(selected?.userId ?? "") < 0)) {
+        selected = player;
+        selectedDistanceSquared = distanceSquared;
+      }
+    }
+    return selected;
   }
 
   private invaderWarmRooms(playerRooms: ReadonlySet<CoreRoomId>): ReadonlySet<CoreRoomId> {
@@ -543,8 +587,12 @@ export class InvaderDirector {
     return this.core.maps.zones[zone - 1].startRoomId;
   }
 
-  private createInvaderNavigation(enemy: CoreEnemy): InvaderNavigation {
+  private createInvaderNavigation(
+    enemy: CoreEnemy,
+    targetPreference: InvaderNavigation["targetPreference"] = hashSeed(enemy.id) % 2 === 0 ? "player" : "base",
+  ): InvaderNavigation {
     return {
+      targetPreference,
       replanSequence: 0,
       targetRoomId: null,
       portalPassed: false,

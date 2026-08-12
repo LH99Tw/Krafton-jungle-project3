@@ -261,6 +261,24 @@ export const equipmentEquipSchema = z.object({
   payload: z.object({ dropId: networkIdSchema }).strict(),
 }).strict();
 
+const specialRoomCommand = <TType extends string, T extends z.ZodRawShape>(type: TType, payload: T) => z.object({
+  ...envelope,
+  type: z.literal(type),
+  payload: z.object(payload).strict(),
+}).strict();
+
+export const shopBuySchema = specialRoomCommand("shop.buy", { offerId: networkIdSchema });
+export const shopRerollSchema = specialRoomCommand("shop.reroll", {});
+export const shopLockSchema = specialRoomCommand("shop.lock", { offerId: networkIdSchema });
+export const shopSellSchema = specialRoomCommand("shop.sell", { inventoryIndex: z.number().int().min(0).max(5) });
+export const shopUpgradeSchema = specialRoomCommand("shop.upgrade", { inventoryIndex: z.number().int().min(0).max(5) });
+export const equipmentInventoryEquipSchema = specialRoomCommand("equipment.inventory-equip", { inventoryIndex: z.number().int().min(0).max(5) });
+export const shrineClaimSchema = specialRoomCommand("shrine.claim", {});
+export const checkpointSetSchema = specialRoomCommand("checkpoint.set", {});
+export const gamblePlaySchema = specialRoomCommand("gamble.play", {});
+export const altarRerollSchema = specialRoomCommand("altar.reroll", {});
+export const goldClaimSchema = specialRoomCommand("gold.claim", {});
+
 export const clientCommandSchema = z.discriminatedUnion("type", [
   playerInputSchema,
   skillCastSchema,
@@ -272,6 +290,17 @@ export const clientCommandSchema = z.discriminatedUnion("type", [
   travelRequestSchema,
   recallRequestSchema,
   equipmentEquipSchema,
+  shopBuySchema,
+  shopRerollSchema,
+  shopLockSchema,
+  shopSellSchema,
+  shopUpgradeSchema,
+  equipmentInventoryEquipSchema,
+  shrineClaimSchema,
+  checkpointSetSchema,
+  gamblePlaySchema,
+  altarRerollSchema,
+  goldClaimSchema,
 ]);
 
 export type CommandEnvelope = z.infer<typeof commandEnvelopeSchema>;

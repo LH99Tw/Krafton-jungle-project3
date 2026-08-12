@@ -34,10 +34,13 @@ import {
   DoorState,
   DropState,
   EnemyState,
+  InventoryItemState,
   PartyRoomState,
   PLAYER_TRANSFORM_VIEW,
   PlayerState,
   RoomState,
+  ShopOfferState,
+  SpecialRoomState,
   UpgradeChoiceState,
   WaypointState,
 } from "./state";
@@ -298,6 +301,17 @@ export class PartyRoom extends Room<PartyRoomState> {
       "travel.request",
       "recall.request",
       "equipment.equip",
+      "equipment.inventory-equip",
+      "shop.buy",
+      "shop.reroll",
+      "shop.lock",
+      "shop.sell",
+      "shop.upgrade",
+      "shrine.claim",
+      "checkpoint.set",
+      "gamble.play",
+      "altar.reroll",
+      "gold.claim",
     ] as const) {
       this.onMessage(messageType, (client, message) => this.handleCommand(client, messageType, message));
     }
@@ -502,6 +516,56 @@ export class PartyRoom extends Room<PartyRoomState> {
     }
     if (command.type === "equipment.equip") {
       if (!this.core.equipDrop(userId, command.payload.dropId)) this.reject(client, "EQUIPMENT_REJECTED");
+      return;
+    }
+    if (command.type === "equipment.inventory-equip") {
+      if (!this.core.equipInventoryItem(userId, command.payload.inventoryIndex)) this.reject(client, "EQUIPMENT_REJECTED");
+      return;
+    }
+    if (command.type === "shop.buy") {
+      if (!this.core.shopBuy(userId, command.payload.offerId)) this.reject(client, "SHOP_REJECTED");
+      return;
+    }
+    if (command.type === "shop.reroll") {
+      if (!this.core.shopReroll(userId)) this.reject(client, "SHOP_REJECTED");
+      return;
+    }
+    if (command.type === "shop.lock") {
+      if (!this.core.shopLock(userId, command.payload.offerId)) this.reject(client, "SHOP_REJECTED");
+      return;
+    }
+    if (command.type === "shop.sell") {
+      if (!this.core.shopSell(userId, command.payload.inventoryIndex)) this.reject(client, "SHOP_REJECTED");
+      return;
+    }
+    if (command.type === "shop.upgrade") {
+      if (!this.core.shopUpgrade(userId, command.payload.inventoryIndex)) this.reject(client, "SHOP_REJECTED");
+      return;
+    }
+    if (command.type === "shrine.claim") {
+      if (!this.core.claimShrine(userId)) this.reject(client, "SHRINE_REJECTED");
+      return;
+    }
+    if (command.type === "checkpoint.set") {
+      if (!this.core.setCheckpoint(userId)) this.reject(client, "CHECKPOINT_REJECTED");
+      return;
+    }
+    if (command.type === "gamble.play") {
+      const payout = this.core.playGamble(userId);
+      if (payout === null) this.reject(client, "GAMBLE_REJECTED");
+      else this.broadcast("world-notice", { message: `${this.core.players.get(userId)?.displayName ?? "용사"}의 도박 결과: ${payout} 골드` });
+      return;
+    }
+    if (command.type === "altar.reroll") {
+      const result = this.core.rerollAltar(userId);
+      if (!result) this.reject(client, "ALTAR_REJECTED");
+      else this.broadcast("world-notice", { message: `${this.core.players.get(userId)?.displayName ?? "용사"}의 제단: ${result.increased} 강화 / ${result.decreased} 약화` });
+      return;
+    }
+    if (command.type === "gold.claim") {
+      const reward = this.core.claimGoldRoom(userId);
+      if (reward === null) this.reject(client, "GOLD_REJECTED");
+      else this.broadcast("world-notice", { message: `${this.core.players.get(userId)?.displayName ?? "용사"}가 비밀 금고에서 ${reward} 골드를 획득했습니다.` });
       return;
     }
     if (command.type === "skill.cast") {
@@ -723,6 +787,11 @@ export class PartyRoom extends Room<PartyRoomState> {
         respawnRemaining: player.respawnRemaining,
         ready: player.ready,
         connected: player.connected,
+        respawnRoomId: player.respawnRoomId,
+        gambleAttempts: player.gambleAttempts,
+        altarAttempts: player.altarAttempts,
+        shrineBuff: player.shrineBuff?.kind ?? "",
+        shrineBuffRemaining: player.shrineBuff ? Math.max(0, player.shrineBuff.expiresAt - view.elapsed) : 0,
       });
       if (isNew || keyframeDue || roomChanged) {
         state.x = player.x;
@@ -742,6 +811,12 @@ export class PartyRoom extends Room<PartyRoomState> {
         maxHpBonus: bonuses?.maxHpBonus ?? 0,
         defenseBonus: bonuses?.defenseBonus ?? 0,
         attackSpeedBonus: bonuses?.attackSpeedBonus ?? 0,
+      });
+      state.inventory.splice(0, state.inventory.length);
+      player.inventory.forEach((item) => {
+        const itemState = new InventoryItemState();
+        if (item) Object.assign(itemState, { id: item.id, slot: item.slot, rarity: item.rarity, upgradeLevel: item.upgradeLevel ?? 0 });
+        state!.inventory.push(itemState);
       });
       const draft = player.upgradeDraft;
       const nextDraftId = draft?.draftId ?? "";
@@ -766,6 +841,37 @@ export class PartyRoom extends Room<PartyRoomState> {
           state.upgradeDraft.choices.push(choiceState);
         });
       }
+    }
+
+    const specialIds = new Set(view.specialRooms.map((entry) => entry.roomId));
+    for (const id of this.state.specialRooms.keys()) if (!specialIds.has(id as CoreRoomId)) this.state.specialRooms.delete(id);
+    for (const entry of view.specialRooms) {
+      const state = this.state.specialRooms.get(entry.roomId) ?? new SpecialRoomState();
+      Object.assign(state, {
+        roomId: entry.roomId,
+        kind: entry.kind,
+        shrineKind: entry.shrineKind ?? "",
+        shrineClaimedBy: entry.shrineClaimedBy ?? "",
+        shrineClaimingBy: entry.shrineClaimingBy ?? "",
+        shrineClaimProgress: entry.shrineClaimProgress ?? 0,
+        trapPhase: entry.trapPhase ?? "",
+        trapDebuff: entry.trapDebuff ?? "",
+        goldClaimed: entry.goldClaimed ?? false,
+      });
+      state.trapParticipants.splice(0, state.trapParticipants.length, ...(entry.trapParticipants ?? []));
+      this.state.specialRooms.set(entry.roomId, state);
+    }
+    const visibleOffers = view.shopStocks.flatMap((stock) => stock.offers.map((offer) => ({ stock, offer })));
+    const offerIds = new Set(visibleOffers.map(({ offer }) => offer.id));
+    for (const id of this.state.shopOffers.keys()) if (!offerIds.has(id)) this.state.shopOffers.delete(id);
+    for (const { stock, offer } of visibleOffers) {
+      const state = this.state.shopOffers.get(offer.id) ?? new ShopOfferState();
+      Object.assign(state, {
+        id: offer.id, playerId: stock.playerId, roomId: stock.roomId, kind: offer.kind,
+        slot: offer.item?.slot ?? "", rarity: offer.item?.rarity ?? "", price: offer.price,
+        sold: offer.sold, locked: offer.locked,
+      });
+      this.state.shopOffers.set(offer.id, state);
     }
 
     for (const room of view.rooms) {

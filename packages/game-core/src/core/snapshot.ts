@@ -19,8 +19,12 @@ export function createCoreViewSnapshot(core: GameCore): CoreViewSnapshot {
     players: [...core.players.values()],
     rooms: [...core.rooms.values()].filter((room) => room.discovered),
     doors: [...core.doors.values()].filter((door) => core.discoveredRooms.has(door.fromRoomId) || core.discoveredRooms.has(door.toRoomId)),
-    enemies: [...core.enemies.values()].filter((enemy) => core.discoveredRooms.has(enemy.roomId)),
+    enemies: [...core.enemies.values()].filter((enemy) => (
+      core.discoveredRooms.has(enemy.roomId) || core.activatedEnemyRooms.has(enemy.roomId)
+    )),
     drops: [...core.drops.values()],
     waypoints: [...core.waypoints.values()].filter((waypoint) => core.discoveredRooms.has(waypoint.roomId)),
+    specialRooms: [...core.specialRooms.values()].filter((room) => core.discoveredRooms.has(room.roomId)),
+    shopStocks: [...core.shopStocks.values()],
   };
 }

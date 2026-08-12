@@ -10,6 +10,7 @@ import {
   enemyFloorPatternCircles,
   enemyPatternConfig,
   generateThreeZoneMap,
+  MONSTER_MOVE_SPEED,
   OFFICIAL_MAP_MANIFEST,
   createExplorationMask,
   createMiniMapGrid,
@@ -98,6 +99,26 @@ const OFFICIAL_OPEN_PREDICTION_WORLD = {
 const OFFICIAL_LOCKED_PREDICTION_WORLD = {
   walkable: OFFICIAL_LOCKED_WALKABLE,
   rooms: OFFICIAL_PREDICTION_ROOMS,
+};
+
+const SHRINE_STATUS_VISUALS: Record<string, { label: string; color: number }> = {
+  berserker: { label: "광전사의 성소", color: 0xff5b3f },
+  assassin: { label: "암살자의 성소", color: 0xff3ce7 },
+  giant: { label: "거인의 성소", color: 0xffc85c },
+  wind: { label: "바람의 성소", color: 0x58e5ff },
+  infinity: { label: "무한의 성소", color: 0x9c62ff },
+  doom: { label: "파멸의 성소", color: 0xff244f },
+};
+const TRAP_STATUS_VISUALS: Record<string, { label: string; color: number }> = {
+  "move-speed": { label: "이동속도 감소", color: 0x7193b8 },
+  attack: { label: "공격력 감소", color: 0xb63232 },
+  "attack-speed": { label: "공격속도 감소", color: 0xb58b3f },
+  "skills-disabled": { label: "스킬 봉인", color: 0x725483 },
+  "basic-disabled": { label: "기본공격 봉인", color: 0x777777 },
+  "max-hp": { label: "최대 체력 감소", color: 0xd22e57 },
+  "healing-disabled": { label: "회복 불가", color: 0x6d8f4e },
+  vision: { label: "시야 감소", color: 0x4d528f },
+  tether: { label: "결속의 저주", color: 0x64d5ff },
 };
 
 type LocalEnemy = {
@@ -373,6 +394,14 @@ export class RoomGameScene extends Phaser.Scene {
     this.load.image("enemy-gate-asset", "/images/rift_gate.png");
     this.load.image("enemy-boss-bull-asset", "/images/boss_bull.png");
     this.load.image("enemy-boss-dragon-asset", "/images/boss_dragon.png");
+    this.load.image("resource-gold-pickup", "/Asset/pickups/gold-pile.png");
+    this.load.image("special-room-shop", "/Asset/special-rooms/merchant-wagon.webp");
+    this.load.image("special-room-shrine", "/Asset/special-rooms/echo-shrine.webp");
+    this.load.image("special-room-shrine-used", "/Asset/special-rooms/echo-shrine-used.webp");
+    this.load.image("special-room-trap", "/Asset/special-rooms/trap-device.webp");
+    this.load.image("special-room-checkpoint", "/Asset/special-rooms/checkpoint-runestone.webp");
+    this.load.image("special-room-gamble", "/Asset/special-rooms/gamble-wheel.webp");
+    this.load.image("special-room-altar", "/Asset/special-rooms/blood-altar.webp");
 
   }
 
@@ -402,7 +431,13 @@ export class RoomGameScene extends Phaser.Scene {
       decorSeed: this.runSeed,
       showBuildGrid: this.currentZone === 1,
       waypointRooms: initialWaypointRooms,
+      revealedTrapRooms: initialSnapshot ? this.revealedTrapRooms(initialSnapshot) : undefined,
     });
+    if (initialSnapshot) {
+      const initialLocal = initialSnapshot.players.find((member) => member.isLocal)
+        ?? initialSnapshot.players.find((member) => member.userId === this.options.userId);
+      this.roomRenderer.updateSpecialRoomStates(initialSnapshot, initialLocal);
+    }
     this.networkEnemyHpLayer = this.add.graphics().setDepth(28);
     const startCenter = this.zoneWorld.rooms.find((entry) => entry.room.id === this.currentRoomId)?.center ?? { x: 0, y: 0 };
     this.player = this.roomRenderer.createHero(this.options.heroClass, startCenter.x, startCenter.y);
@@ -513,6 +548,7 @@ export class RoomGameScene extends Phaser.Scene {
         decorSeed: `${this.runSeed}:editor`,
         showBuildGrid: true,
         waypointRooms: waypointRoomId ? new Set([waypointRoomId]) : new Set(),
+        revealedTrapRooms: this.latestNetwork ? this.revealedTrapRooms(this.latestNetwork) : undefined,
       });
       this.configureVisionWorld();
       return;
@@ -533,6 +569,7 @@ export class RoomGameScene extends Phaser.Scene {
       decorSeed: this.runSeed,
       showBuildGrid: zone === 1,
       waypointRooms: waypointRoomId ? new Set([waypointRoomId]) : new Set(),
+      revealedTrapRooms: this.latestNetwork ? this.revealedTrapRooms(this.latestNetwork) : undefined,
     });
     this.configureVisionWorld();
   }
@@ -540,14 +577,31 @@ export class RoomGameScene extends Phaser.Scene {
   update(time: number, delta: number): void {
     const safeDeltaMs = Math.min(100, Math.max(0, delta));
     this.roomRenderer.updateCrosshair(this.input.activePointer);
-    const targetVisionRadius = this.localPhase === "night" ? NIGHT_PLAYER_VISION_RADIUS : PLAYER_VISION_RADIUS;
+    const localMember = this.latestNetwork?.players.find((member) => member.isLocal || member.userId === this.options.userId);
+    const localRoomId = localMember?.roomId;
+    const targetVisionRadius = this.visionRadiusForRoom(localRoomId);
     const visionStep = VISION_RADIUS_CHANGE_PER_SECOND * safeDeltaMs / 1_000;
     if (this.currentVisionRadius < targetVisionRadius) this.currentVisionRadius = Math.min(targetVisionRadius, this.currentVisionRadius + visionStep);
     else if (this.currentVisionRadius > targetVisionRadius) this.currentVisionRadius = Math.max(targetVisionRadius, this.currentVisionRadius - visionStep);
+    const partyVisionSources = !this.latestNetwork || !localRoomId ? [] : this.latestNetwork.players
+      .filter((member) => !(member.isLocal || member.userId === this.options.userId)
+        && member.connected
+        && member.alive
+        && this.sharesNetworkVisionZone(localRoomId, member.roomId))
+      .map((member): VisionRevealSource => {
+        const transform = this.transformBuffer.sample(member.userId);
+        return {
+          id: `party:${member.userId}`,
+          x: transform?.x ?? member.x,
+          y: transform?.y ?? member.y,
+          radius: this.visionRadiusForRoom(member.roomId),
+        };
+      });
     this.visionFog.update(
       this.player.x,
       this.player.y,
       Math.round(this.currentVisionRadius / 4) * 4,
+      partyVisionSources,
     );
     if (this.ended) return;
 
@@ -624,6 +678,16 @@ export class RoomGameScene extends Phaser.Scene {
     this.visionFog.removeRevealSource(id);
   }
 
+  private visionRadiusForRoom(roomId?: string): number {
+    const trapVision = roomId !== undefined && this.latestNetwork?.specialRooms.some((room) => (
+      room.roomId === roomId
+      && room.trapDebuff === "vision"
+      && ["warning", "wave", "hidden"].includes(room.trapPhase)
+    ));
+    if (trapVision) return Math.min(180, NIGHT_PLAYER_VISION_RADIUS);
+    return this.localPhase === "night" ? NIGHT_PLAYER_VISION_RADIUS : PLAYER_VISION_RADIUS;
+  }
+
   /** Server snapshots are the only simulation source while networked. */
   public syncNetworkState(snapshot: NetworkWorldSnapshot): void {
     if (!this.usesAuthoritativeRuntime() || this.ended) return;
@@ -645,7 +709,9 @@ export class RoomGameScene extends Phaser.Scene {
       this.renderedNetworkRoomKey = roomKey;
       this.renderNetworkRoom(snapshot);
     }
+    this.roomRenderer.updateSpecialRoomStates(snapshot, local);
     this.syncNetworkPlayers(snapshot, local);
+    this.roomRenderer.updateResourcePickups(new Set(snapshot.rooms.filter((room) => room.type === "resource" && room.cleared).map((room) => room.id)));
     this.roomRenderer.updateProgressionBarriers(this.lockedProgressionBarriers(snapshot));
     this.syncNetworkEnemies(snapshot, local);
     this.syncNetworkDrops(snapshot, local.roomId);
@@ -774,6 +840,7 @@ export class RoomGameScene extends Phaser.Scene {
       );
       this.player.setVisible(localState.alive).setActive(localState.alive && localState.connected);
       if (localState.alive) this.roomRenderer.updateHeroPose(this.player, this.localMovementX, this.localMovementY, poseTime);
+      this.roomRenderer.updateHeroStatusEffect(localState.userId, this.player, heroStatusVisual(snapshot, localState));
       if (correctionScale === 0) this.localCorrection = null;
     }
     for (const member of snapshot.players) {
@@ -787,6 +854,7 @@ export class RoomGameScene extends Phaser.Scene {
         && shouldRenderPartyMember({ ...member, x: point.x, y: point.y });
       sprite.setPosition(point.x, point.y).setVisible(visible);
       this.roomRenderer.updateHeroPose(sprite, transform?.vx ?? 0, transform?.vy ?? 0, poseTime);
+      this.roomRenderer.updateHeroStatusEffect(member.userId, sprite, heroStatusVisual(snapshot, member));
     }
     for (const enemy of snapshot.enemies) {
       const sprite = this.networkEnemies.get(enemy.id);
@@ -840,9 +908,7 @@ export class RoomGameScene extends Phaser.Scene {
 
     this.updateStructureVisibility();
     if (room.type === "resource" && !this.unlockedResources.has(room.id)) {
-      this.unlockedResources.add(room.id);
-      this.gold += 15;
-      this.message = `자원 방 해금 · 발견한 방마다 5초에 1G, 현재 ${this.unlockedResources.size}G를 생산합니다.`;
+      this.message = "골드 아이콘 가까이 이동해 자원을 획득하세요.";
     }
     const staticRespawnDue = room.type === "static-monster" && (this.staticRespawnAt.get(room.id) ?? Number.POSITIVE_INFINITY) <= this.time.now;
     if (staticRespawnDue) {
@@ -881,14 +947,14 @@ export class RoomGameScene extends Phaser.Scene {
   private spawnEnemy(kind: LocalEnemyKind, x: number, y: number, zone: number): LocalEnemy {
     const zoneScale = 1 + (zone - 1) * 0.3;
     const base = kind === "hidden"
-      ? { hp: 145, damage: 14, speed: 68, xp: 38, gold: 24 }
+      ? { hp: 145, damage: 14, speed: MONSTER_MOVE_SPEED, xp: 38, gold: 24 }
       : kind === "gate"
         ? { hp: 190, damage: 18, speed: 0, xp: 32, gold: 30 }
         : kind === "boss"
           ? { hp: 950, damage: 28, speed: 0, xp: 0, gold: 0 }
           : kind === "invader"
-            ? { hp: 28, damage: 9, speed: 92, xp: 7, gold: 5 }
-            : { hp: 24, damage: 8, speed: 78, xp: 8, gold: 6 };
+            ? { hp: 28, damage: 9, speed: MONSTER_MOVE_SPEED, xp: 7, gold: 5 }
+            : { hp: 24, damage: 8, speed: MONSTER_MOVE_SPEED, xp: 8, gold: 6 };
     const maxHp = Math.round(base.hp * zoneScale * this.difficulty.enemyHp);
     const enemy: LocalEnemy = {
       id: `${this.currentRoomId}:${kind}:${this.attackCounter++}`,
@@ -898,7 +964,7 @@ export class RoomGameScene extends Phaser.Scene {
       hp: maxHp,
       maxHp,
       damage: Math.round(base.damage * zoneScale * this.difficulty.enemyDamage),
-      speed: base.speed * this.difficulty.enemySpeed,
+      speed: base.speed,
       rewardXp: base.xp,
       rewardGold: Math.round(base.gold * this.difficulty.reward),
       engaged: kind === "invader" || kind === "boss",
@@ -1684,6 +1750,7 @@ export class RoomGameScene extends Phaser.Scene {
   private updateLocalSession(deltaSeconds: number): void {
     if (this.localPhase === "boss" || this.localPhase === "ended") return;
     this.elapsed += deltaSeconds;
+    this.updateLocalResourcePickup();
     this.phaseRemaining -= deltaSeconds;
     if (this.localPhase === "night") {
       this.nightDamageAccumulator += deltaSeconds;
@@ -1715,6 +1782,18 @@ export class RoomGameScene extends Phaser.Scene {
       this.progression.stats.hp = Math.min(this.progression.stats.maxHp, this.progression.stats.hp + 14);
       this.message = `${this.localDay}일차 낮 · 다음 구역을 향해 탐색하세요.`;
     }
+  }
+
+  private updateLocalResourcePickup(): void {
+    const room = this.currentRoom();
+    if (room?.type !== "resource" || this.unlockedResources.has(room.id)) return;
+    const center = this.currentRoomCenter();
+    if (!center || Phaser.Math.Distance.Between(this.player.x, this.player.y, center.x, center.y) > 64) return;
+    this.unlockedResources.add(room.id);
+    this.clearedRooms.add(room.id);
+    this.gold += 15;
+    this.roomRenderer.updateResourcePickups(this.unlockedResources);
+    this.message = `자원 획득 · 15G, 현재 ${this.unlockedResources.size}G를 5초마다 생산합니다.`;
   }
 
   private tryBuildAt(worldX: number, worldY: number): void {
@@ -1884,6 +1963,9 @@ export class RoomGameScene extends Phaser.Scene {
     } else if (command.type === "interact") {
       if (this.options.runtimeMode === "editor-core") localCoreSession.interact(command.targetId);
       else if (this.options.networked) colyseusTransport.interact(command.targetId);
+    } else if (command.type === "special-room") {
+      if (this.options.runtimeMode === "editor-core") localCoreSession.specialCommand(command.action, command.payload);
+      else if (this.options.networked) colyseusTransport.specialCommand(command.action, command.payload);
     } else if (command.type === "return-base") {
       if (this.options.runtimeMode === "editor-core") localCoreSession.recall();
       else if (this.options.networked) colyseusTransport.requestRecall();
@@ -1899,6 +1981,7 @@ export class RoomGameScene extends Phaser.Scene {
 
   private renderNetworkRoom(snapshot: NetworkWorldSnapshot): void {
     const waypointRooms = this.activeWaypointRooms(snapshot);
+    this.roomRenderer.updateTrapReveals(this.zoneWorld, this.revealedTrapRooms(snapshot));
     this.roomRenderer.updateWaypoints(this.zoneWorld, waypointRooms);
   }
 
@@ -1914,6 +1997,9 @@ export class RoomGameScene extends Phaser.Scene {
       const from = progressionRooms.get(connection.from);
       const to = progressionRooms.get(connection.to);
       if (!from || !to) return false;
+      const trapRoom = from.kind === "trap" ? from : to.kind === "trap" ? to : null;
+      const trapState = trapRoom ? snapshot.specialRooms.find((room) => room.roomId === trapRoom.id) : null;
+      if (trapState && ["warning", "wave", "hidden"].includes(trapState.trapPhase)) return true;
       if (from.id === progressionWorld.bossRoomId || to.id === progressionWorld.bossRoomId) return !bossAccessible;
       if (from.zone === to.zone) return false;
       const lowerZone = Math.min(from.zone, to.zone);
@@ -1925,6 +2011,22 @@ export class RoomGameScene extends Phaser.Scene {
     const offsetX = renderedAnchor && progressionAnchor ? renderedAnchor.rect.x - progressionAnchor.rect.x : 0;
     const offsetY = renderedAnchor && progressionAnchor ? renderedAnchor.rect.y - progressionAnchor.rect.y : 0;
     return lockedConnections.map((connection) => {
+      const from = progressionRooms.get(connection.from);
+      const to = progressionRooms.get(connection.to);
+      const trapRoomId = from?.kind === "trap" ? from.id : to?.kind === "trap" ? to.id : null;
+      const trapState = trapRoomId ? snapshot.specialRooms.find((room) => room.roomId === trapRoomId) : null;
+      if (trapState && ["warning", "wave", "hidden"].includes(trapState.trapPhase) && connection.trapBarrier) return {
+        x: connection.trapBarrier.x + offsetX + connection.trapBarrier.width / 2,
+        y: connection.trapBarrier.y + offsetY + connection.trapBarrier.height / 2,
+        width: connection.trapBarrier.width,
+        height: connection.trapBarrier.height,
+      };
+      if (connection.lockBarrier) return {
+        x: connection.lockBarrier.x + offsetX + connection.lockBarrier.width / 2,
+        y: connection.lockBarrier.y + offsetY + connection.lockBarrier.height / 2,
+        width: connection.lockBarrier.width,
+        height: connection.lockBarrier.height,
+      };
       const segment = [...connection.floorRects].sort((left, right) => Math.max(right.width, right.height) - Math.max(left.width, left.height))[0]!;
       const horizontal = segment.width >= segment.height;
       return {
@@ -1941,7 +2043,13 @@ export class RoomGameScene extends Phaser.Scene {
   }
 
   private waypointRenderKey(snapshot: NetworkWorldSnapshot): string {
-    return [...this.activeWaypointRooms(snapshot)].sort().join("|");
+    const waypoints = [...this.activeWaypointRooms(snapshot)].sort().join("|");
+    const traps = [...this.revealedTrapRooms(snapshot)].sort().join("|");
+    return `${waypoints}::traps:${traps}`;
+  }
+
+  private revealedTrapRooms(snapshot: NetworkWorldSnapshot): Set<string> {
+    return new Set(snapshot.specialRooms.filter((room) => room.kind === "trap").map((room) => room.roomId));
   }
 
   private sharesNetworkVisionZone(viewerRoomId: string, candidateRoomId: string): boolean {
@@ -1959,6 +2067,7 @@ export class RoomGameScene extends Phaser.Scene {
     const activeIds = new Set(players.map((member) => member.userId));
     for (const [userId, sprite] of this.remotePlayers) {
       if (!activeIds.has(userId)) {
+        this.roomRenderer.updateHeroStatusEffect(userId, sprite, null);
         sprite.destroy();
         this.remotePlayers.delete(userId);
         this.networkPlayerAttackSequence.delete(userId);
@@ -2431,6 +2540,17 @@ export class RoomGameScene extends Phaser.Scene {
         requiredPlayers,
         presentPlayers: activeWaypoint?.holdingPlayers ?? 0,
       },
+      specialRoom: currentRoom && ["shop", "shrine", "trap", "checkpoint", "gamble", "altar", "gold"].includes(currentRoom.type) ? {
+        kind: currentRoom.type,
+        state: state?.specialRooms.find((entry) => entry.roomId === currentRoom.id) ?? null,
+        offers: state?.shopOffers.filter((offer) => offer.roomId === currentRoom.id) ?? [],
+        inventory: local?.inventory ?? [],
+        respawnRoomId: local?.respawnRoomId ?? "",
+        gambleAttempts: local?.gambleAttempts ?? 0,
+        altarAttempts: local?.altarAttempts ?? 0,
+        shrineBuff: local?.shrineBuff ?? "",
+        shrineBuffRemaining: local?.shrineBuffRemaining ?? 0,
+      } : null,
     };
   }
 
@@ -2652,6 +2772,27 @@ export class RoomGameScene extends Phaser.Scene {
       .join("|");
     this.visionFog.setWorld(this.zoneWorld.wallSegments, revision);
   }
+}
+
+function heroStatusVisual(
+  snapshot: NetworkWorldSnapshot,
+  member: PartyMemberSnapshot,
+): { key: string; label: string; color: number } | null {
+  const activeTrap = snapshot.specialRooms.find((room) => (
+    room.kind === "trap"
+    && room.roomId === member.roomId
+    && room.trapParticipants.includes(member.userId)
+    && ["warning", "wave", "hidden"].includes(room.trapPhase)
+  ));
+  if (activeTrap?.trapDebuff) {
+    const visual = TRAP_STATUS_VISUALS[activeTrap.trapDebuff] ?? { label: "함정 디버프", color: 0xd04a55 };
+    return { key: `trap:${activeTrap.roomId}:${activeTrap.trapDebuff}`, ...visual };
+  }
+  if (member.shrineBuff) {
+    const visual = SHRINE_STATUS_VISUALS[member.shrineBuff] ?? { label: "성소의 축복", color: 0xd7b7ff };
+    return { key: `shrine:${member.shrineBuff}`, ...visual };
+  }
+  return null;
 }
 
 function normalizeZone(value: number): ZoneId {

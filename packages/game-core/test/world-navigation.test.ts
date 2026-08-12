@@ -110,7 +110,7 @@ test("a defeated AI follower respawns at base and follows one recovery path back
   assert.equal(follower.alive, false);
   assert.equal(follower.deaths, 1);
 
-  for (let step = 0; step < 60; step += 1) core.update(0.05);
+  for (let step = 0; step < 100; step += 1) core.update(0.05);
   assert.equal(follower.roomId, startRoomId);
   assert.equal(follower.alive, true);
 

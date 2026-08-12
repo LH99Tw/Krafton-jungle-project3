@@ -4,10 +4,14 @@ import { PROTOCOL_VERSION, type PlayerInputCommand } from "@five-days/protocol";
 import {
   BOSS_ROOM_ID,
   buildWorldFromRooms,
+  CLASS_COMBAT_RULES,
+  createCoreViewSnapshot,
+  createInvaderEnemy,
   doorId,
   enemyPatternConfig,
   GameCore,
   MAX_PENDING_INVADERS,
+  MONSTER_MOVE_SPEED,
   OFFICIAL_WORLD,
   ROOM_HEIGHT,
   ROOM_WIDTH,
@@ -19,6 +23,28 @@ import {
   type CoreEnemy,
   type PersonalHiddenDrop,
 } from "../src/index";
+
+test("uses boosted player movement and the configured mobile monster speed", () => {
+  assert.deepEqual({
+    swordsman: CLASS_COMBAT_RULES.swordsman.speed,
+    archer: CLASS_COMBAT_RULES.archer.speed,
+    mage: CLASS_COMBAT_RULES.mage.speed,
+  }, {
+    swordsman: 276,
+    archer: 306,
+    mage: 288,
+  });
+
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "movement-speed", minimumPlayers: 1 });
+  const mobileRoomEnemies = [...core.enemies.values()].filter((enemy) => enemy.kind === "static" || enemy.kind === "hidden");
+  assert.ok(mobileRoomEnemies.length > 0);
+  assert.ok(mobileRoomEnemies.every((enemy) => enemy.speed === MONSTER_MOVE_SPEED));
+  assert.equal(MONSTER_MOVE_SPEED, 280);
+  assert.ok(MONSTER_MOVE_SPEED > CLASS_COMBAT_RULES.swordsman.speed);
+
+  const invader = createInvaderEnemy("movement-speed", 1, 0, core.maps, "normal");
+  assert.equal(invader.speed, MONSTER_MOVE_SPEED);
+});
 
 test("constructs a deterministic authoritative world and starts players in the discovered base room", () => {
   const first = new GameCore({ mode: "prototype", difficulty: "normal", seed: "world-seed", minimumPlayers: 1 });
@@ -35,6 +61,30 @@ test("constructs a deterministic authoritative world and starts players in the d
   assert.equal(player.alive, true);
   assert.ok(first.discoveredRooms.has(player.roomId));
   assert.deepEqual(player.equipment, { weapon: null, armor: null, accessory: null });
+});
+
+test("exposes monsters from all eight surrounding tiles without requiring a direct connection", () => {
+  const core = new GameCore({
+    mode: "prototype",
+    difficulty: "normal",
+    seed: "eight-tile-monster-activation",
+    minimumPlayers: 1,
+    world: OFFICIAL_WORLD,
+  });
+  core.addPlayer({ userId: "p1", displayName: "용사", heroClass: "swordsman" });
+  core.setReady("p1", true);
+  const adjacentRoomId = "editor:z1-hex-03";
+  const monsterRoomId = "editor:z1-hex-01";
+  const adjacentRoom = core.rooms.get(adjacentRoomId)!;
+  assert.equal(adjacentRoom.connections.includes(monsterRoomId), false, "fixture rooms must not have a direct connection");
+  assert.equal(core.activatedEnemyRooms.has(monsterRoomId), false);
+
+  assert.equal(core.movePlayerToRoom("p1", adjacentRoomId), true);
+  assert.equal(core.discoveredRooms.has(monsterRoomId), false, "nearby activation must not count as room exploration");
+  assert.equal(core.activatedEnemyRooms.has(monsterRoomId), true);
+
+  const visibleEnemyRooms = new Set(createCoreViewSnapshot(core).enemies.map((enemy) => enemy.roomId));
+  assert.equal(visibleEnemyRooms.has(monsterRoomId), true, "surrounding-tile monsters should be sent before entry");
 });
 
 test("keeps movement continuous and crosses only through a connecting corridor", () => {
@@ -510,7 +560,7 @@ test("defender AI does not block travel while follower AI travels with the playe
   assert.equal(defender.roomId, core.maps.zones[0].startRoomId);
 });
 
-test("a defeated player waits three seconds at the death position before respawning at the base", () => {
+test("a defeated player waits five seconds at the death position before respawning at the base", () => {
   const core = startedCore("player-respawn");
   const player = core.players.get("p1")!;
   core.movePlayerToRoom(player.userId, core.maps.zones[0].gateRoomId);
@@ -528,14 +578,14 @@ test("a defeated player waits three seconds at the death position before respawn
   const baseCenter = roomWorldCenter({ x: baseRoom.gridX, y: baseRoom.gridY });
   assert.equal(player.hp, 0);
   assert.equal(player.alive, false);
-  assert.equal(player.respawnRemaining, 3);
+  assert.equal(player.respawnRemaining, 5);
   assert.deepEqual({ roomId: player.roomId, x: player.x, y: player.y }, deathPosition);
   assert.equal(player.inputX, 0);
   assert.equal(player.inputY, 0);
   assert.equal(player.lastButtons, 0);
   assert.equal(player.deaths, 1);
 
-  for (let index = 0; index < 29; index += 1) core.update(0.1);
+  for (let index = 0; index < 49; index += 1) core.update(0.1);
   assert.equal(player.alive, false);
   assert.deepEqual({ roomId: player.roomId, x: player.x, y: player.y }, deathPosition);
 
@@ -683,7 +733,7 @@ test("gate invaders use 24 deterministic, non-overlapping spawn slots", () => {
   assert.deepEqual(firstPositions, secondPositions);
 });
 
-test("every nearby invader keeps player aggro even when a large wave stacks up", () => {
+test("gate invaders split evenly between the base and nearby players", () => {
   const core = startedCore("invader-attacker-slots");
   const player = core.players.get("p1")!;
   const invaders = Array.from({ length: 12 }, () => core.spawnInvader(1));
@@ -695,8 +745,8 @@ test("every nearby invader keeps player aggro even when a large wave stacks up",
     invader.y = player.y;
   }
   core.update(0.01);
-  assert.equal(invaders.filter((invader) => invader.targetId === player.userId).length, invaders.length);
-  assert.equal(invaders.filter((invader) => invader.targetId === "base").length, 0);
+  assert.equal(invaders.filter((invader) => invader.targetId === player.userId).length, invaders.length / 2);
+  assert.equal(invaders.filter((invader) => invader.targetId === "base").length, invaders.length / 2);
 });
 
 test("a 21-invader wave leaves its distributed gate slots without corridor deadlock", () => {
@@ -769,21 +819,23 @@ test("stalled invaders blacklist the blocked edge and safely choose another rout
   assert.equal(invader.y, invader.spawnY);
 });
 
-test("each discovered resource room produces one shared gold every five simulation seconds", () => {
+test("resource rooms grant a nearby pickup before producing shared gold every five seconds", () => {
   const core = startedCore("resource-production");
   const player = core.players.get("p1")!;
   const resources = [...core.rooms.values()].filter((room) => room.kind === "resource");
   assert.ok(resources.length >= 2);
-  core.movePlayerToRoom(player.userId, resources[0]!.id);
   const initialGold = core.gold;
-  for (let index = 0; index < 49; index += 1) core.update(0.1);
-  assert.equal(core.gold, initialGold);
+  core.movePlayerToRoom(player.userId, resources[0]!.id);
   core.update(0.1);
-  assert.equal(core.gold, initialGold + 1);
+  assert.equal(core.gold, initialGold + 15, "moving onto the icon should collect its one-time gold reward");
+  for (let index = 0; index < 49; index += 1) core.update(0.1);
+  assert.equal(core.gold, initialGold + 16);
 
   core.movePlayerToRoom(player.userId, resources[1]!.id);
-  for (let index = 0; index < 50; index += 1) core.update(0.1);
-  assert.equal(core.gold, initialGold + 3, "two discovered resource rooms must produce independently");
+  core.update(0.1);
+  assert.equal(core.gold, initialGold + 31, "each resource room should expose its own collectible icon");
+  for (let index = 1; index < 50; index += 1) core.update(0.1);
+  assert.equal(core.gold, initialGold + 33, "two collected resource rooms must produce independently");
 });
 
 test("normal static enemies respawn at their exact spawn after the mode-specific delay", () => {
@@ -879,7 +931,7 @@ test("hidden enemies attack players from range", () => {
   assert.ok(player.hp < hpBefore, "hidden enemy should damage the player over time");
 });
 
-test("a damaged hidden enemy follows the player who hit it without leaving its room", () => {
+test("a damaged hidden enemy follows the player who hit it", () => {
   const core = twoPlayerCore("hidden-hit-chase");
   const attacker = core.players.get("p1")!;
   const bystander = core.players.get("p2")!;
@@ -892,7 +944,6 @@ test("a damaged hidden enemy follows the player who hit it without leaving its r
   bystander.y = hidden.y;
   attacker.autoAttackCooldown = 999;
   bystander.autoAttackCooldown = 999;
-  const spawnRoomId = hidden.spawnRoomId;
   const distanceBefore = Math.hypot(attacker.x - hidden.x, attacker.y - hidden.y);
 
   assert.equal(core.damageEnemy(attacker.userId, hidden.id, 1), true);
@@ -900,8 +951,43 @@ test("a damaged hidden enemy follows the player who hit it without leaving its r
 
   assert.equal(hidden.targetId, attacker.userId, "the attacker must remain the preferred target");
   assert.ok(Math.hypot(attacker.x - hidden.x, attacker.y - hidden.y) < distanceBefore);
-  assert.equal(hidden.roomId, spawnRoomId);
   assert.ok(hidden.lastMoveSpeed > 0);
+});
+
+test("a hidden enemy keeps closing in while its ranged pattern is active", () => {
+  const core = startedCore("hidden-active-pursuit");
+  const player = core.players.get("p1")!;
+  const hidden = [...core.enemies.values()].find((candidate) => candidate.kind === "hidden")!;
+  core.movePlayerToRoom(player.userId, hidden.roomId);
+  core.setConnected(player.userId, false);
+  player.x = hidden.x + Math.min(130, hidden.attackRange - 10);
+  player.y = hidden.y;
+  const distanceBefore = Math.hypot(player.x - hidden.x, player.y - hidden.y);
+
+  core.update(0.1);
+
+  assert.ok(Math.hypot(player.x - hidden.x, player.y - hidden.y) < distanceBefore);
+  assert.ok(hidden.lastMoveSpeed > 0);
+  assert.notEqual(hidden.patternPhase, "idle", "movement must not suppress the ranged pattern");
+});
+
+test("a hidden enemy drops distant aggro and returns to its spawn", () => {
+  const core = startedCore("hidden-leash-return");
+  const player = core.players.get("p1")!;
+  const hidden = [...core.enemies.values()].find((candidate) => candidate.kind === "hidden")!;
+  core.movePlayerToRoom(player.userId, hidden.roomId);
+  core.setConnected(player.userId, false);
+  hidden.x = hidden.spawnX + 910;
+  player.x = hidden.x + 30;
+  player.y = hidden.y;
+  hidden.aggroed = true;
+  hidden.targetId = player.userId;
+  const distanceBefore = Math.hypot(hidden.x - hidden.spawnX, hidden.y - hidden.spawnY);
+
+  core.update(0.1);
+
+  assert.equal(hidden.targetId, null);
+  assert.ok(Math.hypot(hidden.x - hidden.spawnX, hidden.y - hidden.spawnY) < distanceBefore);
 });
 
 test("gate enemies use damage threat instead of blindly targeting the nearest player", () => {
@@ -936,12 +1022,16 @@ test("boss pattern volley damages players inside the boss room", () => {
 
 test("a living gate spawns exactly 36 daytime and 120 nighttime invaders per phase", () => {
   const core = startedCore("day-spawn");
-  const spawnedOrQueued = () => core.liveInvaderCount + core.pendingInvaderCount;
-  for (let index = 0; index < 300; index += 1) core.update(0.1);
+  const spawnedOrQueued = () => core.liveInvaderCount + core.pendingInvaderCount + core.retiredInvaderCount;
+  for (let index = 0; index < 99; index += 1) core.update(0.1);
+  assert.equal(spawnedOrQueued(), 0, "the first gate wave must wait until ten seconds after the match starts");
+  core.update(0.1);
+  assert.equal(spawnedOrQueued(), 1, "the first gate wave starts at the ten-second mark");
+  for (let index = 100; index < 300; index += 1) core.update(0.1);
   assert.equal(
     spawnedOrQueued(),
-    10,
-    "the first half of daytime should spawn only waves 1 through 4",
+    6,
+    "the delayed first half of daytime should contain only the first three scheduled waves",
   );
   while (core.phase === "day") core.update(0.1);
   assert.equal(
@@ -996,9 +1086,9 @@ test("invader waves preserve overflow without exceeding the live cap", () => {
 
   internals.enqueueInvaderWave(gate.id, 1, 8);
   internals.releaseOldestInvaderWave();
-  assert.equal(core.liveInvaderCount, 3);
-  assert.equal(core.pendingInvaderCount, 5);
-  internals.releaseOldestInvaderWave();
+  assert.equal(core.liveInvaderCount, 1);
+  assert.equal(core.pendingInvaderCount, 7);
+  for (let index = 0; index < 4; index += 1) internals.releaseOldestInvaderWave();
   assert.equal(core.liveInvaderCount, 5);
   assert.equal(core.pendingInvaderCount, 3);
   assert.equal(core.invaderCapHitCount, 1);
@@ -1012,11 +1102,12 @@ test("invader waves preserve overflow without exceeding the live cap", () => {
   assert.ok(retired.every((enemy) => !core.enemies.has(enemy.id)));
 
   internals.releaseOldestInvaderWave();
+  internals.releaseOldestInvaderWave();
   assert.equal(core.liveInvaderCount, 5);
   assert.equal(core.pendingInvaderCount, 1);
 });
 
-test("only one queued wave batch is released per spawn interval", () => {
+test("only one invader from the oldest queued wave is released per spawn interval", () => {
   const core = new GameCore({
     mode: "prototype",
     difficulty: "normal",
@@ -1032,12 +1123,13 @@ test("only one queued wave batch is released per spawn interval", () => {
   internals.enqueueInvaderWave(gate.id, 1, 3);
   internals.enqueueInvaderWave(gate.id, 1, 4);
   internals.releaseOldestInvaderWave();
-  assert.equal(core.liveInvaderCount, 3);
-  assert.equal(core.pendingInvaderCount, 4, "the second batch must wait for the next interval");
+  assert.equal(core.liveInvaderCount, 1);
+  assert.equal(core.pendingInvaderCount, 6, "the remaining first batch and second batch must stay queued");
 });
 
-test("queued waves release no more than three invaders per 100ms", () => {
+test("queued waves release exactly one invader per 100ms", () => {
   const core = startedCore("micro-spawn-cadence");
+  core.elapsed = 10;
   const gate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate" && core.rooms.get(enemy.roomId)?.zone === 1)!;
   const internals = core as unknown as {
     enqueueInvaderWave(gateEnemyId: string, zone: 1, count: number): void;
@@ -1047,12 +1139,12 @@ test("queued waves release no more than three invaders per 100ms", () => {
   core.update(0.099);
   assert.equal(core.liveInvaderCount, 0);
   core.update(0.001);
+  assert.equal(core.liveInvaderCount, 1);
+  core.update(0.1);
+  assert.equal(core.liveInvaderCount, 2);
+  core.update(0.1);
   assert.equal(core.liveInvaderCount, 3);
-  core.update(0.1);
-  assert.equal(core.liveInvaderCount, 6);
-  core.update(0.1);
-  assert.equal(core.liveInvaderCount, 9);
-  assert.equal(core.invaderWorkMetrics.microSpawned, 9);
+  assert.equal(core.invaderWorkMetrics.microSpawned, 3);
 });
 
 test("queued wave creation defers route planning into the bounded replan budget", () => {
@@ -1066,13 +1158,13 @@ test("queued wave creation defers route planning into the bounded replan budget"
 
   internals.enqueueInvaderWave(gate.id, 1, 3);
   internals.releaseOldestInvaderWave();
-  assert.equal(core.liveInvaderCount, 3);
-  assert.equal(core.invaderWorkMetrics.pendingReplans, 3);
+  assert.equal(core.liveInvaderCount, 1);
+  assert.equal(core.invaderWorkMetrics.pendingReplans, 1);
   assert.equal(core.invaderWorkMetrics.completedReplans, 0);
 
   internals.releasePendingInvaderReplans(new Map(), new Set());
   assert.equal(core.invaderWorkMetrics.pendingReplans, 0);
-  assert.equal(core.invaderWorkMetrics.completedReplans, 3);
+  assert.equal(core.invaderWorkMetrics.completedReplans, 1);
 });
 
 test("a congested spawn slot remains a numeric queue instead of creating an overlapping object", () => {

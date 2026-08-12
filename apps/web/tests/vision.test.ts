@@ -20,6 +20,25 @@ test("player vision keeps priority while installed lanterns are deterministic an
   assert.deepEqual(selected.map((source) => source.id), ["player", "lantern-a"]);
 });
 
+test("connected party vision sources remain deterministic and share the reveal budget", () => {
+  const selected = selectVisionRevealSources(
+    { id: "player", x: 10, y: 20, radius: 330 },
+    [
+      { id: "party:user-b", x: 600, y: 400, radius: 330 },
+      { id: "party:user-a", x: 300, y: 200, radius: 220 },
+      { id: "lantern-z", x: 500, y: 500, radius: 160 },
+    ],
+    4,
+  );
+
+  assert.deepEqual(selected.map((source) => source.id), [
+    "player",
+    "lantern-z",
+    "party:user-a",
+    "party:user-b",
+  ]);
+});
+
 test("a narrow corridor reveals its forward wedge but keeps the next room corners behind walls", () => {
   const walls = boundarySegments([
     { x: 0, y: 0, width: 100, height: 100 },

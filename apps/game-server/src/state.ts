@@ -16,6 +16,38 @@ class EquipmentSummaryState extends Schema {
   @type("number") attackSpeedBonus = 0;
 }
 
+export class InventoryItemState extends Schema {
+  @type("string") id = "";
+  @type("string") slot = "weapon";
+  @type("string") rarity = "normal";
+  @type("number") upgradeLevel = 0;
+}
+
+export class ShopOfferState extends Schema {
+  @type("string") id = "";
+  @type("string") playerId = "";
+  @type("string") roomId = "";
+  @type("string") kind = "equipment";
+  @type("string") slot = "";
+  @type("string") rarity = "";
+  @type("number") price = 0;
+  @type("boolean") sold = false;
+  @type("boolean") locked = false;
+}
+
+export class SpecialRoomState extends Schema {
+  @type("string") roomId = "";
+  @type("string") kind = "";
+  @type("string") shrineKind = "";
+  @type("string") shrineClaimedBy = "";
+  @type("string") shrineClaimingBy = "";
+  @type("number") shrineClaimProgress = 0;
+  @type("string") trapPhase = "";
+  @type("string") trapDebuff = "";
+  @type(["string"]) trapParticipants = new ArraySchema<string>();
+  @type("boolean") goldClaimed = false;
+}
+
 export class UpgradeChoiceState extends Schema {
   @type("string") upgradeId = "";
   @type("string") name = "";
@@ -81,6 +113,12 @@ export class PlayerState extends Schema {
   @type("boolean") ready = false;
   @type("boolean") connected = true;
   @type(EquipmentSummaryState) equipment = new EquipmentSummaryState();
+  @type([InventoryItemState]) inventory = new ArraySchema<InventoryItemState>();
+  @type("string") respawnRoomId = "";
+  @type("number") gambleAttempts = 0;
+  @type("number") altarAttempts = 0;
+  @type("string") shrineBuff = "";
+  @type("number") shrineBuffRemaining = 0;
   @view()
   @type(PlayerUpgradeDraftState) upgradeDraft = new PlayerUpgradeDraftState();
 }
@@ -185,6 +223,8 @@ export class PartyRoomState extends Schema {
   @view()
   @type({ map: EnemyState }) enemies = new MapSchema<EnemyState>();
   @type({ map: WaypointState }) waypoints = new MapSchema<WaypointState>();
+  @type({ map: SpecialRoomState }) specialRooms = new MapSchema<SpecialRoomState>();
+  @type({ map: ShopOfferState }) shopOffers = new MapSchema<ShopOfferState>();
   @type({ map: StructureState }) structures = new MapSchema<StructureState>();
   @view()
   @type({ map: DropState }) drops = new MapSchema<DropState>();
