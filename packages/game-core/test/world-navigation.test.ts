@@ -82,7 +82,7 @@ test("hidden-enemy navigation caches a leash-local slice of the official map", (
   assert.ok(localWalkable.length < OFFICIAL_WORLD.walkable.length / 2, "hidden A* must not span the full official map");
 });
 
-test("entering Zone 1 room 3,68 does not stall the shared simulation", () => {
+test("entering a room beside a hidden encounter does not stall the shared simulation", () => {
   const core = new GameCore({
     mode: "prototype",
     difficulty: "normal",
@@ -94,12 +94,14 @@ test("entering Zone 1 room 3,68 does not stall the shared simulation", () => {
   const second = core.addPlayer({ userId: "p2", displayName: "후방", heroClass: "archer" });
   core.setReady(first.userId, true);
   core.setReady(second.userId, true);
-  core.movePlayerToRoom(first.userId, "editor:z1-hex-31");
-  const neighboringHidden = [...core.enemies.values()].find((enemy) => enemy.roomId === "editor:z1-hex-25" && enemy.kind === "hidden");
-  assert.ok(neighboringHidden, "Zone 1 3,68 must retain its neighboring hidden-monster encounter");
+  const neighboringHidden = [...core.enemies.values()].find((enemy) => enemy.kind === "hidden");
+  assert.ok(neighboringHidden, "official map must retain a hidden-monster encounter");
+  const hiddenRoom = core.rooms.get(neighboringHidden.roomId)!;
+  const adjacentRoomId = hiddenRoom.connections[0] ?? hiddenRoom.id;
+  core.movePlayerToRoom(first.userId, adjacentRoomId);
   first.x = neighboringHidden.x;
   first.y = neighboringHidden.y + 100;
-  first.roomId = "editor:z1-hex-31";
+  first.roomId = adjacentRoomId;
   const before = second.x;
   second.inputX = 1;
 

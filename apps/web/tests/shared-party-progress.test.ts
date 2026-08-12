@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveSharedPartyProgress } from "../src/game/domain/sharedPartyProgress";
+import { resolveRoundGateProgress, resolveSharedPartyProgress } from "../src/game/domain/sharedPartyProgress";
 import type { RoomMapCell } from "../src/game/domain/types";
 
 const rooms: RoomMapCell[] = [
@@ -33,4 +33,10 @@ test("derives map, gates, economy, experience, and base health only from shared 
     roomsExplored: 1,
     roomMap: rooms,
   });
+});
+
+test("derives the gate objective from the actual current-round gate state", () => {
+  assert.deepEqual(resolveRoundGateProgress(1, rooms), { round: 1, destroyed: 1, goal: 1 });
+  assert.deepEqual(resolveRoundGateProgress(2, rooms), { round: 2, destroyed: 0, goal: 1 });
+  assert.deepEqual(resolveRoundGateProgress(3, rooms), { round: 3, destroyed: 0, goal: 1 });
 });

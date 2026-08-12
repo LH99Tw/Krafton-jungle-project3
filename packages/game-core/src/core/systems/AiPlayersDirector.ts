@@ -32,7 +32,12 @@ type DefenderPatrolState = {
 export class AiPlayersDirector {
   private readonly aiFollowNavigation = new Map<string, AiFollowNavigation>();
   private readonly respawnRecovery = new Map<string, { path: readonly Readonly<{ x: number; y: number }>[]; waypointIndex: number }>();
-  private readonly partyNavigation = new Map<string, { from: CoreRoomId; to: CoreRoomId; waypointIndex: number }>();
+  private readonly partyNavigation = new Map<string, {
+    from: CoreRoomId;
+    to: CoreRoomId;
+    points: readonly Readonly<{ x: number; y: number }>[];
+    waypointIndex: number;
+  }>();
   private readonly defenderPatrols = new Map<string, DefenderPatrolState>();
 
   constructor(private readonly core: GameCore) {}
@@ -45,6 +50,10 @@ export class AiPlayersDirector {
     if (player.aiRole !== "follower") return;
     const leader = this.aiLeader(player);
     if (!leader) return;
+    // Authored worlds already have room/corridor graph navigation. Let the
+    // regular update loop traverse that graph one connection at a time instead
+    // of synchronously solving a multi-zone A* path during the respawn tick.
+    if (this.core.authoredWorld) return;
     const rects = this.recoveryWalkable(player, leader);
     if (!rects) return;
     const path = findWalkableDiscPath(
@@ -230,7 +239,6 @@ export class AiPlayersDirector {
   }
 
   private recoveryWalkable(player: CorePlayer, leader: CorePlayer) {
-    if (this.core.authoredWorld) return this.core.authoredWalkable();
     const playerRoom = this.core.rooms.get(player.roomId);
     const leaderRoom = this.core.rooms.get(leader.roomId);
     return playerRoom?.zone === leaderRoom?.zone
@@ -243,9 +251,13 @@ export class AiPlayersDirector {
     const playerRoom = this.core.rooms.get(player.roomId);
     const leaderRoom = this.core.rooms.get(leader.roomId);
     const rects = this.core.authoredWorld
-      ? this.core.authoredWalkable()
+      ? playerRoom ? [this.core.roomRectOf(player.roomId)] : null
       : playerRoom?.zone === leaderRoom?.zone ? this.core.zoneWorlds.get(playerRoom?.zone ?? 1)?.rects : null;
     if (!rects) return null;
+
+    // Between authored rooms, nextRoomToward/authoredPartyNavigationAnchor
+    // follows the deterministic room graph without a blocking world-scale A*.
+    if (this.core.authoredWorld && player.roomId !== leader.roomId) return null;
 
     // Straight-line distance is not a valid navigation criterion: two close
     // positions can still be separated by a wall. Only bypass A* when the
@@ -342,18 +354,33 @@ export class AiPlayersDirector {
       || candidate.to === player.roomId && candidate.from === nextRoomId
     ));
     if (!connection) return this.core.roomWorldCenterOf(nextRoomId);
-    const points = connection.from === player.roomId ? connection.points : [...connection.points].reverse();
     const existing = this.partyNavigation.get(player.userId);
     const navigation = existing && existing.from === player.roomId && existing.to === nextRoomId
       ? existing
-      : {
-          from: player.roomId,
-          to: nextRoomId,
-          // The room id remains the source room while an actor is physically
-          // inside its corridor. Restarting at point zero would send an actor
-          // that already passed the doorway back in the opposite direction.
-          waypointIndex: this.furthestReachableConnectionPoint(player.x, player.y, points),
-        };
+      : (() => {
+          const authoredPoints = connection.from === player.roomId ? connection.points : [...connection.points].reverse();
+          const nextCenter = this.core.roomWorldCenterOf(nextRoomId);
+          const currentRect = this.core.roomRectOf(player.roomId);
+          const nextRect = this.core.roomRectOf(nextRoomId);
+          const points = authoredPoints.length > 0
+            ? authoredPoints
+            : findWalkableDiscPath(
+                [currentRect, ...connection.floorRects, nextRect],
+                player,
+                nextCenter,
+                ACTOR_COLLISION_RADIUS,
+              ) ?? [nextCenter];
+          return {
+            from: player.roomId,
+            to: nextRoomId,
+            points,
+            // The room id remains the source room while an actor is physically
+            // inside its corridor. Restarting at point zero would send an actor
+            // that already passed the doorway back in the opposite direction.
+            waypointIndex: this.furthestReachableConnectionPoint(player.x, player.y, points),
+          };
+        })();
+    const points = navigation.points;
     while (navigation.waypointIndex < points.length) {
       const point = points[navigation.waypointIndex]!;
       if (Math.hypot(point.x - player.x, point.y - player.y) > 24) break;

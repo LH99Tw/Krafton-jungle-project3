@@ -49,10 +49,10 @@ import { localCoreSession } from "@/src/features/map-editor/LocalCoreSession";
 import { selectAutoAttackTargets } from "../../domain/autoAttackTargeting";
 import { ProgressionModel } from "../../systems/ProgressionModel";
 import { HERO_SPRITE_FRAME_SIZE, HERO_SPRITE_PATHS, HERO_TOTAL_FRAME_COUNT } from "../../client/render/heroSprites";
-import { BASIC_ATTACK_SPRITES } from "../../client/render/attackEffectSprites";
+import { BASIC_ATTACK_ALL_SPRITES } from "../../client/render/attackEffectSprites";
 import { COMBAT_SOUND_PATHS } from "../../client/audio/combatSounds";
 import { colyseusTransport } from "../../transport/ColyseusTransport";
-import { areAuthoredBossGatesCleared, predictPlayerTransform, RealtimeTransformBuffer, shouldRenderPartyMember } from "../../netcode/RealtimeBuffer";
+import { areAuthoredBossGatesCleared, predictPlayerTransform, RealtimeTransformBuffer, runtimeGateRoomIds, shouldRenderPartyMember } from "../../netcode/RealtimeBuffer";
 import { aimAngleBetween } from "../../netcode/aim";
 import { gameBridge, type GameCommand } from "../GameBridge";
 import {
@@ -384,7 +384,7 @@ export class RoomGameScene extends Phaser.Scene {
     this.load.image("zone-3-blocked", "/Asset/zone-3-blocked-wastes.png");
     this.load.image("enemy-demon-midboss-asset", "/images/demon_midboss.png");
     this.load.image("enemy-tree-midboss-asset", "/images/tree_midboss.png");
-    for (const sprite of Object.values(BASIC_ATTACK_SPRITES)) {
+    for (const sprite of BASIC_ATTACK_ALL_SPRITES) {
       this.load.spritesheet(sprite.textureKey, sprite.path, {
         frameWidth: sprite.frameWidth,
         frameHeight: sprite.frameHeight,
@@ -798,14 +798,13 @@ export class RoomGameScene extends Phaser.Scene {
 
   private networkPredictionWorld(snapshot: NetworkWorldSnapshot): PredictionWorld {
     if (this.predictionWorldCache?.snapshot === snapshot) return this.predictionWorldCache.world;
+    const gateRoomIds = runtimeGateRoomIds(snapshot.rooms);
     const bossAccessible = areAuthoredBossGatesCleared(
       snapshot.day,
-      OFFICIAL_MAP_MANIFEST.world.gateRoomIds,
+      gateRoomIds,
       snapshot.rooms,
     );
-    const currentZoneGateIds = OFFICIAL_MAP_MANIFEST.world.gateRoomIds.filter((gateRoomId) => (
-      OFFICIAL_MAP_MANIFEST.world.rooms.some((room) => room.id === gateRoomId && room.zone === snapshot.currentZone)
-    ));
+    const currentZoneGateIds = runtimeGateRoomIds(snapshot.rooms, snapshot.currentZone);
     const currentZoneCleared = currentZoneGateIds.length === 0 || currentZoneGateIds.every((gateRoomId) => (
       snapshot.rooms.some((room) => room.id === gateRoomId && room.cleared)
     ));
@@ -1099,7 +1098,7 @@ export class RoomGameScene extends Phaser.Scene {
     for (const target of selected) {
       const attack = this.rollAttackDamage(target);
       this.lastLocalAttackCritical = attack.critical;
-      this.roomRenderer.showClassAttack(this.options.heroClass, this.player, target.sprite.x, target.sprite.y, aim, attack.critical);
+      this.roomRenderer.showClassAttack(this.options.heroClass, this.player, target.sprite.x, target.sprite.y, aim, attack.critical, this.progression.level);
       this.damageEnemy(target, attack.damage);
     }
     this.lastAutoAttackAt = time + interval;
@@ -1993,7 +1992,8 @@ export class RoomGameScene extends Phaser.Scene {
     const progressionRooms = new Map<string, (typeof progressionWorld.rooms)[number]>(
       progressionWorld.rooms.map((room) => [room.id, room]),
     );
-    const bossAccessible = areAuthoredBossGatesCleared(snapshot.day, progressionWorld.gateRoomIds, snapshot.rooms);
+    const gateRoomIds = runtimeGateRoomIds(snapshot.rooms);
+    const bossAccessible = areAuthoredBossGatesCleared(snapshot.day, gateRoomIds, snapshot.rooms);
     const lockedConnections = progressionWorld.connections.filter((connection) => {
       const from = progressionRooms.get(connection.from);
       const to = progressionRooms.get(connection.to);
@@ -2004,7 +2004,7 @@ export class RoomGameScene extends Phaser.Scene {
       if (from.id === progressionWorld.bossRoomId || to.id === progressionWorld.bossRoomId) return !bossAccessible;
       if (from.zone === to.zone) return false;
       const lowerZone = Math.min(from.zone, to.zone);
-      const gateIds = progressionWorld.gateRoomIds.filter((gateId) => progressionRooms.get(gateId)?.zone === lowerZone);
+      const gateIds = runtimeGateRoomIds(snapshot.rooms, lowerZone);
       return gateIds.length > 0 && gateIds.some((gateId) => !roomState.get(gateId)?.cleared);
     });
     const renderedAnchor = this.zoneWorld.rooms[0];
@@ -2106,7 +2106,7 @@ export class RoomGameScene extends Phaser.Scene {
       const previousAttackSequence = this.networkPlayerAttackSequence.get(member.userId);
       if (!this.options.networked && previousAttackSequence !== undefined && member.attackSequence > previousAttackSequence && visible) {
         const target = snapshot.enemies.find((enemy) => enemy.id === member.attackTargetId);
-        if (target) this.roomRenderer.showClassAttack(member.heroClass, sprite, target.x, target.y, member.aim, member.attackCritical);
+        if (target) this.roomRenderer.showClassAttack(member.heroClass, sprite, target.x, target.y, member.aim, member.attackCritical, member.level);
       }
       this.networkPlayerAttackSequence.set(member.userId, member.attackSequence);
       const previousSkillSequence = this.networkPlayerSkillSequence.get(member.userId);
@@ -2144,7 +2144,7 @@ export class RoomGameScene extends Phaser.Scene {
       const sprite = member.isLocal || member.userId === this.options.userId
         ? this.player : this.remotePlayers.get(member.userId);
       if (!sprite?.active || !sprite.visible) return false;
-      this.roomRenderer.showClassAttack(action.heroClass, sprite, action.targetX, action.targetY, action.aim, action.critical);
+      this.roomRenderer.showClassAttack(action.heroClass, sprite, action.targetX, action.targetY, action.aim, action.critical, member.level);
       return true;
     }
     const sprite = this.networkEnemies.get(action.attackerId);

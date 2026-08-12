@@ -11,6 +11,8 @@ import { PlayerCommandBar } from "./hud/PlayerCommandBar";
 import { TeamGoldHud } from "./hud/TeamGoldHud";
 import { PartyVitalsHud } from "./hud/PartyVitalsHud";
 import { gameBridge } from "@/src/game/runtime/GameBridge";
+import { resolveRoundGateProgress } from "@/src/game/domain/sharedPartyProgress";
+import { CheckpointResetPanel } from "./CheckpointResetPanel";
 
 const BGM_VOLUME_STORAGE_KEY = "five-days:bgm-volume:v1";
 const DEFAULT_BGM_VOLUME = 0.38;
@@ -44,7 +46,7 @@ export function GameHud({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [bgmVolume, setBgmVolume] = useState(storedBgmVolume);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
-  const gateGoal = snapshot.roomMap.filter((room) => room.type === "gate").length;
+  const gateProgress = resolveRoundGateProgress(snapshot.currentZone, snapshot.roomMap);
   const party = snapshot.party.length > 0
     ? snapshot.party
     : [{
@@ -129,7 +131,7 @@ export function GameHud({
         </div>
       )}
 
-      <PartyVitalsHud party={party} gatesDestroyed={snapshot.gatesDestroyed} gateGoal={gateGoal} />
+      <PartyVitalsHud party={party} gateProgress={gateProgress} />
 
       <TeamGoldHud
         gold={snapshot.gold}
@@ -209,7 +211,7 @@ function SpecialRoomPanel({ snapshot }: { snapshot: GameSnapshot }) {
       </>}
       {room.kind === "shrine" && <><p>{room.state?.shrineClaimedBy ? "성소의 힘이 이미 선택되었습니다." : `${room.state?.shrineKind || "알 수 없는"}의 힘 · 중앙에서 3초간 집중`}</p><progress max={3} value={room.state?.shrineClaimProgress ?? 0} /><button className="special-primary" disabled={Boolean(room.state?.shrineClaimedBy)} onClick={() => send("shrine.claim")}>성소 점유 시작</button></>}
       {room.kind === "trap" && <p className="trap-status">{room.state?.trapPhase === "cleared" ? "봉인이 해제되었습니다." : `${room.state?.trapPhase || "idle"} · ${room.state?.trapDebuff || "진입 시 저주 결정"}`}</p>}
-      {room.kind === "checkpoint" && <><p>현재 부활 지점<br /><b>{room.respawnRoomId || "시작 야영지"}</b><br />새로운 부활 지점<br /><b>{snapshot.currentRoomId}</b></p><button className="special-primary" onClick={() => { if (window.confirm(`현재 부활지점\n${room.respawnRoomId || "시작 야영지"}\n\n새로운 부활지점\n${snapshot.currentRoomId}\n\n정말 변경하시겠습니까?`)) send("checkpoint.set"); }}>부활 지점 재설정</button></>}
+      {room.kind === "checkpoint" && <CheckpointResetPanel currentRoomId={snapshot.currentRoomId} respawnRoomId={room.respawnRoomId} onConfirm={() => send("checkpoint.set")} />}
       {room.kind === "gamble" && <><p>판돈 {25 * snapshot.currentZone}G · 남은 기회 {Math.max(0, 3 - room.gambleAttempts)}회</p><button className="special-primary" disabled={room.gambleAttempts >= 3} onClick={() => send("gamble.play")}>운명에 걸기</button></>}
       {room.kind === "altar" && <><p>능력치 하나는 25% 강화되고 다른 하나는 15% 약화됩니다.</p><button className="special-primary" disabled={room.altarAttempts >= 3} onClick={() => send("altar.reroll")}>제단 리롤 · {room.altarAttempts}/3</button></>}
       {room.kind === "gold" && <><p>{room.state?.goldClaimed ? "황금 금고는 이미 비어 있습니다." : "원정대 공유 골드가 들어 있는 비밀 금고입니다."}</p><button className="special-primary" disabled={Boolean(room.state?.goldClaimed)} onClick={() => send("gold.claim")}>황금 상자 열기</button></>}

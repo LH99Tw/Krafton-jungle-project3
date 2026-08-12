@@ -46,6 +46,50 @@ export const BASIC_ATTACK_SPRITES: Record<HeroClassId, BasicAttackSpriteSpec> = 
   },
 };
 
+export const BASIC_ATTACK_UPGRADE_LEVELS = [10, 20, 30] as const;
+export type BasicAttackUpgradeLevel = (typeof BASIC_ATTACK_UPGRADE_LEVELS)[number];
+
+function upgradedSprite(
+  base: BasicAttackSpriteSpec,
+  level: BasicAttackUpgradeLevel,
+  path: string,
+): BasicAttackSpriteSpec {
+  return {
+    ...base,
+    textureKey: `${base.textureKey}-level-${level}`,
+    animationKey: `${base.animationKey}-level-${level}`,
+    path,
+  };
+}
+
+export const BASIC_ATTACK_SPRITE_SETS: Record<HeroClassId, readonly BasicAttackSpriteSpec[]> = {
+  swordsman: [
+    BASIC_ATTACK_SPRITES.swordsman,
+    upgradedSprite(BASIC_ATTACK_SPRITES.swordsman, 10, "/images/effects/level-upgrades/basic-slash-8dir-level-10.png"),
+    upgradedSprite(BASIC_ATTACK_SPRITES.swordsman, 20, "/images/effects/level-upgrades/basic-slash-8dir-level-20.png"),
+    upgradedSprite(BASIC_ATTACK_SPRITES.swordsman, 30, "/images/effects/level-upgrades/basic-slash-8dir-level-30.png"),
+  ],
+  archer: [
+    BASIC_ATTACK_SPRITES.archer,
+    upgradedSprite(BASIC_ATTACK_SPRITES.archer, 10, "/images/effects/level-upgrades/basic-arrow-level-10.png"),
+    upgradedSprite(BASIC_ATTACK_SPRITES.archer, 20, "/images/effects/level-upgrades/basic-arrow-level-20.png"),
+    upgradedSprite(BASIC_ATTACK_SPRITES.archer, 30, "/images/effects/level-upgrades/basic-arrow-level-30.png"),
+  ],
+  mage: [
+    BASIC_ATTACK_SPRITES.mage,
+    upgradedSprite(BASIC_ATTACK_SPRITES.mage, 10, "/images/effects/level-upgrades/basic-magic-orb-level-10.png"),
+    upgradedSprite(BASIC_ATTACK_SPRITES.mage, 20, "/images/effects/level-upgrades/basic-magic-orb-level-20.png"),
+    upgradedSprite(BASIC_ATTACK_SPRITES.mage, 30, "/images/effects/level-upgrades/basic-magic-orb-level-30.png"),
+  ],
+};
+
+export const BASIC_ATTACK_ALL_SPRITES = Object.values(BASIC_ATTACK_SPRITE_SETS).flat();
+
+export function basicAttackSpriteForLevel(classId: HeroClassId, level: number): BasicAttackSpriteSpec {
+  const tierIndex = level >= 30 ? 3 : level >= 20 ? 2 : level >= 10 ? 1 : 0;
+  return BASIC_ATTACK_SPRITE_SETS[classId][tierIndex]!;
+}
+
 export const SWORDSMAN_SLASH_DIRECTIONS = [
   "right",
   "down-right",
@@ -73,4 +117,4 @@ export function swordsmanSlashAnimationDirectionForAim(angle: number): Swordsman
   return swordsmanSlashDirectionForAim(angle + Math.PI);
 }
 
-export const BASIC_ATTACK_SPRITE_PATHS = Object.values(BASIC_ATTACK_SPRITES).map((sprite) => sprite.path);
+export const BASIC_ATTACK_SPRITE_PATHS = BASIC_ATTACK_ALL_SPRITES.map((sprite) => sprite.path);

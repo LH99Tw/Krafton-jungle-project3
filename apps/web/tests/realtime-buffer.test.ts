@@ -4,6 +4,7 @@ import { ACTOR_COLLISION_RADIUS, OFFICIAL_WORLD } from "@five-days/game-core";
 import { PROTOCOL_VERSION, transformFlags, type InputFrame, type TransformSample, type WorldFrame } from "@five-days/protocol";
 import {
   areAuthoredBossGatesCleared,
+  runtimeGateRoomIds,
   RealtimeTransformBuffer,
   predictPlayerTransform,
   shouldRenderPartyMember,
@@ -208,6 +209,18 @@ test("boss prediction opens only after every authored gate is cleared on day thr
   assert.equal(areAuthoredBossGatesCleared(3, ["gate-a", "gate-b"], rooms), false);
   assert.equal(areAuthoredBossGatesCleared(2, ["gate-a", "gate-b"], rooms.map((room) => ({ ...room, cleared: true }))), false);
   assert.equal(areAuthoredBossGatesCleared(3, ["gate-a", "gate-b"], rooms.map((room) => ({ ...room, cleared: true }))), true);
+});
+
+test("runtime-selected gate candidates drive progression barriers even without static gate ids", () => {
+  const rooms = [
+    { id: "candidate-z1-a", type: "gate", zone: 1 },
+    { id: "candidate-z1-b", type: "gate", zone: 1 },
+    { id: "candidate-z2-a", type: "gate", zone: 2 },
+    { id: "ordinary-room", type: "static-monster", zone: 1 },
+  ];
+  assert.deepEqual(runtimeGateRoomIds(rooms, 1), ["candidate-z1-a", "candidate-z1-b"]);
+  assert.deepEqual(runtimeGateRoomIds(rooms, 2), ["candidate-z2-a"]);
+  assert.deepEqual(runtimeGateRoomIds(rooms), ["candidate-z1-a", "candidate-z1-b", "candidate-z2-a"]);
 });
 
 test("remote party visibility is independent of fog radius and requires a connected, living player", () => {

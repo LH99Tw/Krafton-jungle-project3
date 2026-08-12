@@ -79,6 +79,23 @@ test("trap locks only its doorway and dynamically spawned monsters keep updating
   assert.notDeepEqual({ x: enemy.x, y: enemy.y }, before);
 });
 
+test("entering a higher zone clears an active previous-zone trap without spawning another wave", () => {
+  const { core, player } = setup("trap-zone-cleanup");
+  const trapRoomId = "editor:trap" as AuthoredRoomId;
+  core.movePlayerToRoom(player.userId, trapRoomId);
+  for (let index = 0; index < 11; index += 1) core.update(0.1);
+  assert.ok([...core.enemies.values()].some((enemy) => enemy.alive && enemy.id.startsWith(`enemy:trap:${trapRoomId}:`)));
+
+  core.movePlayerToRoom(player.userId, "editor:checkpoint" as AuthoredRoomId);
+  for (let index = 0; index < 20; index += 1) core.update(0.1);
+
+  assert.equal(core.currentZone, 2);
+  assert.equal(core.specialRooms.get(trapRoomId)?.trapPhase, "cleared");
+  assert.ok([...core.enemies.values()].filter((enemy) => enemy.spawnRoomId === trapRoomId).every((enemy) => !enemy.alive));
+  const barriers = (core as unknown as { lockedProgressionBarriers(): Array<{ x: number }> }).lockedProgressionBarriers();
+  assert.deepEqual(barriers, []);
+});
+
 test("gamble and altar enforce three personal attempts", () => {
   const { core, player } = setup("attempts");
   core.gold = 10_000;

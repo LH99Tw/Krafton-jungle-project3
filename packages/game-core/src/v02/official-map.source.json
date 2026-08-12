@@ -1,1231 +1,543 @@
 {
   "version": 1,
-  "title": "세 개의 수직 육각 전장",
+  "title": "임시 맵",
   "rooms": [
     {
-      "id": "z1-hex-01",
-      "name": "1구역 괴수 전장 1",
-      "type": "static-monster",
-      "asset": "forest",
-      "x": -4,
-      "y": 56,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-02",
-      "name": "1구역 괴수 전장 2",
-      "type": "static-monster",
-      "asset": "forest",
-      "x": -1,
-      "y": 56,
-      "width": 5,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-03",
-      "name": "1구역 불안정 균열 후보 3",
-      "type": "gate-candidate",
-      "asset": "forest",
-      "x": -6,
-      "y": 58,
-      "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-04",
-      "name": "1구역 괴수 전장 4",
-      "type": "static-monster",
-      "asset": "forest",
-      "x": -4,
-      "y": 58,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-05",
-      "name": "1구역 괴수 전장 5",
-      "type": "static-monster",
-      "asset": "forest",
-      "x": -1,
-      "y": 58,
-      "width": 4,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-06",
-      "name": "1구역 은폐 괴수 소굴 6",
-      "type": "hidden-monster",
-      "asset": "forest",
-      "x": 3,
-      "y": 58,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-07",
-      "name": "1구역 불안정 균열 후보 7",
-      "type": "gate-candidate",
-      "asset": "forest",
-      "x": -8,
-      "y": 61,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-08",
-      "name": "1구역 괴수 전장 8",
-      "type": "static-monster",
-      "asset": "forest",
-      "x": -6,
-      "y": 61,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-09",
-      "name": "1구역 원정 상점 9",
-      "type": "shop",
-      "asset": "forest",
-      "x": -3,
-      "y": 61,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-10",
-      "name": "1구역 괴수 전장 10",
-      "type": "static-monster",
-      "asset": "forest",
-      "x": -1,
-      "y": 61,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-11",
-      "name": "1구역 불안정 균열 후보 11",
-      "type": "gate-candidate",
-      "asset": "forest",
-      "x": 2,
-      "y": 61,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-12",
-      "name": "1구역 봉쇄 함정 12",
-      "type": "trap",
-      "asset": "forest",
-      "x": 5,
-      "y": 61,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-13",
-      "name": "1구역 괴수 전장 13",
-      "type": "static-monster",
-      "asset": "forest",
-      "x": -10,
-      "y": 63,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-14",
-      "name": "1구역 은폐 괴수 소굴 14",
-      "type": "hidden-monster",
-      "asset": "forest",
-      "x": -7,
-      "y": 63,
-      "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-15",
-      "name": "1구역 불안정 균열 후보 15",
-      "type": "gate-candidate",
-      "asset": "forest",
-      "x": -5,
-      "y": 63,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-16",
-      "name": "1구역 괴수 전장 16",
-      "type": "static-monster",
-      "asset": "forest",
-      "x": -2,
-      "y": 63,
-      "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-17",
-      "name": "1구역 운명의 도박장 17",
-      "type": "gamble",
-      "asset": "forest",
-      "x": 0,
-      "y": 63,
-      "width": 4,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-18",
-      "name": "1구역 괴수 전장 18",
-      "type": "static-monster",
-      "asset": "forest",
-      "x": 4,
-      "y": 63,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-19",
-      "name": "1구역 불안정 균열 후보 19",
-      "type": "gate-candidate",
-      "asset": "forest",
-      "x": 7,
-      "y": 63,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-20",
-      "name": "1구역 괴수 전장 20",
-      "type": "static-monster",
-      "asset": "forest",
-      "x": -10,
-      "y": 66,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-21",
-      "name": "1구역 메아리 성소 21",
-      "type": "shrine",
-      "asset": "forest",
-      "x": -8,
-      "y": 66,
-      "width": 4,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-22",
-      "name": "1구역 괴수 전장 22",
-      "type": "static-monster",
-      "asset": "forest",
-      "x": -4,
-      "y": 66,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-23",
-      "name": "1구역 불안정 균열 후보 23",
-      "type": "gate-candidate",
-      "asset": "forest",
-      "x": -1,
-      "y": 66,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-24",
-      "name": "1구역 괴수 전장 24",
-      "type": "static-monster",
-      "asset": "forest",
-      "x": 2,
-      "y": 66,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-25",
-      "name": "1구역 은폐 괴수 소굴 25",
-      "type": "hidden-monster",
-      "asset": "forest",
-      "x": 4,
-      "y": 66,
-      "width": 4,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-26",
-      "name": "1구역 괴수 전장 26",
-      "type": "static-monster",
-      "asset": "forest",
-      "x": 8,
-      "y": 66,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-27",
-      "name": "1구역 불안정 균열 후보 27",
-      "type": "gate-candidate",
-      "asset": "forest",
-      "x": -8,
-      "y": 68,
-      "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-28",
-      "name": "1구역 괴수 전장 28",
-      "type": "static-monster",
-      "asset": "forest",
-      "x": -6,
-      "y": 68,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-29",
-      "name": "1구역 봉쇄 함정 29",
-      "type": "trap",
-      "asset": "forest",
-      "x": -3,
-      "y": 68,
-      "width": 4,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-30",
-      "name": "1구역 괴수 전장 30",
-      "type": "static-monster",
-      "asset": "forest",
-      "x": 1,
-      "y": 68,
-      "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-31",
-      "name": "1구역 자원 채집지 31",
-      "type": "resource",
-      "asset": "forest",
-      "x": 3,
-      "y": 68,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-32",
-      "name": "1구역 불안정 균열 후보 32",
-      "type": "gate-candidate",
-      "asset": "forest",
-      "x": 6,
-      "y": 68,
-      "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z1-hex-33",
-      "name": "1구역 괴수 전장 33",
-      "type": "static-monster",
-      "asset": "forest",
-      "x": -6,
-      "y": 71,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-34",
-      "name": "1구역 은폐 괴수 소굴 34",
-      "type": "hidden-monster",
-      "asset": "forest",
-      "x": -3,
-      "y": 71,
-      "width": 4,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-35",
-      "name": "1구역 연결 광장 35",
-      "type": "empty",
-      "asset": "forest",
-      "x": 1,
-      "y": 71,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-36",
-      "name": "1구역 불안정 균열 후보 36",
-      "type": "gate-candidate",
-      "asset": "forest",
-      "x": 3,
-      "y": 71,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z1-hex-37",
-      "name": "원정대 최하단 야영지 37",
+      "id": "room-base",
+      "name": "원정대 야영지",
       "type": "start",
       "asset": "forest",
-      "x": -4,
-      "y": 73,
-      "width": 4,
+      "x": 1,
+      "y": 7,
+      "width": 3,
       "height": 3
     },
     {
-      "id": "z1-hex-38",
-      "name": "1구역 귀환석 38",
-      "type": "checkpoint",
+      "id": "room-forest",
+      "name": "녹음의 사냥터",
+      "type": "static-monster",
       "asset": "forest",
-      "x": 0,
-      "y": 73,
-      "width": 4,
-      "height": 3
-    },
-    {
-      "id": "z1-secret-gold",
-      "name": "1구역 봉인된 황금 금고",
-      "type": "gold",
-      "asset": "forest",
-      "x": -17,
-      "y": 64,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-01",
-      "name": "2구역 괴수 전장 1",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": -4,
-      "y": 28,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-02",
-      "name": "2구역 괴수 전장 2",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": -1,
-      "y": 28,
-      "width": 5,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-03",
-      "name": "2구역 불안정 균열 후보 3",
-      "type": "gate-candidate",
-      "asset": "marsh",
-      "x": -6,
-      "y": 30,
-      "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-04",
-      "name": "2구역 괴수 전장 4",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": -4,
-      "y": 30,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-05",
-      "name": "2구역 괴수 전장 5",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": -1,
-      "y": 30,
-      "width": 4,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-06",
-      "name": "2구역 은폐 괴수 소굴 6",
-      "type": "hidden-monster",
-      "asset": "marsh",
-      "x": 3,
-      "y": 30,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-07",
-      "name": "2구역 불안정 균열 후보 7",
-      "type": "gate-candidate",
-      "asset": "marsh",
-      "x": -8,
-      "y": 33,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-08",
-      "name": "2구역 괴수 전장 8",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": -6,
-      "y": 33,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-09",
-      "name": "2구역 원정 상점 9",
-      "type": "shop",
-      "asset": "marsh",
-      "x": -3,
-      "y": 33,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-10",
-      "name": "2구역 괴수 전장 10",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": -1,
-      "y": 33,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-11",
-      "name": "2구역 불안정 균열 후보 11",
-      "type": "gate-candidate",
-      "asset": "marsh",
-      "x": 2,
-      "y": 33,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-12",
-      "name": "2구역 봉쇄 함정 12",
-      "type": "trap",
-      "asset": "marsh",
       "x": 5,
-      "y": 33,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-13",
-      "name": "2구역 괴수 전장 13",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": -10,
-      "y": 35,
+      "y": 7,
       "width": 3,
       "height": 3
     },
     {
-      "id": "z2-hex-14",
-      "name": "2구역 은폐 괴수 소굴 14",
-      "type": "hidden-monster",
-      "asset": "marsh",
-      "x": -7,
-      "y": 35,
-      "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-15",
-      "name": "2구역 불안정 균열 후보 15",
-      "type": "gate-candidate",
-      "asset": "marsh",
-      "x": -5,
-      "y": 35,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-16",
-      "name": "2구역 괴수 전장 16",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": -2,
-      "y": 35,
-      "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-17",
-      "name": "2구역 운명의 도박장 17",
-      "type": "gamble",
-      "asset": "marsh",
-      "x": 0,
-      "y": 35,
-      "width": 4,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-18",
-      "name": "2구역 괴수 전장 18",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": 4,
-      "y": 35,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-19",
-      "name": "2구역 불안정 균열 후보 19",
-      "type": "gate-candidate",
-      "asset": "marsh",
-      "x": 7,
-      "y": 35,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-20",
-      "name": "2구역 괴수 전장 20",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": -10,
-      "y": 38,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-21",
-      "name": "2구역 메아리 성소 21",
-      "type": "shrine",
-      "asset": "marsh",
-      "x": -8,
-      "y": 38,
-      "width": 4,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-22",
-      "name": "2구역 괴수 전장 22",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": -4,
-      "y": 38,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-23",
-      "name": "2구역 불안정 균열 후보 23",
-      "type": "gate-candidate",
-      "asset": "marsh",
-      "x": -1,
-      "y": 38,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-24",
-      "name": "2구역 괴수 전장 24",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": 2,
-      "y": 38,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-25",
-      "name": "2구역 은폐 괴수 소굴 25",
-      "type": "hidden-monster",
-      "asset": "marsh",
-      "x": 4,
-      "y": 38,
-      "width": 4,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-26",
-      "name": "2구역 괴수 전장 26",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": 8,
-      "y": 38,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-27",
-      "name": "2구역 불안정 균열 후보 27",
-      "type": "gate-candidate",
-      "asset": "marsh",
-      "x": -8,
-      "y": 40,
-      "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-28",
-      "name": "2구역 괴수 전장 28",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": -6,
-      "y": 40,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-29",
-      "name": "2구역 봉쇄 함정 29",
-      "type": "trap",
-      "asset": "marsh",
-      "x": -3,
-      "y": 40,
-      "width": 4,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-30",
-      "name": "2구역 괴수 전장 30",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": 1,
-      "y": 40,
-      "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-31",
-      "name": "2구역 자원 채집지 31",
-      "type": "resource",
-      "asset": "marsh",
-      "x": 3,
-      "y": 40,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-32",
-      "name": "2구역 불안정 균열 후보 32",
-      "type": "gate-candidate",
-      "asset": "marsh",
-      "x": 6,
-      "y": 40,
-      "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z2-hex-33",
-      "name": "2구역 괴수 전장 33",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": -6,
-      "y": 43,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-34",
-      "name": "2구역 은폐 괴수 소굴 34",
-      "type": "hidden-monster",
-      "asset": "marsh",
-      "x": -3,
-      "y": 43,
-      "width": 4,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-35",
-      "name": "2구역 괴수 전장 35",
-      "type": "static-monster",
-      "asset": "marsh",
-      "x": 1,
-      "y": 43,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-36",
-      "name": "2구역 불안정 균열 후보 36",
-      "type": "gate-candidate",
-      "asset": "marsh",
-      "x": 3,
-      "y": 43,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z2-hex-37",
-      "name": "2구역 연결 광장 37",
+      "id": "room-local-3",
+      "name": "일반 방",
       "type": "empty",
-      "asset": "marsh",
-      "x": -4,
-      "y": 45,
-      "width": 4,
-      "height": 3
+      "asset": "forest",
+      "x": 1,
+      "y": 4,
+      "width": 2,
+      "height": 2
     },
     {
-      "id": "z2-hex-38",
-      "name": "2구역 귀환석 38",
-      "type": "checkpoint",
-      "asset": "marsh",
-      "x": 0,
-      "y": 45,
-      "width": 4,
-      "height": 3
-    },
-    {
-      "id": "z2-secret-gold",
-      "name": "2구역 봉인된 황금 금고",
-      "type": "gold",
-      "asset": "marsh",
-      "x": -17,
-      "y": 36,
+      "id": "room-local-4",
+      "name": "몬스터 방",
+      "type": "static-monster",
+      "asset": "forest",
+      "x": -3,
+      "y": 3,
       "width": 3,
       "height": 3
     },
     {
-      "id": "z2-secret-altar",
-      "name": "핏빛 계약의 비밀 제단",
-      "type": "altar",
+      "id": "room-local-5",
+      "name": "일반 방",
+      "type": "empty",
+      "asset": "forest",
+      "x": 9,
+      "y": 7,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-6",
+      "name": "몬스터 방",
+      "type": "static-monster",
+      "asset": "forest",
+      "x": 2,
+      "y": 0,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-7",
+      "name": "숨겨진 몬스터 방",
+      "type": "hidden-monster",
+      "asset": "forest",
+      "x": -2,
+      "y": -1,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-8",
+      "name": "몬스터 게이트",
+      "type": "gate",
+      "asset": "forest",
+      "x": -2,
+      "y": -5,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-9",
+      "name": "자원 방",
+      "type": "resource",
+      "asset": "forest",
+      "x": 2,
+      "y": -5,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-10",
+      "name": "자원 방",
+      "type": "resource",
+      "asset": "forest",
+      "x": 7,
+      "y": 11,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-11",
+      "name": "숨겨진 몬스터 방",
+      "type": "hidden-monster",
+      "asset": "forest",
+      "x": 9,
+      "y": 3,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-12",
+      "name": "몬스터 게이트",
+      "type": "gate",
+      "asset": "forest",
+      "x": 13,
+      "y": 3,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-13",
+      "name": "몬스터 방",
+      "type": "static-monster",
+      "asset": "forest",
+      "x": 13,
+      "y": -1,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-14",
+      "name": "몬스터 방",
+      "type": "static-monster",
+      "asset": "forest",
+      "x": 6,
+      "y": -5,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-15",
+      "name": "일반 방",
+      "type": "empty",
+      "asset": "forest",
+      "x": 10,
+      "y": -5,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-16",
+      "name": "자원 방",
+      "type": "resource",
+      "asset": "forest",
+      "x": 8,
+      "y": -1,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-17",
+      "name": "일반 방",
+      "type": "empty",
       "asset": "marsh",
       "x": 14,
-      "y": 36,
+      "y": -5,
       "width": 3,
       "height": 3
     },
     {
-      "id": "z3-hex-01",
-      "name": "3구역 괴수 전장 1",
-      "type": "static-monster",
-      "asset": "wastes",
-      "x": -4,
-      "y": 0,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z3-hex-02",
-      "name": "3구역 괴수 전장 2",
-      "type": "static-monster",
-      "asset": "wastes",
-      "x": -1,
-      "y": 0,
-      "width": 5,
-      "height": 2
-    },
-    {
-      "id": "z3-hex-03",
-      "name": "3구역 불안정 균열 후보 3",
-      "type": "gate-candidate",
-      "asset": "wastes",
-      "x": -6,
-      "y": 2,
+      "id": "room-local-18",
+      "name": "일반 방",
+      "type": "empty",
+      "asset": "marsh",
+      "x": 15,
+      "y": -8,
       "width": 2,
-      "height": 3
+      "height": 2
     },
     {
-      "id": "z3-hex-04",
-      "name": "3구역 괴수 전장 4",
+      "id": "room-local-19",
+      "name": "몬스터 방",
       "type": "static-monster",
-      "asset": "wastes",
-      "x": -4,
-      "y": 2,
+      "asset": "marsh",
+      "x": 15,
+      "y": -12,
       "width": 3,
       "height": 3
     },
     {
-      "id": "z3-hex-05",
-      "name": "3구역 괴수 전장 5",
-      "type": "static-monster",
-      "asset": "wastes",
-      "x": -1,
-      "y": 2,
-      "width": 4,
-      "height": 3
-    },
-    {
-      "id": "z3-hex-06",
-      "name": "3구역 은폐 괴수 소굴 6",
+      "id": "room-local-20",
+      "name": "숨겨진 몬스터 방",
       "type": "hidden-monster",
-      "asset": "wastes",
-      "x": 3,
-      "y": 2,
+      "asset": "marsh",
+      "x": 11,
+      "y": -10,
       "width": 3,
       "height": 3
     },
     {
-      "id": "z3-hex-07",
-      "name": "3구역 불안정 균열 후보 7",
-      "type": "gate-candidate",
-      "asset": "wastes",
-      "x": -8,
-      "y": 5,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z3-hex-08",
-      "name": "3구역 괴수 전장 8",
-      "type": "static-monster",
-      "asset": "wastes",
-      "x": -6,
-      "y": 5,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z3-hex-09",
-      "name": "3구역 원정 상점 9",
-      "type": "shop",
-      "asset": "wastes",
-      "x": -3,
-      "y": 5,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z3-hex-10",
-      "name": "3구역 괴수 전장 10",
-      "type": "static-monster",
-      "asset": "wastes",
-      "x": -1,
-      "y": 5,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z3-hex-11",
-      "name": "3구역 불안정 균열 후보 11",
-      "type": "gate-candidate",
-      "asset": "wastes",
-      "x": 2,
-      "y": 5,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z3-hex-12",
-      "name": "3구역 봉쇄 함정 12",
-      "type": "trap",
-      "asset": "wastes",
-      "x": 5,
-      "y": 5,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z3-hex-13",
-      "name": "3구역 괴수 전장 13",
-      "type": "static-monster",
-      "asset": "wastes",
-      "x": -10,
-      "y": 7,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z3-hex-14",
-      "name": "3구역 은폐 괴수 소굴 14",
-      "type": "hidden-monster",
-      "asset": "wastes",
-      "x": -7,
-      "y": 7,
-      "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z3-hex-15",
-      "name": "3구역 불안정 균열 후보 15",
-      "type": "gate-candidate",
-      "asset": "wastes",
-      "x": -5,
-      "y": 7,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z3-hex-16",
-      "name": "3구역 괴수 전장 16",
-      "type": "static-monster",
-      "asset": "wastes",
-      "x": -2,
-      "y": 7,
-      "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z3-hex-17",
-      "name": "3구역 운명의 도박장 17",
-      "type": "gamble",
-      "asset": "wastes",
-      "x": 0,
-      "y": 7,
-      "width": 4,
-      "height": 3
-    },
-    {
-      "id": "z3-hex-18",
-      "name": "3구역 괴수 전장 18",
-      "type": "static-monster",
-      "asset": "wastes",
-      "x": 4,
-      "y": 7,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z3-hex-19",
-      "name": "3구역 불안정 균열 후보 19",
-      "type": "gate-candidate",
-      "asset": "wastes",
-      "x": 7,
-      "y": 7,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z3-hex-20",
-      "name": "3구역 괴수 전장 20",
-      "type": "static-monster",
-      "asset": "wastes",
-      "x": -10,
-      "y": 10,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z3-hex-21",
-      "name": "3구역 메아리 성소 21",
-      "type": "shrine",
-      "asset": "wastes",
-      "x": -8,
-      "y": 10,
-      "width": 4,
-      "height": 2
-    },
-    {
-      "id": "z3-hex-22",
-      "name": "3구역 괴수 전장 22",
-      "type": "static-monster",
-      "asset": "wastes",
-      "x": -4,
-      "y": 10,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z3-hex-23",
-      "name": "3구역 불안정 균열 후보 23",
-      "type": "gate-candidate",
-      "asset": "wastes",
-      "x": -1,
-      "y": 10,
-      "width": 3,
-      "height": 2
-    },
-    {
-      "id": "z3-hex-24",
-      "name": "3구역 괴수 전장 24",
-      "type": "static-monster",
-      "asset": "wastes",
-      "x": 2,
-      "y": 10,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z3-hex-25",
-      "name": "3구역 은폐 괴수 소굴 25",
-      "type": "hidden-monster",
-      "asset": "wastes",
-      "x": 4,
-      "y": 10,
-      "width": 4,
-      "height": 2
-    },
-    {
-      "id": "z3-hex-26",
-      "name": "3구역 괴수 전장 26",
-      "type": "static-monster",
-      "asset": "wastes",
-      "x": 8,
-      "y": 10,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "z3-hex-27",
-      "name": "3구역 불안정 균열 후보 27",
-      "type": "gate-candidate",
-      "asset": "wastes",
-      "x": -8,
-      "y": 12,
-      "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z3-hex-28",
-      "name": "3구역 괴수 전장 28",
-      "type": "static-monster",
-      "asset": "wastes",
-      "x": -6,
-      "y": 12,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "z3-hex-29",
-      "name": "3구역 봉쇄 함정 29",
-      "type": "trap",
-      "asset": "wastes",
-      "x": -3,
-      "y": 12,
-      "width": 4,
-      "height": 3
-    },
-    {
-      "id": "z3-hex-30",
-      "name": "3구역 괴수 전장 30",
-      "type": "static-monster",
-      "asset": "wastes",
-      "x": 1,
-      "y": 12,
-      "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z3-hex-31",
-      "name": "3구역 자원 채집지 31",
+      "id": "room-local-21",
+      "name": "자원 방",
       "type": "resource",
-      "asset": "wastes",
-      "x": 3,
-      "y": 12,
+      "asset": "marsh",
+      "x": 19,
+      "y": -12,
       "width": 3,
       "height": 3
     },
     {
-      "id": "z3-hex-32",
-      "name": "3구역 불안정 균열 후보 32",
-      "type": "gate-candidate",
-      "asset": "wastes",
-      "x": 6,
-      "y": 12,
+      "id": "room-local-22",
+      "name": "일반 방",
+      "type": "empty",
+      "asset": "marsh",
+      "x": 18,
+      "y": -8,
       "width": 2,
-      "height": 3
-    },
-    {
-      "id": "z3-hex-33",
-      "name": "3구역 괴수 전장 33",
-      "type": "static-monster",
-      "asset": "wastes",
-      "x": -6,
-      "y": 15,
-      "width": 3,
       "height": 2
     },
     {
-      "id": "z3-hex-34",
-      "name": "3구역 은폐 괴수 소굴 34",
+      "id": "room-local-23",
+      "name": "숨겨진 몬스터 방",
       "type": "hidden-monster",
-      "asset": "wastes",
-      "x": -3,
-      "y": 15,
-      "width": 4,
-      "height": 2
+      "asset": "marsh",
+      "x": 18,
+      "y": -5,
+      "width": 3,
+      "height": 3
     },
     {
-      "id": "z3-hex-35",
-      "name": "3구역 괴수 전장 35",
+      "id": "room-local-24",
+      "name": "몬스터 방",
       "type": "static-monster",
-      "asset": "wastes",
-      "x": 1,
-      "y": 15,
+      "asset": "marsh",
+      "x": 18,
+      "y": -1,
       "width": 2,
       "height": 2
     },
     {
-      "id": "z3-hex-36",
-      "name": "3구역 불안정 균열 후보 36",
-      "type": "gate-candidate",
-      "asset": "wastes",
-      "x": 3,
-      "y": 15,
+      "id": "room-local-25",
+      "name": "몬스터 게이트",
+      "type": "gate",
+      "asset": "marsh",
+      "x": 21,
+      "y": -1,
       "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-26",
+      "name": "몬스터 방",
+      "type": "static-monster",
+      "asset": "marsh",
+      "x": 21,
+      "y": 3,
+      "width": 2,
       "height": 2
     },
     {
-      "id": "z3-hex-37",
-      "name": "3구역 연결 광장 37",
+      "id": "room-local-27",
+      "name": "몬스터 방",
+      "type": "static-monster",
+      "asset": "marsh",
+      "x": 25,
+      "y": 0,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-28",
+      "name": "자원 방",
+      "type": "resource",
+      "asset": "marsh",
+      "x": 24,
+      "y": 4,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-29",
+      "name": "숨겨진 몬스터 방",
+      "type": "hidden-monster",
+      "asset": "marsh",
+      "x": 24,
+      "y": -4,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-30",
+      "name": "일반 방",
+      "type": "empty",
+      "asset": "marsh",
+      "x": 24,
+      "y": -8,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-31",
+      "name": "몬스터 게이트",
+      "type": "gate",
+      "asset": "marsh",
+      "x": 28,
+      "y": -8,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-32",
+      "name": "몬스터 방",
+      "type": "static-monster",
+      "asset": "marsh",
+      "x": 29,
+      "y": -4,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-33",
+      "name": "자원 방",
+      "type": "resource",
+      "asset": "marsh",
+      "x": 29,
+      "y": 0,
+      "width": 2,
+      "height": 2
+    },
+    {
+      "id": "room-local-34",
+      "name": "일반 방",
+      "type": "empty",
+      "asset": "marsh",
+      "x": 24,
+      "y": -11,
+      "width": 2,
+      "height": 2
+    },
+    {
+      "id": "room-local-35",
+      "name": "숨겨진 몬스터 방",
+      "type": "hidden-monster",
+      "asset": "marsh",
+      "x": 24,
+      "y": -14,
+      "width": 2,
+      "height": 2
+    },
+    {
+      "id": "room-local-36",
+      "name": "몬스터 방",
+      "type": "static-monster",
+      "asset": "marsh",
+      "x": 20,
+      "y": -16,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-37",
+      "name": "몬스터 게이트",
+      "type": "gate",
+      "asset": "marsh",
+      "x": 16,
+      "y": -16,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-38",
+      "name": "자원 방",
+      "type": "resource",
+      "asset": "marsh",
+      "x": 13,
+      "y": -15,
+      "width": 2,
+      "height": 2
+    },
+    {
+      "id": "room-local-39",
+      "name": "일반 방",
       "type": "empty",
       "asset": "wastes",
-      "x": -4,
-      "y": 17,
-      "width": 4,
-      "height": 3
-    },
-    {
-      "id": "z3-hex-38",
-      "name": "3구역 귀환석 38",
-      "type": "checkpoint",
-      "asset": "wastes",
-      "x": 0,
-      "y": 17,
-      "width": 4,
-      "height": 3
-    },
-    {
-      "id": "z3-secret-gold",
-      "name": "3구역 봉인된 황금 금고",
-      "type": "gold",
-      "asset": "wastes",
-      "x": -17,
-      "y": 8,
+      "x": 27,
+      "y": -12,
       "width": 3,
       "height": 3
     },
     {
-      "id": "room-boss",
-      "name": "마왕의 옥좌",
+      "id": "room-local-40",
+      "name": "몬스터 방",
+      "type": "static-monster",
+      "asset": "wastes",
+      "x": 27,
+      "y": -16,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-41",
+      "name": "몬스터 방",
+      "type": "static-monster",
+      "asset": "wastes",
+      "x": 31,
+      "y": -12,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-42",
+      "name": "숨겨진 몬스터 방",
+      "type": "hidden-monster",
+      "asset": "wastes",
+      "x": 32,
+      "y": -8,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-43",
+      "name": "일반 방",
+      "type": "empty",
+      "asset": "wastes",
+      "x": 33,
+      "y": -15,
+      "width": 2,
+      "height": 2
+    },
+    {
+      "id": "room-local-44",
+      "name": "자원 방",
+      "type": "resource",
+      "asset": "wastes",
+      "x": 31,
+      "y": -19,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-45",
+      "name": "숨겨진 몬스터 방",
+      "type": "hidden-monster",
+      "asset": "wastes",
+      "x": 27,
+      "y": -20,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-46",
+      "name": "몬스터 게이트",
+      "type": "gate",
+      "asset": "wastes",
+      "x": 23,
+      "y": -20,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-47",
+      "name": "몬스터 방",
+      "type": "static-monster",
+      "asset": "wastes",
+      "x": 36,
+      "y": -14,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-48",
+      "name": "몬스터 방",
+      "type": "static-monster",
+      "asset": "wastes",
+      "x": 36,
+      "y": -10,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-49",
+      "name": "몬스터 방",
+      "type": "static-monster",
+      "asset": "wastes",
+      "x": 36,
+      "y": -6,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-50",
+      "name": "몬스터 게이트",
+      "type": "gate",
+      "asset": "wastes",
+      "x": 34,
+      "y": -2,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-51",
+      "name": "몬스터 게이트",
+      "type": "gate",
+      "asset": "wastes",
+      "x": 38,
+      "y": -2,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-52",
+      "name": "숨겨진 몬스터 방",
+      "type": "hidden-monster",
+      "asset": "wastes",
+      "x": 36,
+      "y": 2,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-53",
+      "name": "보스룸",
       "type": "boss",
       "asset": "wastes",
-      "x": -3,
-      "y": -10,
-      "width": 6,
+      "x": 41,
+      "y": -8,
+      "width": 5,
       "height": 5
     }
   ],
   "connections": [
     {
-      "id": "secret-z1-gold",
-      "from": "z1-hex-13",
-      "to": "z1-secret-gold",
-      "fromPort": {
-        "side": "west",
-        "offset": 1
-      },
-      "toPort": {
-        "side": "east",
-        "offset": 1
-      },
-      "width": 1
-    },
-    {
-      "id": "secret-z2-gold",
-      "from": "z2-hex-13",
-      "to": "z2-secret-gold",
-      "fromPort": {
-        "side": "west",
-        "offset": 1
-      },
-      "toPort": {
-        "side": "east",
-        "offset": 1
-      },
-      "width": 1
-    },
-    {
-      "id": "secret-z2-altar",
-      "from": "z2-hex-19",
-      "to": "z2-secret-altar",
+      "id": "path-local-1",
+      "from": "room-base",
+      "to": "room-forest",
       "fromPort": {
         "side": "east",
         "offset": 1
@@ -1233,27 +545,12 @@
       "toPort": {
         "side": "west",
         "offset": 1
-      },
-      "width": 1
+      }
     },
     {
-      "id": "secret-z3-gold",
-      "from": "z3-hex-13",
-      "to": "z3-secret-gold",
-      "fromPort": {
-        "side": "west",
-        "offset": 1
-      },
-      "toPort": {
-        "side": "east",
-        "offset": 1
-      },
-      "width": 1
-    },
-    {
-      "id": "transition-z1-z2",
-      "from": "z1-hex-01",
-      "to": "z2-hex-38",
+      "id": "path-local-2",
+      "from": "room-base",
+      "to": "room-local-3",
       "fromPort": {
         "side": "north",
         "offset": 1
@@ -1261,13 +558,259 @@
       "toPort": {
         "side": "south",
         "offset": 1
-      },
-      "width": 2
+      }
     },
     {
-      "id": "transition-z2-z3",
-      "from": "z2-hex-01",
-      "to": "z3-hex-38",
+      "id": "path-local-4",
+      "from": "room-forest",
+      "to": "room-local-5",
+      "fromPort": {
+        "side": "east",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-5",
+      "from": "room-local-4",
+      "to": "room-local-3",
+      "fromPort": {
+        "side": "east",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-6",
+      "from": "room-local-6",
+      "to": "room-local-3",
+      "fromPort": {
+        "side": "south",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-7",
+      "from": "room-local-7",
+      "to": "room-local-6",
+      "fromPort": {
+        "side": "east",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-8",
+      "from": "room-local-8",
+      "to": "room-local-7",
+      "fromPort": {
+        "side": "south",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-9",
+      "from": "room-local-8",
+      "to": "room-local-9",
+      "fromPort": {
+        "side": "east",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-10",
+      "from": "room-forest",
+      "to": "room-local-10",
+      "fromPort": {
+        "side": "south",
+        "offset": 2
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-11",
+      "from": "room-local-11",
+      "to": "room-local-5",
+      "fromPort": {
+        "side": "south",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-12",
+      "from": "room-local-11",
+      "to": "room-local-12",
+      "fromPort": {
+        "side": "east",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-13",
+      "from": "room-local-13",
+      "to": "room-local-12",
+      "fromPort": {
+        "side": "south",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-14",
+      "from": "room-local-9",
+      "to": "room-local-14",
+      "fromPort": {
+        "side": "east",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-15",
+      "from": "room-local-14",
+      "to": "room-local-15",
+      "fromPort": {
+        "side": "east",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-16",
+      "from": "room-local-15",
+      "to": "room-local-13",
+      "fromPort": {
+        "side": "south",
+        "offset": 2
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-17",
+      "from": "room-local-16",
+      "to": "room-local-15",
+      "fromPort": {
+        "side": "north",
+        "offset": 2
+      },
+      "toPort": {
+        "side": "south",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-18",
+      "from": "room-local-15",
+      "to": "room-local-17",
+      "fromPort": {
+        "side": "east",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-19",
+      "from": "room-local-18",
+      "to": "room-local-17",
+      "fromPort": {
+        "side": "south",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-20",
+      "from": "room-local-19",
+      "to": "room-local-18",
+      "fromPort": {
+        "side": "south",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-21",
+      "from": "room-local-20",
+      "to": "room-local-19",
+      "fromPort": {
+        "side": "east",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 2
+      }
+    },
+    {
+      "id": "path-local-22",
+      "from": "room-local-19",
+      "to": "room-local-21",
+      "fromPort": {
+        "side": "east",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-23",
+      "from": "room-local-22",
+      "to": "room-local-21",
       "fromPort": {
         "side": "north",
         "offset": 1
@@ -1275,22 +818,436 @@
       "toPort": {
         "side": "south",
         "offset": 1
-      },
-      "width": 2
+      }
     },
     {
-      "id": "transition-z3-boss",
-      "from": "z3-hex-01",
-      "to": "room-boss",
+      "id": "path-local-24",
+      "from": "room-local-22",
+      "to": "room-local-23",
+      "fromPort": {
+        "side": "south",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-25",
+      "from": "room-local-23",
+      "to": "room-local-24",
+      "fromPort": {
+        "side": "south",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-26",
+      "from": "room-local-24",
+      "to": "room-local-25",
+      "fromPort": {
+        "side": "east",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-27",
+      "from": "room-local-25",
+      "to": "room-local-26",
+      "fromPort": {
+        "side": "south",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-28",
+      "from": "room-local-25",
+      "to": "room-local-27",
+      "fromPort": {
+        "side": "east",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-29",
+      "from": "room-local-27",
+      "to": "room-local-28",
+      "fromPort": {
+        "side": "south",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 2
+      }
+    },
+    {
+      "id": "path-local-30",
+      "from": "room-local-29",
+      "to": "room-local-27",
+      "fromPort": {
+        "side": "east",
+        "offset": 2
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 2
+      }
+    },
+    {
+      "id": "path-local-31",
+      "from": "room-local-30",
+      "to": "room-local-29",
+      "fromPort": {
+        "side": "south",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-32",
+      "from": "room-local-30",
+      "to": "room-local-31",
+      "fromPort": {
+        "side": "east",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-33",
+      "from": "room-local-31",
+      "to": "room-local-32",
+      "fromPort": {
+        "side": "south",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-34",
+      "from": "room-local-33",
+      "to": "room-local-32",
       "fromPort": {
         "side": "north",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "south",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-35",
+      "from": "room-local-30",
+      "to": "room-local-34",
+      "fromPort": {
+        "side": "north",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "south",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-36",
+      "from": "room-local-35",
+      "to": "room-local-34",
+      "fromPort": {
+        "side": "south",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-37",
+      "from": "room-local-36",
+      "to": "room-local-35",
+      "fromPort": {
+        "side": "east",
+        "offset": 2
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-38",
+      "from": "room-local-37",
+      "to": "room-local-36",
+      "fromPort": {
+        "side": "east",
+        "offset": 2
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 2
+      }
+    },
+    {
+      "id": "path-local-39",
+      "from": "room-local-38",
+      "to": "room-local-37",
+      "fromPort": {
+        "side": "east",
         "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 2
+      }
+    },
+    {
+      "id": "path-local-40",
+      "from": "room-local-30",
+      "to": "room-local-39",
+      "fromPort": {
+        "side": "north",
+        "offset": 2
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 2
+      }
+    },
+    {
+      "id": "path-local-41",
+      "from": "room-local-39",
+      "to": "room-local-40",
+      "fromPort": {
+        "side": "north",
+        "offset": 2
       },
       "toPort": {
         "side": "south",
         "offset": 2
+      }
+    },
+    {
+      "id": "path-local-42",
+      "from": "room-local-39",
+      "to": "room-local-41",
+      "fromPort": {
+        "side": "east",
+        "offset": 0
       },
-      "width": 2
+      "toPort": {
+        "side": "west",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-43",
+      "from": "room-local-41",
+      "to": "room-local-42",
+      "fromPort": {
+        "side": "south",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-44",
+      "from": "room-local-40",
+      "to": "room-local-41",
+      "fromPort": {
+        "side": "east",
+        "offset": 2
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-45",
+      "from": "room-local-43",
+      "to": "room-local-41",
+      "fromPort": {
+        "side": "south",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 2
+      }
+    },
+    {
+      "id": "path-local-46",
+      "from": "room-local-44",
+      "to": "room-local-43",
+      "fromPort": {
+        "side": "south",
+        "offset": 2
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-47",
+      "from": "room-local-46",
+      "to": "room-local-45",
+      "fromPort": {
+        "side": "east",
+        "offset": 2
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 2
+      }
+    },
+    {
+      "id": "path-local-48",
+      "from": "room-local-45",
+      "to": "room-local-44",
+      "fromPort": {
+        "side": "east",
+        "offset": 2
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-49",
+      "from": "room-local-43",
+      "to": "room-local-47",
+      "fromPort": {
+        "side": "east",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-50",
+      "from": "room-local-48",
+      "to": "room-local-47",
+      "fromPort": {
+        "side": "north",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "south",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-51",
+      "from": "room-local-48",
+      "to": "room-local-49",
+      "fromPort": {
+        "side": "south",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-52",
+      "from": "room-local-49",
+      "to": "room-local-50",
+      "fromPort": {
+        "side": "south",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 2
+      }
+    },
+    {
+      "id": "path-local-53",
+      "from": "room-local-49",
+      "to": "room-local-51",
+      "fromPort": {
+        "side": "south",
+        "offset": 2
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-54",
+      "from": "room-local-50",
+      "to": "room-local-52",
+      "fromPort": {
+        "side": "south",
+        "offset": 2
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 0
+      }
+    },
+    {
+      "id": "path-local-55",
+      "from": "room-local-51",
+      "to": "room-local-52",
+      "fromPort": {
+        "side": "south",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 2
+      }
+    },
+    {
+      "id": "path-local-56",
+      "from": "room-local-53",
+      "to": "room-local-52",
+      "fromPort": {
+        "side": "south",
+        "offset": 2
+      },
+      "toPort": {
+        "side": "east",
+        "offset": 1
+      }
     }
   ]
 }

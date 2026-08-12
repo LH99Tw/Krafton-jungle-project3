@@ -2155,13 +2155,13 @@ export class GameCore {
     if (!this.authoredWorld) return movePlayerWorld(player, deltaX, deltaY, this.rooms);
     const targetX = player.x + deltaX;
     const targetY = player.y + deltaY;
-    if (this.lockedProgressionBarriers().some((barrier) => movementCrossesBarrier(
-      player.x,
-      player.y,
-      targetX,
-      targetY,
-      expandedBarrier(barrier),
-    ))) return false;
+    const crossedLock = this.lockedProgressionBarrierEntries().find(({ barrier }) => movementCrossesBarrier(
+      player.x, player.y, targetX, targetY, expandedBarrier(barrier),
+    ));
+    if (crossedLock) {
+      if (crossedLock.warningZone) this.pushZoneGateWarning(player.userId, crossedLock.warningZone);
+      return false;
+    }
     const resolved = resolveWalkableDiscPoint(
       this.authoredWalkable(),
       targetX,
@@ -2181,6 +2181,13 @@ export class GameCore {
   }
 
   private lockedProgressionBarriers(): Array<{ x: number; y: number; width: number; height: number }> {
+    return this.lockedProgressionBarrierEntries().map(({ barrier }) => barrier);
+  }
+
+  private lockedProgressionBarrierEntries(): Array<{
+    barrier: { x: number; y: number; width: number; height: number };
+    warningZone?: ZoneId;
+  }> {
     if (!this.authoredWorld) return [];
     const rooms = new Map(this.authoredWorld.rooms.map((room) => [room.id, room]));
     return this.authoredWorld.connections.flatMap((connection) => {
@@ -2192,20 +2199,23 @@ export class GameCore {
       const trapRoomId = from.kind === "trap" ? from.id : to.kind === "trap" ? to.id : null;
       const trapState = trapRoomId ? this.specialRooms.get(trapRoomId) : null;
       const trapLocked = trapState?.kind === "trap" && ["warning", "wave", "hidden"].includes(trapState.trapPhase ?? "");
-      const locked = trapLocked || (bossConnection
-        ? this.day < 3 || this.hasLivingAuthoredGate()
-        : from.zone !== to.zone && this.hasLivingGateInZone(lowerZone));
+      const zoneGateLocked = !bossConnection && from.zone !== to.zone && this.hasLivingGateInZone(lowerZone);
+      const locked = trapLocked || (bossConnection ? this.day < 3 || this.hasLivingAuthoredGate() : zoneGateLocked);
       if (!locked) return [];
-      if (trapLocked && connection.trapBarrier) return [{ ...connection.trapBarrier }];
-      if (connection.lockBarrier) return [{ ...connection.lockBarrier }];
+      const warningZone = zoneGateLocked ? lowerZone : undefined;
+      if (trapLocked && connection.trapBarrier) return [{ barrier: { ...connection.trapBarrier } }];
+      if (connection.lockBarrier) return [{ barrier: { ...connection.lockBarrier }, warningZone }];
       const segment = [...connection.floorRects].sort((left, right) => Math.max(right.width, right.height) - Math.max(left.width, left.height))[0];
       if (!segment) return [];
       const horizontal = segment.width >= segment.height;
       return [{
-        x: segment.x + segment.width / 2 - (horizontal ? 9 : Math.max(44, segment.width - 18) / 2),
-        y: segment.y + segment.height / 2 - (horizontal ? Math.max(44, segment.height - 18) / 2 : 9),
-        width: horizontal ? 18 : Math.max(44, segment.width - 18),
-        height: horizontal ? Math.max(44, segment.height - 18) : 18,
+        barrier: {
+          x: segment.x + segment.width / 2 - (horizontal ? 9 : Math.max(44, segment.width - 18) / 2),
+          y: segment.y + segment.height / 2 - (horizontal ? Math.max(44, segment.height - 18) / 2 : 9),
+          width: horizontal ? 18 : Math.max(44, segment.width - 18),
+          height: horizontal ? Math.max(44, segment.height - 18) : 18,
+        },
+        warningZone,
       }];
     });
   }
@@ -2249,12 +2259,48 @@ export class GameCore {
   }
 
   private refreshCurrentZone(): void {
-    let zone: ZoneId = 1;
+    let zone = this.currentZone;
     for (const player of this.players.values()) {
       const room = this.rooms.get(player.roomId);
       if (room && room.zone > zone) zone = room.zone;
     }
-    if (zone > this.currentZone) this.currentZone = zone;
+    if (zone <= this.currentZone) return;
+    this.currentZone = zone;
+    this.clearPreviousZoneCombat(zone);
+  }
+
+  private clearPreviousZoneCombat(enteredZone: ZoneId): void {
+    for (const state of this.specialRooms.values()) {
+      const room = this.rooms.get(state.roomId);
+      if (!room || room.zone >= enteredZone || state.kind !== "trap") continue;
+      const participants = [...(state.trapParticipants ?? [])];
+      state.trapPhase = "cleared";
+      state.trapDebuff = undefined;
+      state.trapParticipants = [];
+      state.trapProgress = 0;
+      room.cleared = true;
+      for (const playerId of participants) {
+        const player = this.players.get(playerId);
+        if (player) this.recalculateMaxHp(player, player.maxHp);
+      }
+    }
+
+    for (const enemy of this.enemies.values()) {
+      const spawnRoom = this.rooms.get(enemy.spawnRoomId);
+      if (!spawnRoom || spawnRoom.zone >= enteredZone || enemy.kind === "boss") continue;
+      enemy.alive = false;
+      enemy.hp = 0;
+      enemy.respawnRemaining = null;
+      enemy.aggroed = false;
+      enemy.targetId = null;
+      enemy.lastMoveSpeed = 0;
+      enemy.transformRevision += 1;
+      this.enemyThreat.delete(enemy.id);
+      this.returningHiddenEnemies.delete(enemy.id);
+      if (spawnRoom.kind === "static-monster" || spawnRoom.kind === "hidden-monster" || spawnRoom.kind === "trap") {
+        spawnRoom.cleared = true;
+      }
+    }
   }
 
   private addRoomToSpatialCells(roomId: CoreRoomId, rect: WorldRect): void {

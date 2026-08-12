@@ -64,7 +64,7 @@ test("constructs a deterministic authoritative world and starts players in the d
   assert.deepEqual(player.equipment, { weapon: null, armor: null, accessory: null });
 });
 
-test("exposes monsters from all eight surrounding tiles without requiring a direct connection", () => {
+test("exposes monsters from a nearby authored room without requiring a direct connection", () => {
   const core = new GameCore({
     mode: "prototype",
     difficulty: "normal",
@@ -74,8 +74,22 @@ test("exposes monsters from all eight surrounding tiles without requiring a dire
   });
   core.addPlayer({ userId: "p1", displayName: "용사", heroClass: "swordsman" });
   core.setReady("p1", true);
-  const adjacentRoomId = "editor:z1-hex-03";
-  const monsterRoomId = "editor:z1-hex-01";
+  const fixture = OFFICIAL_WORLD.rooms.flatMap((adjacent) => OFFICIAL_WORLD.rooms
+    .filter((monster) => monster.zone === adjacent.zone
+      && (monster.kind === "static-monster" || monster.kind === "hidden-monster")
+      && monster.id !== adjacent.id
+      && !adjacent.connections.includes(monster.id))
+    .map((monster) => ({ adjacent, monster })))
+    .find(({ adjacent, monster }) => {
+      const horizontalGap = Math.max(0, monster.rect.x - (adjacent.rect.x + adjacent.rect.width), adjacent.rect.x - (monster.rect.x + monster.rect.width));
+      const verticalGap = Math.max(0, monster.rect.y - (adjacent.rect.y + adjacent.rect.height), adjacent.rect.y - (monster.rect.y + monster.rect.height));
+      return horizontalGap <= 320
+        && verticalGap <= 220
+        && !core.activatedEnemyRooms.has(monster.id);
+    });
+  assert.ok(fixture, "official map needs a nearby, non-connected monster room fixture");
+  const adjacentRoomId = fixture.adjacent.id;
+  const monsterRoomId = fixture.monster.id;
   const adjacentRoom = core.rooms.get(adjacentRoomId)!;
   assert.equal(adjacentRoom.connections.includes(monsterRoomId), false, "fixture rooms must not have a direct connection");
   assert.equal(core.activatedEnemyRooms.has(monsterRoomId), false);

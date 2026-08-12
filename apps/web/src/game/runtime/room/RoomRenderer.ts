@@ -5,8 +5,9 @@ import type { HeroClassId, NetworkWorldSnapshot, PartyMemberSnapshot } from "../
 import { createGameTextures } from "../../client/render/createTextures";
 import { combatSoundKey, type CombatSoundAction } from "../../client/audio/combatSounds";
 import {
-  BASIC_ATTACK_SPRITES,
+  BASIC_ATTACK_SPRITE_SETS,
   SWORDSMAN_SLASH_DIRECTIONS,
+  basicAttackSpriteForLevel,
   swordsmanSlashAnimationDirectionForAim,
 } from "../../client/render/attackEffectSprites";
 import {
@@ -145,31 +146,34 @@ export class RoomRenderer {
   }
 
   private createBasicAttackAnimations(): void {
-    const slash = BASIC_ATTACK_SPRITES.swordsman;
-    for (const [row, direction] of SWORDSMAN_SLASH_DIRECTIONS.entries()) {
-      const key = `${slash.animationKey}-${direction}`;
-      if (this.scene.anims.exists(key)) continue;
-      this.scene.anims.create({
-        key,
-        frames: this.scene.anims.generateFrameNumbers(slash.textureKey, {
-          start: row * slash.frameCount,
-          end: (row + 1) * slash.frameCount - 1,
-        }),
-        frameRate: slash.frameRate,
-        repeat: slash.repeat,
-      });
+    for (const slash of BASIC_ATTACK_SPRITE_SETS.swordsman) {
+      for (const [row, direction] of SWORDSMAN_SLASH_DIRECTIONS.entries()) {
+        const key = `${slash.animationKey}-${direction}`;
+        if (this.scene.anims.exists(key)) continue;
+        this.scene.anims.create({
+          key,
+          frames: this.scene.anims.generateFrameNumbers(slash.textureKey, {
+            start: row * slash.frameCount,
+            end: (row + 1) * slash.frameCount - 1,
+          }),
+          frameRate: slash.frameRate,
+          repeat: slash.repeat,
+        });
+      }
     }
-    for (const sprite of [BASIC_ATTACK_SPRITES.archer, BASIC_ATTACK_SPRITES.mage]) {
-      if (this.scene.anims.exists(sprite.animationKey)) continue;
-      this.scene.anims.create({
-        key: sprite.animationKey,
-        frames: this.scene.anims.generateFrameNumbers(sprite.textureKey, {
-          start: 0,
-          end: sprite.frameCount - 1,
-        }),
-        frameRate: sprite.frameRate,
-        repeat: sprite.repeat,
-      });
+    for (const classId of ["archer", "mage"] as const) {
+      for (const sprite of BASIC_ATTACK_SPRITE_SETS[classId]) {
+        if (this.scene.anims.exists(sprite.animationKey)) continue;
+        this.scene.anims.create({
+          key: sprite.animationKey,
+          frames: this.scene.anims.generateFrameNumbers(sprite.textureKey, {
+            start: 0,
+            end: sprite.frameCount - 1,
+          }),
+          frameRate: sprite.frameRate,
+          repeat: sprite.repeat,
+        });
+      }
     }
   }
 
@@ -218,14 +222,14 @@ export class RoomRenderer {
       .setMask(wallMask);
 
     // Paved corridors connecting rooms.
-    for (const corridor of world.corridors) this.drawWalkway(graphics, corridor, zone, palette.accent);
+    for (const corridor of world.corridors) this.drawWalkway(graphics, corridor, zone);
 
     // Rooms.
     for (const entry of world.rooms) {
       this.drawWorldRoom(graphics, entry, palette, options, options.decorSeed);
     }
 
-    if (world.wallSegments.length > 0) this.drawAutomaticWalls(graphics, world.wallSegments, palette.accent);
+    if (world.wallSegments.length > 0) this.drawAutomaticWalls(graphics, world.wallSegments);
 
     // Procedural terrain decor (bushes/rocks) for map-template variety.
     this.drawWorldDecor(world, options.decorSeed);
@@ -683,7 +687,7 @@ export class RoomRenderer {
     }
   }
 
-  private drawWalkway(graphics: Phaser.GameObjects.Graphics, corridor: { x: number; y: number; width: number; height: number }, zone: number, accent: number): void {
+  private drawWalkway(graphics: Phaser.GameObjects.Graphics, corridor: { x: number; y: number; width: number; height: number }, zone: number): void {
     const horizontal = corridor.width > corridor.height;
     const textureWidth = horizontal ? corridor.height : corridor.width;
     const textureHeight = horizontal ? corridor.width : corridor.height;
@@ -696,23 +700,12 @@ export class RoomRenderer {
       "corridor",
     ).setAngle(horizontal ? 90 : 0).setDepth(-22));
     graphics.fillStyle(0x121611, 0.18).fillRect(corridor.x, corridor.y, corridor.width, corridor.height);
-    // Accent trim along the corridor edges.
-    graphics.lineStyle(3, accent, 0.55);
-    if (horizontal) {
-      graphics.lineBetween(corridor.x, corridor.y, corridor.x + corridor.width, corridor.y);
-      graphics.lineBetween(corridor.x, corridor.y + corridor.height, corridor.x + corridor.width, corridor.y + corridor.height);
-    } else {
-      graphics.lineBetween(corridor.x, corridor.y, corridor.x, corridor.y + corridor.height);
-      graphics.lineBetween(corridor.x + corridor.width, corridor.y, corridor.x + corridor.width, corridor.y + corridor.height);
-    }
   }
 
-  private drawAutomaticWalls(graphics: Phaser.GameObjects.Graphics, walls: RenderZoneWorld["wallSegments"], accent: number): void {
+  private drawAutomaticWalls(graphics: Phaser.GameObjects.Graphics, walls: RenderZoneWorld["wallSegments"]): void {
     graphics.lineStyle(24, 0x080b09, 0.98);
     for (const wall of walls) graphics.lineBetween(wall.x1, wall.y1, wall.x2, wall.y2);
     graphics.lineStyle(12, 0x29362d, 1);
-    for (const wall of walls) graphics.lineBetween(wall.x1, wall.y1, wall.x2, wall.y2);
-    graphics.lineStyle(2, accent, 0.55);
     for (const wall of walls) graphics.lineBetween(wall.x1, wall.y1, wall.x2, wall.y2);
   }
 
@@ -737,10 +730,6 @@ export class RoomRenderer {
     graphics.fillStyle(floor, room.type === "boss" ? 0.58 : 0.2).fillRect(rect.x, rect.y, rect.width, rect.height);
     graphics.fillStyle(room.type === "hidden-monster" ? 0x201428 : palette.tile, 0.16)
       .fillRect(rect.x + 16, rect.y + 16, rect.width - 32, rect.height - 32);
-    graphics.lineStyle(1, palette.accent, 0.1);
-    for (let x = rect.x; x <= rect.x + rect.width; x += 40) graphics.lineBetween(x, rect.y, x, rect.y + rect.height);
-    for (let y = rect.y; y <= rect.y + rect.height; y += 40) graphics.lineBetween(rect.x, y, rect.x + rect.width, y);
-    graphics.lineStyle(3, palette.accent, 0.6).strokeRect(rect.x, rect.y, rect.width, rect.height);
 
     const trapRevealed = room.type !== "trap" || options.revealedTrapRooms?.has(room.id) === true;
     if (trapRevealed) this.drawWorldLandmark(graphics, entry, palette.accent);
@@ -1281,6 +1270,7 @@ export class RoomRenderer {
     targetY: number,
     aimAngle?: number,
     critical = false,
+    level = 1,
   ): void {
     this.playCombatSound(classId, "basic", attacker.x, attacker.y);
     const color = classColor(classId);
@@ -1298,7 +1288,7 @@ export class RoomRenderer {
     attacker.setData("attackPoseUntil", this.scene.time.now + 130);
     this.scene.tweens.add({ targets: attacker, scaleX: attacker.scaleX * 1.16, scaleY: attacker.scaleY * 0.9, duration: 55, yoyo: true });
     if (classId === "swordsman") {
-      const sprite = BASIC_ATTACK_SPRITES.swordsman;
+      const sprite = basicAttackSpriteForLevel(classId, level);
       const slashDirection = swordsmanSlashAnimationDirectionForAim(angle);
       const direction = { x: Math.cos(angle), y: Math.sin(angle) };
       const slash = this.scene.add.sprite(
@@ -1323,7 +1313,7 @@ export class RoomRenderer {
         },
       });
     } else if (classId === "archer") {
-      const sprite = BASIC_ATTACK_SPRITES.archer;
+      const sprite = basicAttackSpriteForLevel(classId, level);
       const arrow = this.scene.add.sprite(
         attacker.x + Math.cos(angle) * 18,
         attacker.y + Math.sin(angle) * 18,
@@ -1347,7 +1337,7 @@ export class RoomRenderer {
         },
       });
     } else {
-      const sprite = BASIC_ATTACK_SPRITES.mage;
+      const sprite = basicAttackSpriteForLevel(classId, level);
       const orb = this.scene.add.sprite(attacker.x, attacker.y, sprite.textureKey)
         .setDisplaySize(critical ? 58 : 42, critical ? 58 : 42)
         .setTint(critical ? effectColor : 0xffffff)

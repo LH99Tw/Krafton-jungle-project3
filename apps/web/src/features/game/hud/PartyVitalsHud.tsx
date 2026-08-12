@@ -5,12 +5,10 @@ const PARTY_SIZE = 3;
 
 export function PartyVitalsHud({
   party,
-  gatesDestroyed,
-  gateGoal,
+  gateProgress,
 }: {
   party: PartyMemberSnapshot[];
-  gatesDestroyed: number;
-  gateGoal: number;
+  gateProgress: { round: number; destroyed: number; goal: number };
 }) {
   const slots = Array.from({ length: PARTY_SIZE }, (_, index) => party[index] ?? null);
 
@@ -41,10 +39,10 @@ export function PartyVitalsHud({
           );
         })}
       </div>
-      <div className={`party-gate-progress ${gatesDestroyed >= gateGoal ? "is-complete" : ""}`}>
+      <div className={`party-gate-progress ${gateProgress.destroyed >= gateProgress.goal ? "is-complete" : ""}`}>
         <span aria-hidden="true" />
-        <small>게이트 파괴</small>
-        <strong>{gatesDestroyed}<i>/</i>{gateGoal}</strong>
+        <small>라운드 {gateProgress.round} 게이트 파괴</small>
+        <strong>{gateProgress.destroyed}<i>/</i>{gateProgress.goal}</strong>
       </div>
     </section>
   );

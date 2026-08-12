@@ -2882,12 +2882,12 @@ button {
   left:18px;
   top:18px;
   z-index:55;
-  width:190px;
+  width:218px;
   color:#d8d2c4;
   filter:drop-shadow(0 9px 13px rgba(0,0,0,.72));
   animation:party-vitals-enter .36s cubic-bezier(.16,1,.3,1) both;
 }
-.party-vitals-list { display:grid; grid-template-columns:repeat(3,52px); justify-content:space-between; gap:10px; }
+.party-vitals-list { display:grid; grid-template-columns:repeat(3,58px); justify-content:space-between; gap:12px; }
 .party-vital { --vital-color:#c94f45; min-width:0; display:grid; justify-items:center; gap:5px; }
 .party-vital.is-wounded { --vital-color:#b93a34; }
 .party-vital.is-critical { --vital-color:#98252a; }
@@ -2895,8 +2895,8 @@ button {
 .party-vital.is-empty { opacity:.24; }
 .party-vital-orb {
   position:relative;
-  width:48px;
-  height:48px;
+  width:54px;
+  height:54px;
   display:block;
   border-radius:50%;
   background:
@@ -2918,12 +2918,12 @@ button {
   transition:clip-path .24s ease,background-color .24s ease;
 }
 .party-vital.is-critical .party-vital-orb { animation:party-vital-danger 1.15s ease-in-out infinite; }
-.party-vital small { width:62px; overflow:hidden; color:#aaa397; font:8px/1.2 "Noto Serif KR",serif; letter-spacing:.01em; text-align:center; text-overflow:ellipsis; white-space:nowrap; text-shadow:0 2px 3px #000; }
+.party-vital small { width:68px; overflow:hidden; color:#aaa397; font:9px/1.2 "Noto Serif KR",serif; letter-spacing:.01em; text-align:center; text-overflow:ellipsis; white-space:nowrap; text-shadow:0 2px 3px #000; }
 .party-vital.is-local small { color:#e5d8b8; }
-.party-gate-progress { margin-top:10px; padding:8px 3px 0; display:grid; grid-template-columns:9px 1fr auto; gap:7px; align-items:center; border-top:1px solid rgba(177,146,80,.28); }
-.party-gate-progress > span { width:7px; height:7px; transform:rotate(45deg); border:1px solid #8b713e; background:#17130d; box-shadow:0 0 0 1px #050505; }
-.party-gate-progress small { color:#8f887b; font:8px "Noto Serif KR",serif; }
-.party-gate-progress strong { color:#d6bd7b; font:700 12px Georgia,serif; letter-spacing:.04em; }
+.party-gate-progress { margin-top:12px; padding:11px 4px 1px; display:grid; grid-template-columns:11px 1fr auto; gap:9px; align-items:center; border-top:1px solid rgba(177,146,80,.34); }
+.party-gate-progress > span { width:9px; height:9px; transform:rotate(45deg); border:1px solid #8b713e; background:#17130d; box-shadow:0 0 0 1px #050505; }
+.party-gate-progress small { color:#aaa294; font:10px "Noto Serif KR",serif; }
+.party-gate-progress strong { color:#d6bd7b; font:700 15px Georgia,serif; letter-spacing:.04em; }
 .party-gate-progress strong i { margin:0 2px; color:#665d4d; font-size:8px; font-style:normal; }
 .party-gate-progress.is-complete > span { border-color:#d7bd71; background:#ad8d3e; box-shadow:0 0 9px rgba(218,181,91,.54); }
 .party-gate-progress.is-complete strong { color:#f1d98f; }
@@ -3447,8 +3447,42 @@ button {
 .bag-slot>span { display:flex; gap:2px; margin-top:2px; }
 .bag-slot>span button { flex:1; padding:2px; color:#d6b768; font-size:7px; }
 .special-room-panel progress { position:relative; width:100%; height:5px; accent-color:#b26cff; }
+.special-room-panel.is-checkpoint { width:min(460px,calc(100vw - 48px)); border-color:rgba(132,117,210,.68); background:linear-gradient(150deg,rgba(9,13,18,.97),rgba(22,18,35,.96)); box-shadow:0 22px 70px #000c,inset 0 0 70px rgba(103,80,205,.11); }
+.checkpoint-reset { position:relative; }
+.checkpoint-sigil { position:absolute; top:-61px; right:2px; width:72px; height:72px; display:grid; place-items:center; color:#e7ddff; border:1px solid rgba(169,147,255,.62); border-radius:50%; background:radial-gradient(circle,rgba(166,137,255,.28),rgba(45,31,78,.18) 48%,transparent 50%); box-shadow:0 0 28px rgba(138,101,255,.25),inset 0 0 18px rgba(195,179,255,.15); animation:checkpoint-sigil-breathe 2.6s ease-in-out infinite; }
+.checkpoint-sigil::before,.checkpoint-sigil::after { content:""; position:absolute; inset:8px; border:1px solid rgba(194,177,255,.28); transform:rotate(45deg); }
+.checkpoint-sigil::after { inset:17px; transform:rotate(22.5deg); }
+.checkpoint-sigil i { position:absolute; inset:-7px; border:1px dashed rgba(174,150,255,.28); border-radius:50%; animation:checkpoint-sigil-turn 12s linear infinite; }
+.checkpoint-sigil span { position:relative; z-index:1; font-size:21px; text-shadow:0 0 13px #aa8cff; }
+.checkpoint-copy { padding-right:76px; }
+.checkpoint-copy>small { color:#9e88df; font:8px ui-monospace,monospace; letter-spacing:.2em; }
+.checkpoint-copy h3 { margin:5px 0 7px; color:#f0eaff; font-size:21px; font-weight:500; }
+.checkpoint-copy p { margin:0 0 14px; color:#aaa4b7; }
+.checkpoint-route { display:grid; grid-template-columns:minmax(0,1fr) 28px minmax(0,1fr); align-items:stretch; gap:6px; padding:8px 0; border-block:1px solid rgba(172,149,238,.14); }
+.checkpoint-route>div { min-width:0; padding:10px 11px; background:rgba(7,10,14,.52); border-left:2px solid rgba(127,117,151,.4); }
+.checkpoint-route>div.is-new { border-left-color:#a88af2; background:linear-gradient(100deg,rgba(126,90,213,.16),rgba(7,10,14,.52)); }
+.checkpoint-route>span { display:grid; place-items:center; color:#8f77cc; font-size:16px; }
+.checkpoint-route small,.checkpoint-route strong { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.checkpoint-route small { margin-bottom:5px; color:#827b8f; font-size:9px; }
+.checkpoint-route strong { color:#dad1ec; font-size:12px; font-weight:500; }
+.checkpoint-route .is-new strong { color:#d8c4ff; text-shadow:0 0 13px rgba(176,139,255,.35); }
+.checkpoint-note { display:flex; gap:7px; align-items:flex-start; margin:11px 0 0; color:#8f8999!important; font-size:10px!important; line-height:1.5!important; }
+.checkpoint-note span { color:#9f86e2; }
+.checkpoint-reset-action,.checkpoint-confirm button { border:1px solid rgba(171,144,244,.48); color:#e6dbff; background:linear-gradient(180deg,rgba(91,64,151,.72),rgba(44,32,78,.82)); cursor:pointer; font:600 12px "Noto Serif KR",serif; letter-spacing:.04em; }
+.checkpoint-reset-action { width:100%; margin-top:13px; padding:11px; box-shadow:0 0 24px rgba(127,90,220,.1); animation:checkpoint-action-breathe 2.8s ease-in-out infinite; }
+.checkpoint-reset-action:hover:not(:disabled),.checkpoint-confirm button:last-child:hover { border-color:#d8c4ff; background:linear-gradient(180deg,#7454b5,#4b347f); }
+.checkpoint-reset-action:disabled { opacity:.48; cursor:default; animation:none; }
+.checkpoint-confirm { margin-top:13px; padding:10px; text-align:center; background:rgba(31,23,48,.72); border:1px solid rgba(174,151,238,.24); animation:checkpoint-confirm-in .2s ease-out both; }
+.checkpoint-confirm p { margin:0 0 9px; color:#d7cce9; font-size:11px; }
+.checkpoint-confirm>div { display:grid; grid-template-columns:1fr 1.35fr; gap:6px; }
+.checkpoint-confirm button { padding:8px; }
+.checkpoint-confirm button:first-child { color:#a39baa; border-color:rgba(153,143,164,.25); background:#111419; }
 .special-room-panel.is-trap { border-color:#a83d3d; box-shadow:0 22px 70px #000b,inset 0 0 55px rgba(158,25,28,.13); }
 .trap-status { color:#e97870!important; letter-spacing:.04em; }
 @keyframes special-room-reveal { from { opacity:0; filter:blur(5px); } to { opacity:1; filter:blur(0); } }
+@keyframes checkpoint-sigil-breathe { 0%,100% { opacity:.76; filter:brightness(.92); } 50% { opacity:1; filter:brightness(1.2); } }
+@keyframes checkpoint-sigil-turn { to { transform:rotate(360deg); } }
+@keyframes checkpoint-action-breathe { 0%,100% { box-shadow:0 0 14px rgba(127,90,220,.08); } 50% { box-shadow:0 0 28px rgba(127,90,220,.2); } }
+@keyframes checkpoint-confirm-in { from { opacity:0; filter:blur(3px); } to { opacity:1; filter:blur(0); } }
 @media (max-width:720px) { .special-room-panel { right:12px; top:auto; bottom:118px; width:calc(100vw - 24px); transform:none; } .shop-offer-row { grid-template-columns:repeat(3,1fr); } }
-@media (prefers-reduced-motion:reduce) { .special-room-panel { animation:none; } }
+@media (prefers-reduced-motion:reduce) { .special-room-panel,.checkpoint-sigil,.checkpoint-sigil i,.checkpoint-reset-action,.checkpoint-confirm { animation:none; } }

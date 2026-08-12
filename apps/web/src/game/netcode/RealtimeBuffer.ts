@@ -31,6 +31,15 @@ export function areAuthoredBossGatesCleared(
   ));
 }
 
+export function runtimeGateRoomIds(
+  rooms: readonly Readonly<{ id: string; type: string; zone: number }>[],
+  zone?: number,
+): string[] {
+  return rooms
+    .filter((room) => room.type === "gate" && (zone === undefined || room.zone === zone))
+    .map((room) => room.id);
+}
+
 export class RealtimeTransformBuffer {
   private readonly samples = new Map<string, TimedTransform[]>();
   private readonly lastSeenAt = new Map<string, number>();
