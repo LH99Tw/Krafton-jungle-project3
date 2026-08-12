@@ -32,9 +32,6 @@ export function AccessScreen({
         <div className="access-main-art" aria-hidden="true" />
         <Guestbook viewer={viewer} />
         <div className="access-launch">
-          <p>{viewer
-            ? "함께 탐험할 원정대를 찾으세요."
-            : "로그인 후 기본 맵 원정대를 찾거나 맵 빌더를 이용해 보세요."}</p>
           <div className="access-launch-actions">
             {editorEnabled && (
               <FantasyButton variant="quiet" size="large" type="button" onClick={onOpenEditor}>
@@ -48,7 +45,7 @@ export function AccessScreen({
               onClick={onStart}
               disabled={!viewer || busy}
             >
-              기본 맵
+              시작하기
             </FantasyButton>
           </div>
         </div>

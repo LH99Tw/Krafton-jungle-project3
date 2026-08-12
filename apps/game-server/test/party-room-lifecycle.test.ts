@@ -591,6 +591,48 @@ test("world frames send enemy deltas and recover with a five-second keyframe", (
   assert.equal(frames[2]?.enemies.length, 1);
 });
 
+test("world frames publish enemy facing toward its current target", () => {
+  const frames: WorldFrame[] = [];
+  const player = { userId: "viewer", roomId: "room-a", x: 30, y: 20, aim: 0, alive: true };
+  const enemy = {
+    id: "enemy-1",
+    roomId: "room-a",
+    x: 20,
+    y: 20,
+    targetId: player.userId,
+    transformRevision: 0,
+  };
+  const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
+  harness.core = {
+    players: new Map([[player.userId, player]]),
+    enemies: new Map([[enemy.id, enemy]]),
+    discoveredRooms: new Set([enemy.roomId]),
+  };
+  harness.clients = [{
+    sessionId: "session-1",
+    userData: { userId: player.userId },
+    send: (type: string, frame: WorldFrame) => { if (type === "world.frame") frames.push(frame); },
+  }];
+  harness.inputSequences = new Map();
+  harness.previousTransforms = new Map();
+  harness.lastEnemyFramePositions = new Map();
+  harness.websocketSizeSamples = 0;
+  harness.lastWebsocketFrameBytes = 0;
+  harness.aoiRooms = () => new Set(["room-a"]);
+  harness.serverTick = 2;
+
+  const emit = (PartyRoom.prototype as unknown as { emitWorldFrames(this: PartyRoom): void }).emitWorldFrames;
+  emit.call(harness as unknown as PartyRoom);
+
+  assert.equal(frames[0]?.enemies[0]?.aim, 0);
+  player.x = 20;
+  player.y = 10;
+  harness.serverTick = 4;
+  emit.call(harness as unknown as PartyRoom);
+  assert.equal(frames[1]?.enemies.length, 1, "a facing-only change must produce an enemy delta");
+  assert.equal(frames[1]?.enemies[0]?.aim, -Math.PI / 2);
+});
+
 test("unreliable input sequence does not reject a reliable command", () => {
   const appliedInputs: number[] = [];
   let ready = false;

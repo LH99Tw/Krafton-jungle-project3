@@ -1146,7 +1146,7 @@ test("only one invader from the oldest queued wave is released per spawn interva
   assert.equal(core.pendingInvaderCount, 6, "the remaining first batch and second batch must stay queued");
 });
 
-test("queued waves release exactly one invader per 100ms", () => {
+test("queued waves release one invader per second and pause three seconds after each group of six", () => {
   const core = startedCore("micro-spawn-cadence");
   core.elapsed = 10;
   const gate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate" && core.rooms.get(enemy.roomId)?.zone === 1)!;
@@ -1155,15 +1155,32 @@ test("queued waves release exactly one invader per 100ms", () => {
   };
   internals.enqueueInvaderWave(gate.id, 1, 9);
 
-  core.update(0.099);
+  for (let tick = 0; tick < 9; tick += 1) core.update(0.1);
   assert.equal(core.liveInvaderCount, 0);
-  core.update(0.001);
+  core.update(0.1);
   assert.equal(core.liveInvaderCount, 1);
+  for (let second = 0; second < 5; second += 1) {
+    for (let tick = 0; tick < 10; tick += 1) core.update(0.1);
+  }
+  assert.equal(core.liveInvaderCount, 6);
+  for (let tick = 0; tick < 29; tick += 1) core.update(0.1);
+  assert.equal(core.liveInvaderCount, 6, "the next group must wait for the full three-second pause");
   core.update(0.1);
-  assert.equal(core.liveInvaderCount, 2);
-  core.update(0.1);
-  assert.equal(core.liveInvaderCount, 3);
-  assert.equal(core.invaderWorkMetrics.microSpawned, 3);
+  assert.equal(core.liveInvaderCount, 7);
+  assert.equal(core.invaderWorkMetrics.microSpawned, 7);
+});
+
+test("a newly spawned invader holds its gate position during the emergence window", () => {
+  const core = startedCore("invader-emergence-hold");
+  const gate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate" && core.rooms.get(enemy.roomId)?.zone === 1)!;
+  core.enqueueInvaderWave(gate.id, 1, 1);
+  core.releaseOldestInvaderWave();
+  const invader = [...core.enemies.values()].find((enemy) => enemy.behavior === "invader")!;
+  const spawn = { x: invader.x, y: invader.y };
+  for (let tick = 0; tick < 29; tick += 1) core.update(1 / 60);
+  assert.deepEqual({ x: invader.x, y: invader.y }, spawn);
+  for (let tick = 0; tick < 12; tick += 1) core.update(1 / 60);
+  assert.ok(Math.hypot(invader.x - spawn.x, invader.y - spawn.y) > 0);
 });
 
 test("queued wave creation defers route planning into the bounded replan budget", () => {

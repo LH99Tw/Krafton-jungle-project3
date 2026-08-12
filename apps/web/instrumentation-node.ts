@@ -14,8 +14,11 @@ export function validateProductionWebEnvironment(): void {
   if (process.env.DEV_AUTH_BYPASS === "true") throw new Error("DEV_AUTH_BYPASS must be false in production");
   const key = Buffer.from(required("AUTH_SESSION_ENCRYPTION_KEY"), "base64");
   if (key.length !== 32) throw new Error("AUTH_SESSION_ENCRYPTION_KEY must decode to 32 bytes");
-  if (required("GUESTBOOK_ADMIN_DELETE_KEY").length < 32) {
-    throw new Error("GUESTBOOK_ADMIN_DELETE_KEY must contain at least 32 characters");
+  const guestbookMasterKey = process.env.GUESTBOOK_MASTER_KEY?.trim()
+    || process.env.GUESTBOOK_ADMIN_DELETE_KEY?.trim();
+  if (!guestbookMasterKey) throw new Error("GUESTBOOK_MASTER_KEY is required in production");
+  if (guestbookMasterKey.length < 32) {
+    throw new Error("GUESTBOOK_MASTER_KEY must contain at least 32 characters");
   }
   required("DATABASE_URL");
   const privateKey = Buffer.from(required("GAME_TICKET_PRIVATE_KEY_BASE64"), "base64").toString("utf8");

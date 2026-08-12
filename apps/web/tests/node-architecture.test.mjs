@@ -54,6 +54,8 @@ test("fails closed on auth outages and bounds public mutation requests", async (
   assert.match(guestbook, /guestbook-write-user/);
   assert.match(guestbook, /GUESTBOOK_PER_MINUTE/);
   assert.match(guestbook, /hasAllowedOrigin\(request\)/);
+  assert.match(guestbook, /export async function PATCH[\s\S]*isGuestbookMasterKey\(payload\.password\)/);
+  assert.match(guestbook, /export async function DELETE[\s\S]*isGuestbookMasterKey\(payload\.password\)/);
   assert.doesNotMatch(guestbook, /ADMIN_DELETE_KEY\s*=.*admin@/);
   assert.doesNotMatch(guest, /guest-session-marker/);
   assert.doesNotMatch(callback, /member-session-marker/);
@@ -78,12 +80,16 @@ test("gates deployments on verification and repairs required production settings
   assert.match(workflow, /RELEASE_SHA:.*github\.event\.workflow_run\.head_sha/);
   assert.match(workflow, /ref: \$\{\{ env\.RELEASE_SHA \}\}/);
   assert.match(workflow, /five-days-game-server:\$\{\{ env\.RELEASE_SHA \}\}/);
-  assert.match(workflow, /upsert_env \.env\.web GUESTBOOK_ADMIN_DELETE_KEY/);
+  assert.match(workflow, /upsert_env \.env\.web GUESTBOOK_MASTER_KEY/);
   assert.match(workflow, /upsert_env \.env\.web PUBLIC_PLAYTEST_ENABLED true/);
   assert.match(workflow, /upsert_env \.env\.web PROTOCOL_VERSION 9/);
   assert.match(workflow, /upsert_env \.env\.game PROTOCOL_VERSION 9/);
-  assert.match(configure, /GUESTBOOK_ADMIN_DELETE_KEY/);
-  assert.match(instrumentation, /required\("GUESTBOOK_ADMIN_DELETE_KEY"\)/);
+  assert.match(workflow, /upsert_env \.env\.game MAX_LIVE_INVADERS 50/);
+  assert.match(workflow, /Asset\/waypoints\/waypoint-circle-zone-1\.png/);
+  assert.match(workflow, /Asset\/waypoints\/waypoint-circle-zone-2\.png/);
+  assert.match(workflow, /Asset\/waypoints\/waypoint-circle-zone-3\.png/);
+  assert.match(configure, /GUESTBOOK_MASTER_KEY/);
+  assert.match(instrumentation, /process\.env\.GUESTBOOK_MASTER_KEY/);
 });
 
 test("retains the Phaser game while adding the Colyseus transport", async () => {
@@ -119,6 +125,8 @@ test("composes the in-game relic HUD from focused components", async () => {
   assert.match(minimap, /웨이포인트 위에서 사용할 수 있습니다/);
   assert.match(minimap, /웨이포인트 이동 중/);
   assert.match(minimap, /onWaypointTravel\?\.\(travelRequest\.sourceId, travelRequest\.destinationId\)/);
+  assert.match(hud, /const DEFAULT_BGM_VOLUME = 0;/);
+  assert.match(hud, /className="game-settings-resume"[\s\S]*setSettingsOpen\(false\)[\s\S]*게임으로 돌아가기/);
   assert.doesNotMatch(exploration, /멀티플레이 건설|build-zone-hint|equipment-strip/);
   assert.doesNotMatch(minimap, /PARTY TRAIL|지나온 길|현재 시야|minimap-status|minimap-zoom-controls/);
   assert.match(minimap, /event\.button !== 1/);
@@ -165,12 +173,13 @@ test("renders the dedicated access sidebar with the clean decorative asset", asy
   await Promise.all(profileBadges.map((file) => access(new URL(`public/images/ui/profile-badges/${file}`, root))));
 });
 
-test("keeps only the map builder and default map launch actions", async () => {
+test("keeps only the map builder and start launch actions", async () => {
   const accessScreen = await readFile(new URL("src/features/lobby/AccessScreen.tsx", root), "utf8");
   const shell = await readFile(new URL("src/features/game/GameShell.tsx", root), "utf8");
 
   assert.match(accessScreen, />\s*맵 빌더\s*</);
-  assert.match(accessScreen, />\s*기본 맵\s*</);
+  assert.match(accessScreen, />\s*시작하기\s*</);
+  assert.doesNotMatch(accessScreen, /함께 탐험할 원정대를 찾으세요/);
   assert.doesNotMatch(accessScreen, /증강 밸런스 실험실|마법사로 바로 시작하기|onOpenLab|onQuickPlayMage/);
   assert.doesNotMatch(shell, /AugmentLabScreen|screen === "lab"|quickPlayMage|onOpenLab|onQuickPlayMage/);
 });
@@ -214,7 +223,7 @@ test("reuses the fantasy controls across access and lobby screens", async () => 
   assert.match(accessSidebar, /<FantasyButton[^>]+guest-enter/);
   assert.match(accessSidebar, /minLength=\{2\} maxLength=\{6\} required placeholder="2~6자 이름"/);
   assert.match(await readFile(new URL("app/api/auth/guest/route.ts", root), "utf8"), /displayName\.length > 6/);
-  assert.match(accessScreen, /<FantasyButton[\s\S]*기본 맵/);
+  assert.match(accessScreen, /<FantasyButton[\s\S]*시작하기/);
   assert.match(lobby, /FantasySectionHeading/);
   assert.match(lobby, /FantasyFrame/);
 
@@ -258,8 +267,27 @@ test("reuses generated navigation chrome across lobby and character selection", 
   assert.match(gameShell, /selectionPreloadReadyRef\.current\) launchSelectedRun\(event\)/);
   assert.match(gameShell, /window\.setTimeout\([\s\S]*SELECTION_LAUNCH_DELAY_MS/);
   assert.match(gamePreloader, /GAMEPLAY_IMAGE_ASSETS\.map\(loadImage\)/);
+  assert.match(gamePreloader, /\/Asset\/waypoints\/waypoint-circle-zone-1\.png/);
+  assert.match(gamePreloader, /\/Asset\/waypoints\/waypoint-circle-zone-2\.png/);
+  assert.match(gamePreloader, /\/Asset\/waypoints\/waypoint-circle-zone-3\.png/);
   assert.match(gamePreloader, /image\.decode\(\)/);
 
   const gameCanvas = await readFile(new URL("src/game/client/GameCanvas.tsx", root), "utf8");
   assert.doesNotMatch(gameCanvas, /game-loading|원정 준비 중|gameBridge\.on\("loading"/);
+});
+
+test("keeps waypoint floor assets renderable before activation and inside deployment images", async () => {
+  const scene = await readFile(new URL("src/game/runtime/room/RoomGameScene.ts", root), "utf8");
+  const renderer = await readFile(new URL("src/game/runtime/room/RoomRenderer.ts", root), "utf8");
+  const dockerfile = await readFile(new URL("../../Dockerfile.web", root), "utf8");
+
+  for (const zone of [1, 2, 3]) {
+    const asset = `public/Asset/waypoints/waypoint-circle-zone-${zone}.png`;
+    await access(new URL(asset, root));
+    assert.match(scene, new RegExp(`waypoint-circle-zone-${zone}[^\\n]+/Asset/waypoints/waypoint-circle-zone-${zone}\\.png`));
+  }
+  assert.match(renderer, /permanentFloorCircle = room\.type === "start" \|\| room\.type === "central-waypoint" \|\| room\.type === "checkpoint"/);
+  assert.match(renderer, /this\.scene\.textures\.exists\(textureKey\)/);
+  assert.match(renderer, /const fallback = this\.scene\.add\.graphics\(\)/);
+  assert.match(dockerfile, /COPY --from=builder[^\n]+\/workspace\/apps\/web\/public \.\/apps\/web\/public/);
 });

@@ -13,8 +13,8 @@ import { PartyVitalsHud } from "./hud/PartyVitalsHud";
 import { gameBridge } from "@/src/game/runtime/GameBridge";
 import { resolveRoundGateProgress } from "@/src/game/domain/sharedPartyProgress";
 
-const BGM_VOLUME_STORAGE_KEY = "five-days:bgm-volume:v1";
-const DEFAULT_BGM_VOLUME = 0.38;
+const BGM_VOLUME_STORAGE_KEY = "five-days:bgm-volume:v2";
+const DEFAULT_BGM_VOLUME = 0;
 
 function storedBgmVolume(): number {
   if (typeof window === "undefined") return DEFAULT_BGM_VOLUME;
@@ -171,9 +171,14 @@ export function GameHud({
               <input type="range" min="0" max="100" step="1" value={Math.round(bgmVolume * 100)} aria-label="배경음 음량" onChange={(event) => setBgmVolume(Number(event.target.value) / 100)} />
               <small>{bgmVolume === 0 ? "음소거" : "긴박한 원정 음악"}</small>
             </label>
-            <button type="button" className="game-settings-exit" onClick={onExit}>
-              <span>게임 로비로 나가기</span>
-            </button>
+            <div className="game-settings-actions">
+              <button type="button" className="game-settings-resume" onClick={() => setSettingsOpen(false)}>
+                게임으로 돌아가기
+              </button>
+              <button type="button" className="game-settings-exit" onClick={onExit}>
+                <span>게임 로비로 나가기</span>
+              </button>
+            </div>
           </section>
         </div>
       )}

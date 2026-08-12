@@ -70,6 +70,7 @@ import {
 } from "./layout";
 import { PlayerVisionFog } from "./PlayerVisionFog";
 import { RoomRenderer, type ProgressionBarrier } from "./RoomRenderer";
+import { alignEnemyAttackToRenderTimeline, type RenderPoint } from "./networkCombatVisuals";
 import type { VisionRevealSource } from "./vision";
 
 type LocalEnemyKind = "static" | "hidden" | "gate" | "invader" | "boss";
@@ -868,6 +869,15 @@ export class RoomGameScene extends Phaser.Scene {
       const visible = enemy.alive
         && this.sharesNetworkVisionZone(localState.roomId, resolved.roomId);
       sprite.setPosition(point.x, point.y).setVisible(visible);
+      this.roomRenderer.updateEnemyPose(
+        sprite,
+        this.networkEnemyKinds.get(enemy.id) ?? "static",
+        undefined,
+        undefined,
+        transform?.vx ?? 0,
+        transform?.vy ?? 0,
+        transform?.aim,
+      );
     }
     this.drawNetworkEnemyHpBars(snapshot, localState, now);
   }
@@ -2156,6 +2166,15 @@ export class RoomGameScene extends Phaser.Scene {
     }
   }
 
+  private networkPlayerVisualPosition(userId: string | null): RenderPoint | null {
+    if (!userId) return null;
+    const member = this.latestNetwork?.players.find((candidate) => candidate.userId === userId);
+    if (!member) return null;
+    const sprite = member.isLocal || member.userId === this.options.userId
+      ? this.player : this.remotePlayers.get(member.userId);
+    return sprite?.active && sprite.visible ? { x: sprite.x, y: sprite.y } : null;
+  }
+
   private renderNetworkCombatAction(action: CombatActionEvent): boolean {
     if (action.attackerType === "player") {
       const member = this.latestNetwork?.players.find((candidate) => candidate.userId === action.attackerId);
@@ -2169,7 +2188,18 @@ export class RoomGameScene extends Phaser.Scene {
     const sprite = this.networkEnemies.get(action.attackerId);
     if (!sprite?.active || !sprite.visible) return false;
     if (action.actionKind === "melee") {
-      this.roomRenderer.showEnemyMeleeAttack(sprite, action.targetX, action.targetY);
+      const target = alignEnemyAttackToRenderTimeline(
+        action,
+        { x: sprite.x, y: sprite.y },
+        this.networkPlayerVisualPosition(action.targetId),
+      );
+      this.roomRenderer.updateEnemyPose(
+        sprite,
+        this.networkEnemyKinds.get(action.attackerId) ?? "static",
+        target.x,
+        target.y,
+      );
+      this.roomRenderer.showEnemyMeleeAttack(sprite, target.x, target.y);
     } else {
       const enemy = this.latestNetwork?.enemies.find((candidate) => candidate.id === action.attackerId);
       if (!enemy || !action.patternKind) return false;
@@ -2181,8 +2211,8 @@ export class RoomGameScene extends Phaser.Scene {
         action.patternKind,
         action.actionKind === "pattern-telegraph" ? "telegraph" : "idle",
         enemy.patternIndex,
-        action.startX,
-        action.startY,
+        sprite.x,
+        sprite.y,
         true,
       );
       if (action.actionKind === "pattern-resolve") this.roomRenderer.showImpact(action.targetX, action.targetY, 38, 0xff596c);
@@ -2257,7 +2287,7 @@ export class RoomGameScene extends Phaser.Scene {
 
       const previousHp = this.networkEnemyHp.get(enemy.id);
       if (previousHp !== undefined && enemy.hp < previousHp && visible) {
-        this.roomRenderer.showImpact(enemy.x, enemy.y, 30, 0xffffff);
+        this.roomRenderer.showImpact(sprite.x, sprite.y, 30, 0xffffff);
       }
       this.networkEnemyHp.set(enemy.id, enemy.hp);
 
@@ -2270,8 +2300,8 @@ export class RoomGameScene extends Phaser.Scene {
         enemy.patternKind,
         enemy.patternPhase,
         enemy.patternIndex,
-        enemy.x,
-        enemy.y,
+        sprite.x,
+        sprite.y,
         visible,
       );
     }

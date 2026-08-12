@@ -222,7 +222,7 @@ export class PartyRoom extends Room<PartyRoomState> {
   private readonly activeHumanSessions = new Set<string>();
   private readonly schemaRoomIds = new Map<string, string>();
   private readonly previousTransforms = new Map<string, PreviousTransform>();
-  private lastEnemyFramePositions = new Map<string, { roomId: string; x: number; y: number; revision?: number }>();
+  private lastEnemyFramePositions = new Map<string, { roomId: string; x: number; y: number; aim: number; revision?: number }>();
   private enemyIdsByRoom = new Map<string, Set<string>>();
   private enemyRoomMembership = new Map<string, string>();
   private enemySchemaSnapshots = new Map<string, EnemySchemaSnapshot>();
@@ -1066,8 +1066,17 @@ export class PartyRoom extends Room<PartyRoomState> {
     for (const enemy of this.core.enemies.values()) {
       if (!this.core.discoveredRooms.has(enemy.roomId)) continue;
       const previous = this.lastEnemyFramePositions.get(enemy.id);
+      const target = enemy.targetId ? this.core.players.get(enemy.targetId) : undefined;
+      const movedX = previous ? enemy.x - previous.x : 0;
+      const movedY = previous ? enemy.y - previous.y : 0;
+      const aim = target && target.alive !== false
+        ? Math.atan2(target.y - enemy.y, target.x - enemy.x)
+        : movedX !== 0 || movedY !== 0
+          ? Math.atan2(movedY, movedX)
+          : previous?.aim ?? 0;
       const changed = !previous || previous.revision !== enemy.transformRevision
-        || previous.roomId !== enemy.roomId || previous.x !== enemy.x || previous.y !== enemy.y;
+        || previous.roomId !== enemy.roomId || previous.x !== enemy.x || previous.y !== enemy.y
+        || Math.abs(Math.atan2(Math.sin(aim - previous.aim), Math.cos(aim - previous.aim))) > 0.01;
       if (!enemyKeyframe && !changed) continue;
       enemySamples.set(enemy.id, this.transformSample(
         `enemy:${enemy.id}`,
@@ -1075,13 +1084,14 @@ export class PartyRoom extends Room<PartyRoomState> {
         enemy.roomId,
         enemy.x,
         enemy.y,
-        0,
+        aim,
         serverTime,
       ));
       this.lastEnemyFramePositions.set(enemy.id, {
         roomId: enemy.roomId,
         x: enemy.x,
         y: enemy.y,
+        aim,
         revision: enemy.transformRevision,
       });
     }

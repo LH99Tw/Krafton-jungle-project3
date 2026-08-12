@@ -3,7 +3,7 @@ import { generateKeyPairSync, randomBytes } from "node:crypto";
 import test from "node:test";
 import { validateProductionWebEnvironment } from "../instrumentation-node";
 
-test("production refuses a missing or weak guestbook administrator key", () => {
+test("production refuses a missing or weak guestbook master key", () => {
   const mutableEnv = process.env as Record<string, string | undefined>;
   const original = { ...process.env };
   const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -22,11 +22,15 @@ test("production refuses a missing or weak guestbook administrator key", () => {
     COGNITO_REDIRECT_URI: "https://web.example.com/api/auth/callback",
     PROTOCOL_VERSION: "9",
   });
+  delete mutableEnv.GUESTBOOK_MASTER_KEY;
   delete mutableEnv.GUESTBOOK_ADMIN_DELETE_KEY;
   try {
-    assert.throws(() => validateProductionWebEnvironment(), /GUESTBOOK_ADMIN_DELETE_KEY/);
-    mutableEnv.GUESTBOOK_ADMIN_DELETE_KEY = "x".repeat(31);
+    assert.throws(() => validateProductionWebEnvironment(), /GUESTBOOK_MASTER_KEY/);
+    mutableEnv.GUESTBOOK_MASTER_KEY = "x".repeat(31);
     assert.throws(() => validateProductionWebEnvironment(), /at least 32 characters/);
+    mutableEnv.GUESTBOOK_MASTER_KEY = randomBytes(48).toString("base64url");
+    assert.doesNotThrow(() => validateProductionWebEnvironment());
+    delete mutableEnv.GUESTBOOK_MASTER_KEY;
     mutableEnv.GUESTBOOK_ADMIN_DELETE_KEY = randomBytes(48).toString("base64url");
     assert.doesNotThrow(() => validateProductionWebEnvironment());
   } finally {

@@ -236,27 +236,42 @@ export class RoomRenderer {
   }
 
   updateWaypoints(world: RenderZoneWorld, waypointRooms: ReadonlySet<string>): void {
-    for (const object of this.waypointObjects) object.destroy();
+    for (const object of this.waypointObjects) {
+      this.scene.tweens.killTweensOf(object);
+      object.destroy();
+    }
     this.waypointObjects = [];
     for (const entry of world.rooms) {
-      if (!waypointRooms.has(entry.room.id)) continue;
       const { room, center } = entry;
+      const active = waypointRooms.has(room.id);
+      const permanentFloorCircle = room.type === "start" || room.type === "central-waypoint" || room.type === "checkpoint";
+      if (!active && !permanentFloorCircle) continue;
       const label = room.type === "gate"
         ? room.zone === 3 ? "마왕전 진입 웨이포인트" : "다음 구역 웨이포인트"
         : room.type === "checkpoint" ? "탐색 웨이포인트"
           : room.type === "central-waypoint" ? "중앙 웨이포인트" : "베이스 웨이포인트";
-      const circle = this.scene.add.image(center.x, center.y, `waypoint-circle-zone-${room.zone}`).setDisplaySize(190, 190).setDepth(1).setAlpha(0.82);
-      this.scene.tweens.add({ targets: circle, alpha: { from: 0.68, to: 0.96 }, duration: 1100, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
-      this.waypointObjects.push(
-        circle,
-        this.scene.add.text(center.x, center.y + 58, label, {
-          fontFamily: "sans-serif",
-          fontSize: "11px",
-          color: room.zone === 1 ? "#c8f5bd" : room.zone === 2 ? "#a5f3ef" : "#f5b8eb",
-          backgroundColor: "#13211dcc",
-          padding: { x: 7, y: 4 },
-        }).setOrigin(0.5).setDepth(3),
-      );
+      const fallback = this.scene.add.graphics().setDepth(0.9);
+      fallback.fillStyle(0x07110d, 0.72).fillCircle(center.x, center.y, 82);
+      fallback.lineStyle(3, active ? 0xb8f5dc : 0x65776e, active ? 0.78 : 0.38).strokeCircle(center.x, center.y, 76);
+      fallback.lineStyle(1, active ? 0xe8d99a : 0x839087, active ? 0.66 : 0.28).strokeCircle(center.x, center.y, 57);
+      const textureKey = `waypoint-circle-zone-${room.zone}`;
+      const circle = this.scene.textures.exists(textureKey)
+        ? this.scene.add.image(center.x, center.y, textureKey)
+          .setDisplaySize(190, 190)
+          .setDepth(1)
+          .setAlpha(active ? 0.82 : 0.46)
+        : null;
+      if (circle && active) {
+        this.scene.tweens.add({ targets: circle, alpha: { from: 0.68, to: 0.96 }, duration: 1100, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+      }
+      const labelObject = this.scene.add.text(center.x, center.y + 58, active ? label : "비활성 웨이포인트", {
+        fontFamily: "sans-serif",
+        fontSize: "11px",
+        color: active ? room.zone === 1 ? "#c8f5bd" : room.zone === 2 ? "#a5f3ef" : "#f5b8eb" : "#929b96",
+        backgroundColor: "#13211dcc",
+        padding: { x: 7, y: 4 },
+      }).setOrigin(0.5).setDepth(3);
+      this.waypointObjects.push(fallback, ...(circle ? [circle] : []), labelObject);
     }
   }
 
@@ -1188,15 +1203,25 @@ export class RoomRenderer {
     }
   }
 
-  updateEnemyPose(sprite: Phaser.Physics.Arcade.Sprite, kind: string, targetX?: number, targetY?: number): void {
-    if (!sprite.active || !sprite.body) return;
-    const body = sprite.body as Phaser.Physics.Arcade.Body;
-    const vx = body.velocity.x;
-    const vy = body.velocity.y;
+  updateEnemyPose(
+    sprite: Phaser.GameObjects.Sprite,
+    kind: string,
+    targetX?: number,
+    targetY?: number,
+    movementX?: number,
+    movementY?: number,
+    aim?: number,
+  ): void {
+    if (!sprite.active) return;
+    const body = sprite.body as Phaser.Physics.Arcade.Body | undefined;
+    const vx = movementX ?? body?.velocity.x ?? 0;
+    const vy = movementY ?? body?.velocity.y ?? 0;
     const speedSq = vx * vx + vy * vy;
 
     let angle = 90;
-    if (typeof targetX === "number" && typeof targetY === "number") {
+    if (typeof aim === "number" && Number.isFinite(aim)) {
+      angle = Phaser.Math.RadToDeg(aim);
+    } else if (typeof targetX === "number" && typeof targetY === "number") {
       angle = Phaser.Math.RadToDeg(Math.atan2(targetY - sprite.y, targetX - sprite.x));
     } else if (speedSq > 4) {
       angle = Phaser.Math.RadToDeg(Math.atan2(vy, vx));

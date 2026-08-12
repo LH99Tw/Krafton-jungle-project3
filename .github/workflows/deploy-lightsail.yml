@@ -174,13 +174,16 @@ jobs:
           if [ "${#fastlane_secret}" -lt 32 ]; then
             fastlane_secret=$(openssl rand -base64 48 | tr -d '\n')
           fi
-          guestbook_admin_key=$(awk -F= '/^GUESTBOOK_ADMIN_DELETE_KEY=/{sub(/^[^=]*=/, ""); print; exit}' .env.web)
-          if [ "${#guestbook_admin_key}" -lt 32 ]; then
-            guestbook_admin_key=$(openssl rand -base64 48 | tr -d '\n')
+          guestbook_master_key=$(awk -F= '/^GUESTBOOK_MASTER_KEY=/{sub(/^[^=]*=/, ""); print; exit}' .env.web)
+          if [ "${#guestbook_master_key}" -lt 32 ]; then
+            guestbook_master_key=$(awk -F= '/^GUESTBOOK_ADMIN_DELETE_KEY=/{sub(/^[^=]*=/, ""); print; exit}' .env.web)
+          fi
+          if [ "${#guestbook_master_key}" -lt 32 ]; then
+            guestbook_master_key=$(openssl rand -base64 48 | tr -d '\n')
           fi
           upsert_env .env.web PROTOCOL_VERSION 9
           upsert_env .env.web PUBLIC_PLAYTEST_ENABLED true
-          upsert_env .env.web GUESTBOOK_ADMIN_DELETE_KEY "$guestbook_admin_key"
+          upsert_env .env.web GUESTBOOK_MASTER_KEY "$guestbook_master_key"
           upsert_env .env.game PROTOCOL_VERSION 9
           upsert_env .env.game FASTLANE_ENABLED true
           upsert_env .env.game FASTLANE_HOST 0.0.0.0
@@ -191,7 +194,7 @@ jobs:
           upsert_env .env.game FASTLANE_KEY_PATH /run/secrets/fastlane/tls.key
           upsert_env .env.game FASTLANE_MAINTENANCE_MS 10000
           upsert_env .env.game MAX_ACTIVE_GAMES 8
-          upsert_env .env.game MAX_LIVE_INVADERS 256
+          upsert_env .env.game MAX_LIVE_INVADERS 50
           upsert_env .env.game INVADER_MULTIRATE_PERCENT 10
           upsert_env .env.game INVADER_SCHEDULER_DISABLED false
           upsert_env .env.game INVADER_WARM_HZ 20
@@ -209,6 +212,9 @@ jobs:
           for attempt in $(seq 1 60); do
             game_live=$(curl --fail --silent "https://$GAME_HOST/health/live" 2>/dev/null || true)
             if curl --fail --silent "https://$WEB_HOST/api/health/ready" >/dev/null && \
+               curl --fail --silent "https://$WEB_HOST/Asset/waypoints/waypoint-circle-zone-1.png" >/dev/null && \
+               curl --fail --silent "https://$WEB_HOST/Asset/waypoints/waypoint-circle-zone-2.png" >/dev/null && \
+               curl --fail --silent "https://$WEB_HOST/Asset/waypoints/waypoint-circle-zone-3.png" >/dev/null && \
                curl --fail --silent "https://$GAME_HOST/health/ready" >/dev/null && \
                printf '%s' "$game_live" | grep -q '"fastLane":{"state":"ready"'; then
               exit 0

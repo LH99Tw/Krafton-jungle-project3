@@ -20,7 +20,7 @@ import {
 
 const MAX_ENTRIES = 80;
 const DEFAULT_AUTHOR = "익명의 방문자";
-const ADMIN_DELETE_KEY = process.env.GUESTBOOK_ADMIN_DELETE_KEY;
+const GUESTBOOK_MASTER_KEY = process.env.GUESTBOOK_MASTER_KEY || process.env.GUESTBOOK_ADMIN_DELETE_KEY;
 const scryptAsync = promisify(scrypt);
 let guestbookCache: { expiresAt: number; entries: Awaited<ReturnType<typeof listGuestbookEntries>> } = { expiresAt: 0, entries: [] };
 
@@ -80,7 +80,9 @@ export async function PATCH(request: Request) {
   if (validated instanceof Response) return validated;
   if (Object.keys(validated).length === 0) return apiError("NO_CHANGES", "변경할 내용이 없습니다.", 400);
   try {
-    const passwordError = await requireEntryPassword(id, payload.password);
+    const passwordError = isGuestbookMasterKey(payload.password)
+      ? null
+      : await requireEntryPassword(id, payload.password);
     if (passwordError) return passwordError;
     const entry = await updateGuestbookEntry({ id, ...validated });
     if (!entry) return apiError("NOT_FOUND", "이미 삭제된 방명록입니다.", 404);
@@ -103,7 +105,7 @@ export async function DELETE(request: Request) {
   const id = validId(payload.id);
   if (!id) return apiError("INVALID_ID", "방명록 항목을 찾을 수 없습니다.", 400);
   try {
-    const passwordError = isAdminDeleteKey(payload.password)
+    const passwordError = isGuestbookMasterKey(payload.password)
       ? null
       : await requireEntryPassword(id, payload.password);
     if (passwordError) return passwordError;
@@ -188,10 +190,10 @@ function validPassword(value: unknown): string | null {
   return typeof value === "string" && value.length >= 4 && value.length <= 24 ? value : null;
 }
 
-function isAdminDeleteKey(value: unknown): boolean {
-  if (!ADMIN_DELETE_KEY || typeof value !== "string") return false;
+function isGuestbookMasterKey(value: unknown): boolean {
+  if (!GUESTBOOK_MASTER_KEY || typeof value !== "string") return false;
   const candidate = Buffer.from(value);
-  const expected = Buffer.from(ADMIN_DELETE_KEY);
+  const expected = Buffer.from(GUESTBOOK_MASTER_KEY);
   return candidate.length === expected.length && timingSafeEqual(candidate, expected);
 }
 

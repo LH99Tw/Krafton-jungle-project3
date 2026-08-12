@@ -34,9 +34,21 @@ test("network enemy hp bars are batched at the interpolated sprite positions", (
     scene.indexOf("  private configureInput(): void"),
   );
   assert.match(transformUpdate, /sprite\.setPosition\(point\.x, point\.y\)/);
+  assert.match(transformUpdate, /updateEnemyPose\([\s\S]*?transform\?\.aim/);
   assert.match(transformUpdate, /this\.drawNetworkEnemyHpBars\(snapshot, localState, now\)/);
   assert.match(scene, /const barX = sprite\.x - width \/ 2/);
   assert.doesNotMatch(scene, /networkEnemyHpBars/);
+});
+
+test("network enemy attacks stay on the interpolated render timeline", () => {
+  const scene = readFileSync(new URL("../src/game/runtime/room/RoomGameScene.ts", import.meta.url), "utf8");
+  const combatRender = scene.slice(
+    scene.indexOf("  private renderNetworkCombatAction("),
+    scene.indexOf("  private flushPendingCombatActions("),
+  );
+  assert.match(combatRender, /alignEnemyAttackToRenderTimeline/);
+  assert.match(combatRender, /sprite\.x,[\s\S]*?sprite\.y/);
+  assert.doesNotMatch(combatRender, /updateEnemyPattern\([\s\S]*?action\.startX,[\s\S]*?action\.startY/);
 });
 
 test("network enemies use a bounded render queue without client physics bodies", () => {

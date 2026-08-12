@@ -107,7 +107,7 @@ export function Guestbook({ viewer }: { viewer: Viewer }) {
   }
 
   async function remove(entry: Entry) {
-    const password = passwordFor(entry.id, "삭제하려면 메모 비밀번호를 입력해 주세요.");
+    const password = passwordFor(entry.id, "삭제하려면 메모 비밀번호 또는 마스터키를 입력해 주세요.");
     if (!password) return;
     if (!window.confirm(`“${entry.content.slice(0, 32)}${entry.content.length > 32 ? "…" : ""}” 메모를 정말 떼어낼까요?`)) return;
     const previous = entries;
@@ -166,7 +166,7 @@ export function Guestbook({ viewer }: { viewer: Viewer }) {
   }
 
   async function persistPosition(entry: Entry, originalX: number, originalY: number) {
-    const password = passwordFor(entry.id, "위치를 저장하려면 메모 비밀번호를 입력해 주세요.");
+    const password = passwordFor(entry.id, "위치를 저장하려면 메모 비밀번호 또는 마스터키를 입력해 주세요.");
     if (!password) {
       restorePosition(entry.id, originalX, originalY);
       return;
@@ -195,7 +195,7 @@ export function Guestbook({ viewer }: { viewer: Viewer }) {
     const stored = passwordsRef.current.get(id);
     if (stored) return stored;
     const password = window.prompt(promptMessage);
-    return password && password.length >= 4 && password.length <= 24 ? password : null;
+    return password && password.length >= 4 && password.length <= 128 ? password : null;
   }
 
   function savePassword(id: string, password: string) {
@@ -257,14 +257,16 @@ export function Guestbook({ viewer }: { viewer: Viewer }) {
                 placeholder="익명의 방문자"
                 autoComplete="nickname"
               />
-              <label htmlFor="guestbook-password">메모 비밀번호</label>
+              <label htmlFor="guestbook-password">
+                {editor.mode === "edit" ? "메모 비밀번호 또는 마스터키" : "메모 비밀번호"}
+              </label>
               <input
                 id="guestbook-password"
                 type="password"
                 value={editor.password}
-                onChange={(event) => setEditor({ ...editor, password: event.target.value.slice(0, 24) })}
+                onChange={(event) => setEditor({ ...editor, password: event.target.value.slice(0, editor.mode === "edit" ? 128 : 24) })}
                 minLength={4}
-                maxLength={24}
+                maxLength={editor.mode === "edit" ? 128 : 24}
                 autoComplete={editor.mode === "create" ? "new-password" : "current-password"}
                 required
               />

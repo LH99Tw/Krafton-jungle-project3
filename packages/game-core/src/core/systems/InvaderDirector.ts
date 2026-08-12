@@ -18,6 +18,7 @@ import {
   INVADER_COMBAT_RADIUS,
   INVADER_CORRIDOR_LANE_OFFSET,
   INVADER_DAY_WAVES,
+  INVADER_EMERGENCE_HOLD_TICKS,
   INVADER_INITIAL_SPAWN_DELAY_SECONDS,
   INVADER_MICRO_SPAWN_COUNT,
   INVADER_MICRO_SPAWN_INTERVAL_SECONDS,
@@ -26,6 +27,8 @@ import {
   INVADER_REPLAN_BUDGET_PER_TICK,
   INVADER_RETRY_SECONDS,
   INVADER_SPAWN_SLOTS,
+  INVADER_SPAWN_GROUP_PAUSE_SECONDS,
+  INVADER_SPAWN_GROUP_SIZE,
   INVADER_STALL_DISTANCE,
   INVADER_STALL_SECONDS,
   MAX_PENDING_INVADERS,
@@ -61,6 +64,7 @@ export class InvaderDirector {
   private invaderSpawnAccumulator = 0;
   private invaderSpawnReleaseAccumulator = 0;
   private invaderWaveIndex = 0;
+  private releasedInSpawnGroup = 0;
   private initialSpawnDelayCompleted = false;
   private invaderSerial = 0;
   private retiredInvaders = 0;
@@ -173,7 +177,9 @@ export class InvaderDirector {
   /** Resets wave progress when the phase changes. */
   resetWaveProgress(): void {
     this.invaderSpawnAccumulator = 0;
+    this.invaderSpawnReleaseAccumulator = 0;
     this.invaderWaveIndex = 0;
+    this.releasedInSpawnGroup = 0;
   }
 
   spawn(zone: ZoneId = this.core.currentZone, gateEnemyId?: string, deferReplan = false): CoreEnemy {
@@ -221,7 +227,13 @@ export class InvaderDirector {
     this.core.enemies.set(invader.id, invader);
     this.invaderNavigation.set(invader.id, navigation);
     this.invaderTiers.set(invader.id, "cold");
-    this.scheduleSimulation(invader.id, this.invaderSimulationTick + 1);
+    // Keep a fresh unit at its gate until its first snapshot and emergence
+    // animation can reach clients. This prevents an already-moving unit from
+    // first appearing several metres away from its authoritative spawn point.
+    this.scheduleSimulation(
+      invader.id,
+      this.invaderSimulationTick + (deferReplan ? INVADER_EMERGENCE_HOLD_TICKS : 1),
+    );
     if (deferReplan) this.scheduleInvaderReplan(invader.id, true);
     else this.replanInvader(invader, this.invaderNavigation.get(invader.id) as InvaderNavigation, true);
     return invader;
@@ -421,6 +433,7 @@ export class InvaderDirector {
       this.invaderSpawnAccumulator = 0;
       this.invaderSpawnReleaseAccumulator = 0;
       this.invaderWaveIndex = 0;
+      this.releasedInSpawnGroup = 0;
       this.invaderWaveQueue.length = 0;
       this.pendingInvaders = 0;
       return;
@@ -436,9 +449,15 @@ export class InvaderDirector {
       this.enqueueInvaderWave(spawnGate.id, this.core.currentZone, 1);
     }
     this.invaderSpawnReleaseAccumulator += delta;
-    while (this.invaderSpawnReleaseAccumulator + SIMULATION_EPSILON >= INVADER_MICRO_SPAWN_INTERVAL_SECONDS) {
-      this.invaderSpawnReleaseAccumulator -= INVADER_MICRO_SPAWN_INTERVAL_SECONDS;
-      this.releaseOldestInvaderWave();
+    while (this.invaderWaveQueue.length > 0) {
+      const releaseDelay = this.releasedInSpawnGroup >= INVADER_SPAWN_GROUP_SIZE
+        ? INVADER_SPAWN_GROUP_PAUSE_SECONDS
+        : INVADER_MICRO_SPAWN_INTERVAL_SECONDS;
+      if (this.invaderSpawnReleaseAccumulator + SIMULATION_EPSILON < releaseDelay) break;
+      this.invaderSpawnReleaseAccumulator -= releaseDelay;
+      if (this.releasedInSpawnGroup >= INVADER_SPAWN_GROUP_SIZE) this.releasedInSpawnGroup = 0;
+      const released = this.releaseOldestInvaderWave();
+      if (released > 0) this.releasedInSpawnGroup += released;
     }
     if (this.core.phase !== "day" && this.core.phase !== "night") return;
     const isNight = this.core.phase === "night";
@@ -621,11 +640,11 @@ export class InvaderDirector {
     if (accepted < count) this.invaderCapHits += 1;
   }
 
-  private releaseOldestInvaderWave(): void {
+  private releaseOldestInvaderWave(): number {
     const batch = this.invaderWaveQueue[0];
-    if (!batch) return;
+    if (!batch) return 0;
     const gate = this.core.enemies.get(batch.gateEnemyId);
-    if (!gate?.alive || gate.kind !== "gate") return;
+    if (!gate?.alive || gate.kind !== "gate") return 0;
     const available = Math.max(0, this.maxLiveInvaders - this.liveInvaders);
     const requestedCount = Math.min(batch.remaining, available, INVADER_MICRO_SPAWN_COUNT);
     if (available < batch.remaining && requestedCount === available) this.invaderCapHits += 1;
@@ -641,6 +660,7 @@ export class InvaderDirector {
     batch.remaining -= spawnCount;
     this.pendingInvaders = Math.max(0, this.pendingInvaders - spawnCount);
     if (batch.remaining <= 0) this.invaderWaveQueue.shift();
+    return spawnCount;
   }
 
   private isInvaderSpawnCongested(x: number, y: number): boolean {
