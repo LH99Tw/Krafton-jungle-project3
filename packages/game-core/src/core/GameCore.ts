@@ -241,6 +241,8 @@ export class GameCore {
       dashCooldown: 0,
       skillSequence: 0,
       lastSkillId: null,
+      skillOriginX: startCenter.x,
+      skillOriginY: startCenter.y,
       skillTargetX: startCenter.x,
       skillTargetY: startCenter.y,
       skillRadius: 0,
@@ -457,10 +459,14 @@ export class GameCore {
       player.dashCooldown = 5;
       player.skillSequence += 1;
       player.lastSkillId = "dash";
-      player.skillTargetX = player.x + Math.cos(aim) * 145;
-      player.skillTargetY = player.y + Math.sin(aim) * 145;
-      player.skillRadius = 0;
+      player.skillOriginX = player.x;
+      player.skillOriginY = player.y;
       this.movePlayer(player, Math.cos(aim) * 145, Math.sin(aim) * 145);
+      // The effect target must be the resolved landing point so the client
+      // never renders the dodge trail through a wall or off-screen.
+      player.skillTargetX = player.x;
+      player.skillTargetY = player.y;
+      player.skillRadius = 0;
       return true;
     }
     const definition = autoSkillDefinition(player.heroClass, skillId);
@@ -492,6 +498,8 @@ export class GameCore {
     if (definition.dashDistance) this.movePlayer(player, Math.cos(aim) * definition.dashDistance, Math.sin(aim) * definition.dashDistance);
     player.skillSequence += 1;
     player.lastSkillId = skillId;
+    player.skillOriginX = player.x;
+    player.skillOriginY = player.y;
     player.skillTargetX = targetX;
     player.skillTargetY = targetY;
     player.skillRadius = radius;

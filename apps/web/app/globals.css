@@ -2738,6 +2738,7 @@ button {
 .command-skill i { position:absolute; top:6px; left:6px; width:21px; height:21px; display:grid; place-items:center; color:#e0c36c; border:1px solid #866e39; background:#0a0b0a; font:normal 700 9px ui-monospace,monospace; }
 .command-skill b { max-width:68px; margin-top:12px; overflow:hidden; color:#d8d2c4; font:500 9px "Noto Serif KR",serif; text-overflow:ellipsis; white-space:nowrap; }
 .command-skill small { margin-top:5px; color:#807a6c; font:7px ui-monospace,monospace; }
+.command-skill-icon.is-dash-glyph { display:grid; place-items:center; font:700 24px ui-monospace,monospace; color:#bfe9d8; text-shadow:0 0 8px rgba(191,255,234,.5); }
 .command-skill.is-ready { border-color:rgba(205,177,99,.35); box-shadow:inset 0 0 22px rgba(180,145,62,.06); }
 .command-skill.is-ready small { color:#b9a45f; }
 .command-skill.is-cooling { filter:saturate(.25); opacity:.65; }

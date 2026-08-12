@@ -818,10 +818,50 @@ export class RoomRenderer {
     }
   }
 
-  showDodge(sprite: Phaser.GameObjects.Sprite, targetX: number, targetY: number): void {
-    const trail = this.scene.add.line(0, 0, sprite.x, sprite.y, targetX, targetY, 0xbfffea, 0.8).setLineWidth(8).setDepth(29);
-    const flash = this.scene.add.circle(sprite.x, sprite.y, 26, 0xbfffea, 0.18).setStrokeStyle(3, 0xffffff, 0.9).setDepth(30);
-    this.scene.tweens.add({ targets: [trail, flash], alpha: 0, scale: 1.4, duration: 260, onComplete: () => { trail.destroy(); flash.destroy(); } });
+  /**
+   * Dodge feedback: hero afterimages along the dash path plus a start burst.
+   * Both are anchored to the resolved start/landing points, so the effect can
+   * never spill outside the walkable area or the camera view.
+   */
+  showDodge(sprite: Phaser.GameObjects.Sprite, targetX: number, targetY: number, originX?: number, originY?: number): void {
+    const startX = originX ?? sprite.x;
+    const startY = originY ?? sprite.y;
+    const dx = targetX - startX;
+    const dy = targetY - startY;
+    const distance = Math.hypot(dx, dy);
+    if (distance > 8) {
+      const ghostCount = 4;
+      for (let index = 1; index <= ghostCount; index += 1) {
+        const progress = index / (ghostCount + 1);
+        const ghost = this.scene.add.image(
+          startX + dx * progress,
+          startY + dy * progress,
+          sprite.texture.key,
+          sprite.frame.name,
+        )
+          .setDepth(26)
+          .setAlpha(0.32)
+          .setScale(sprite.scaleX);
+        this.scene.tweens.add({
+          targets: ghost,
+          alpha: 0,
+          scale: ghost.scaleX * 0.88,
+          duration: 260,
+          delay: index * 26,
+          onComplete: () => ghost.destroy(),
+        });
+      }
+    }
+    const burst = this.scene.add.circle(startX, startY, 12, 0xbfffea, 0.3)
+      .setStrokeStyle(3, 0xffffff, 0.9)
+      .setDepth(27);
+    this.scene.tweens.add({
+      targets: burst,
+      radius: 44,
+      alpha: 0,
+      duration: 280,
+      onComplete: () => burst.destroy(),
+    });
   }
 
   showImpact(x: number, y: number, radius: number, color: number): void {

@@ -59,6 +59,8 @@ export type CorePlayer = {
   dashCooldown: number;
   skillSequence: number;
   lastSkillId: "q" | "e" | "dash" | null;
+  skillOriginX: number;
+  skillOriginY: number;
   skillTargetX: number;
   skillTargetY: number;
   skillRadius: number;

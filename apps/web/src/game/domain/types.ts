@@ -85,8 +85,11 @@ export type PartyMemberSnapshot = {
   equipment: EquipmentSummary[];
   qCooldown?: number;
   eCooldown?: number;
+  dashCooldown?: number;
   skillSequence?: number;
   lastSkillId?: "q" | "e" | "dash" | "";
+  skillOriginX?: number;
+  skillOriginY?: number;
   skillTargetX?: number;
   skillTargetY?: number;
   skillRadius?: number;

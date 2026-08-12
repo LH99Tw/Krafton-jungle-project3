@@ -126,9 +126,10 @@ test("composes the in-game relic HUD from focused components", async () => {
   assert.match(minimap, /미니맵을 내 위치 중심의 기본 보기로 되돌리기/);
   assert.match(styles, /\/\* Notices sit directly below[\s\S]*?\.hud-message \{[\s\S]*?top:clamp\(108px,9vw,132px\)/);
   assert.match(styles, /\/\* Center the combat-stat ledger[\s\S]*?\.player-stats-panel \{[\s\S]*?padding:76px 34px 48px/);
-  assert.doesNotMatch(commandBar, /AUTO|TEAM POWER|SPACE/);
+  assert.doesNotMatch(commandBar, /AUTO|TEAM POWER/);
   assert.match(commandBar, /keyName="Q"/);
   assert.match(commandBar, /keyName="E"/);
+  assert.match(commandBar, /DashSlot cooldown=\{snapshot\.dashCooldown\}/);
   assert.match(commandBar, /개인 전투 스탯/);
   assert.match(phase, /phase-day\.png/);
   assert.match(phase, /phase-night\.png/);
