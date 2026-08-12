@@ -56,6 +56,16 @@ export function heroFacingForAim(angle: number): HeroFacingDirection {
   return directions[sector % directions.length];
 }
 
+/** Attack facing overrides movement while the short attack pose is active. */
+export function heroFacingForPose(
+  previous: HeroFacingDirection,
+  movementX: number,
+  movementY: number,
+  attackFacing?: HeroFacingDirection,
+): HeroFacingDirection {
+  return attackFacing ?? heroFacingForMovement(previous, movementX, movementY);
+}
+
 /** Rows are ordered IDLE, LEFT FOOT WALK, RIGHT FOOT WALK. */
 export function heroFrameForPose(facing: HeroFacingDirection, moving: boolean, animationElapsedMs: number): number {
   const direction = HERO_DIRECTION_FRAMES[facing];

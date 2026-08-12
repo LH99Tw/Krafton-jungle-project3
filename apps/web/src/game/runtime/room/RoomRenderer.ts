@@ -14,6 +14,7 @@ import {
   HERO_SPRITE_SCALE,
   heroFacingForAim,
   heroFacingForMovement,
+  heroFacingForPose,
   heroFrameForPose,
   type HeroFacingDirection,
 } from "../../client/render/heroSprites";
@@ -789,7 +790,14 @@ export class RoomRenderer {
   updateHeroPose(hero: Phaser.Physics.Arcade.Sprite, movementX: number, movementY: number, time: number): void {
     const previous = (hero.getData("facingDirection") as HeroFacingDirection | undefined) ?? DEFAULT_HERO_FACING;
     if (time < Number(hero.getData("attackPoseUntil") ?? 0)) {
-      hero.setFrame(heroFrameForPose(previous, false, 0)).setRotation(0);
+      const attackFacing = heroFacingForPose(
+        previous,
+        movementX,
+        movementY,
+        hero.getData("attackFacingDirection") as HeroFacingDirection | undefined,
+      );
+      hero.setData("facingDirection", attackFacing);
+      hero.setFrame(heroFrameForPose(attackFacing, false, 0)).setRotation(0);
       return;
     }
     const facing = heroFacingForMovement(previous, movementX, movementY);
@@ -1193,6 +1201,7 @@ export class RoomRenderer {
     const effectTargetY = classId === "swordsman" ? targetY : attacker.y + Math.sin(angle) * travelDistance;
     const attackFacing = heroFacingForAim(angle);
     attacker.setData("facingDirection", attackFacing);
+    attacker.setData("attackFacingDirection", attackFacing);
     attacker.setFrame(heroFrameForPose(attackFacing, false, 0));
     attacker.setData("attackPoseUntil", this.scene.time.now + 130);
     this.scene.tweens.add({ targets: attacker, scaleX: attacker.scaleX * 1.16, scaleY: attacker.scaleY * 0.9, duration: 55, yoyo: true });

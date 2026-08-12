@@ -11,6 +11,7 @@ import {
   HERO_WALK_PHASE_DURATION_MS,
   heroFacingForAim,
   heroFacingForMovement,
+  heroFacingForPose,
   heroFrameForPose,
 } from "../src/game/client/render/heroSprites";
 
@@ -42,6 +43,13 @@ test("snaps attack aim to the matching four-direction hero facing", () => {
   assert.equal(heroFacingForAim(Math.PI), "left");
   assert.equal(heroFacingForAim(-Math.PI / 2), "up");
   assert.equal(heroFacingForAim(Math.PI * 0.75), "left");
+});
+
+test("active attack facing overrides movement and movement resumes afterward", () => {
+  const movementFacing = heroFacingForPose("down", -1, 0);
+  assert.equal(movementFacing, "left");
+  assert.equal(heroFacingForPose(movementFacing, -1, 0, "right"), "right");
+  assert.equal(heroFacingForPose("right", -1, 0), "left");
 });
 
 test("cycles walk1, idle, walk2, and idle without changing direction", () => {

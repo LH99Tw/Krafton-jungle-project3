@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { PROTOCOL_VERSION, type PlayerInputCommand } from "@five-days/protocol";
 import {
+  ACTOR_COLLISION_RADIUS,
   BOSS_ROOM_ID,
   buildWorldFromRooms,
   CLASS_COMBAT_RULES,
@@ -1357,14 +1358,82 @@ test("solo AI companions: defender guards base, follower is driven toward the le
   }
 
   core.movePlayerToRoom(human.userId, core.maps.zones[0].gateRoomId);
-  const baseCenter = roomWorldCenter({ x: 0, y: 4 });
   const followerInitial = { x: follower.x, y: follower.y };
   for (let index = 0; index < 80; index += 1) core.update(0.1);
-  const defenderNearBase = Math.hypot(defender.x - baseCenter.x, defender.y - baseCenter.y) < 400;
+  const defenderInBase = defender.roomId === core.startRoomId();
   const followerMoved = Math.hypot(follower.x - followerInitial.x, follower.y - followerInitial.y) > 1;
   const followerDriven = follower.inputX !== 0 || follower.inputY !== 0;
-  assert.ok(defenderNearBase, "defender AI should guard the base room");
+  assert.ok(defenderInBase, "defender AI should guard the base room");
   assert.ok(followerMoved || followerDriven, "follower AI should be actively driven toward the leader");
+});
+
+test("defender AI deterministically patrols multiple safe points inside the base", () => {
+  const createPatrol = () => {
+    const core = startedCore("defender-patrol");
+    const defender = core.addPlayer({ userId: "ai:defender", displayName: "guard", heroClass: "swordsman" });
+    const baseRect = core.roomRectOf(core.startRoomId());
+    const positions: Array<Readonly<{ x: number; y: number }>> = [];
+    const stops = new Set<string>();
+    for (let step = 0; step < 500; step += 1) {
+      core.update(0.05);
+      positions.push({ x: defender.x, y: defender.y });
+      if (defender.inputX === 0 && defender.inputY === 0 && step > 0) {
+        stops.add(`${Math.round(defender.x)},${Math.round(defender.y)}`);
+      }
+      assert.ok(defender.x >= baseRect.x + ACTOR_COLLISION_RADIUS);
+      assert.ok(defender.x <= baseRect.x + baseRect.width - ACTOR_COLLISION_RADIUS);
+      assert.ok(defender.y >= baseRect.y + ACTOR_COLLISION_RADIUS);
+      assert.ok(defender.y <= baseRect.y + baseRect.height - ACTOR_COLLISION_RADIUS);
+      assert.equal(defender.roomId, core.startRoomId());
+    }
+    assert.ok(stops.size >= 2, `expected multiple patrol stops, received ${[...stops].join(" | ")}`);
+    return positions;
+  };
+
+  assert.deepEqual(createPatrol(), createPatrol(), "the same run seed and AI id must reproduce the patrol");
+});
+
+test("defender AI intercepts only invaders inside the base and resumes patrol afterward", () => {
+  const core = startedCore("defender-intercept");
+  const defender = core.addPlayer({ userId: "ai:defender", displayName: "guard", heroClass: "swordsman" });
+  const baseRoomId = core.startRoomId();
+  const baseRect = core.roomRectOf(baseRoomId);
+  const invader = core.spawnInvader(1);
+  invader.roomId = baseRoomId;
+  invader.x = Math.min(baseRect.x + baseRect.width - 80, defender.x + 300);
+  invader.y = defender.y;
+  invader.speed = 0;
+  invader.damage = 0;
+  invader.hp = 1_000_000;
+  invader.maxHp = 1_000_000;
+  const hpBefore = invader.hp;
+
+  core.update(0.01);
+  assert.ok(defender.inputX > 0, "the defender should approach the base invader");
+  assert.ok(Math.abs(defender.aim) < 0.001, "the defender should face the invader while moving");
+  for (let step = 0; step < 200 && invader.hp === hpBefore; step += 1) core.update(0.05);
+  assert.ok(invader.hp < hpBefore, "the defender should attack after reaching combat range");
+
+  invader.alive = false;
+  invader.hp = 0;
+  const positionAfterCombat = { x: defender.x, y: defender.y };
+  for (let step = 0; step < 80; step += 1) core.update(0.05);
+  assert.ok(
+    Math.hypot(defender.x - positionAfterCombat.x, defender.y - positionAfterCombat.y) > 1
+      || defender.inputX !== 0
+      || defender.inputY !== 0,
+    "the defender should resume its patrol after the threat is gone",
+  );
+
+  const outsideInvader = core.spawnInvader(1);
+  const outsideRoomId = core.rooms.get(baseRoomId)!.connections[0]!;
+  const outsideCenter = core.roomWorldCenterOf(outsideRoomId);
+  outsideInvader.roomId = outsideRoomId;
+  outsideInvader.x = outsideCenter.x;
+  outsideInvader.y = outsideCenter.y;
+  outsideInvader.speed = 0;
+  for (let step = 0; step < 40; step += 1) core.update(0.05);
+  assert.equal(defender.roomId, baseRoomId, "the defender must not pursue an invader outside the base");
 });
 
 test("follower AI keeps a wider trailing gap and resumes following beyond it", () => {

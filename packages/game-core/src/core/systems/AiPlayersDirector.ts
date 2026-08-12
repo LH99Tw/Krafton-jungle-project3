@@ -1,4 +1,4 @@
-import { CLASS_COMBAT_RULES, selectNearestConeEnemy, type CoreRoomId } from "../../v02/simulation";
+import { CLASS_COMBAT_RULES, selectNearestConeEnemy, type CoreEnemy, type CoreRoomId } from "../../v02/simulation";
 import type { GameCore } from "../GameCore";
 import {
   ACTOR_COLLISION_RADIUS,
@@ -9,6 +9,20 @@ import {
 } from "../constants";
 import type { AiFollowNavigation, CorePlayer } from "../types";
 import { findWalkableDiscPath, isWalkableDiscLine, isWalkableDiscLineIndexed } from "../../v02/world";
+import { createSeededRandom, type RandomSource } from "../../v02/random";
+
+const DEFENDER_PATROL_EDGE_MARGIN = 48;
+const DEFENDER_PATROL_ARRIVAL_RADIUS = 24;
+const DEFENDER_PATROL_MIN_DISTANCE = 96;
+const DEFENDER_PATROL_MIN_WAIT_SECONDS = 0.6;
+const DEFENDER_PATROL_MAX_WAIT_SECONDS = 1.4;
+
+type DefenderPatrolState = {
+  random: RandomSource;
+  targetX: number;
+  targetY: number;
+  waitUntil: number;
+};
 
 /**
  * Drives `ai:` party members. The first AI guards the base (defender); the
@@ -19,6 +33,7 @@ export class AiPlayersDirector {
   private readonly aiFollowNavigation = new Map<string, AiFollowNavigation>();
   private readonly respawnRecovery = new Map<string, { path: readonly Readonly<{ x: number; y: number }>[]; waypointIndex: number }>();
   private readonly partyNavigation = new Map<string, { from: CoreRoomId; to: CoreRoomId; waypointIndex: number }>();
+  private readonly defenderPatrols = new Map<string, DefenderPatrolState>();
 
   constructor(private readonly core: GameCore) {}
 
@@ -26,7 +41,8 @@ export class AiPlayersDirector {
     this.aiFollowNavigation.delete(player.userId);
     this.partyNavigation.delete(player.userId);
     this.respawnRecovery.delete(player.userId);
-    if (!player.aiRole) return;
+    this.defenderPatrols.delete(player.userId);
+    if (player.aiRole !== "follower") return;
     const leader = this.aiLeader(player);
     if (!leader) return;
     const rects = this.recoveryWalkable(player, leader);
@@ -42,11 +58,13 @@ export class AiPlayersDirector {
 
   update(): void {
     for (const player of this.core.players.values()) {
+      if (player.aiRole !== "defender") this.defenderPatrols.delete(player.userId);
       if (!player.aiRole || !player.alive) {
         if (player.aiRole) {
           player.inputX = 0;
           player.inputY = 0;
           this.aiFollowNavigation.delete(player.userId);
+          this.defenderPatrols.delete(player.userId);
         }
         continue;
       }
@@ -74,24 +92,111 @@ export class AiPlayersDirector {
         : null;
       if (recoveryAnchor) {
         this.aiApproach(player, recoveryAnchor.x, recoveryAnchor.y, 12);
+      } else if (player.aiRole === "defender" && player.roomId === targetRoom.id) {
+        const invader = this.nearestBaseInvader(player, targetRoom.id);
+        if (invader) {
+          this.defenderPatrols.delete(player.userId);
+          player.aim = Math.atan2(invader.y - player.y, invader.x - player.x);
+          const attackRange = this.core.combatStats(player.userId)?.attackRange
+            ?? CLASS_COMBAT_RULES[player.heroClass].attackRange;
+          this.aiApproach(player, invader.x, invader.y, attackRange * 0.75);
+          if (this.core.phase === "day" || this.core.phase === "night" || this.core.phase === "boss") {
+            this.core.performAutoAttack(player.userId);
+          }
+        } else {
+          this.updateDefenderPatrol(player);
+        }
       } else if (player.roomId === targetRoom.id) {
         const anchor = player.aiRole === "follower" && leader
           ? { x: leader.x, y: leader.y }
           : this.core.roomWorldCenterOf(targetRoom.id);
         this.aiApproach(player, anchor.x, anchor.y, player.aiRole === "follower" ? AI_FOLLOWER_GAP : 40);
       } else {
+        if (player.aiRole === "defender") this.defenderPatrols.delete(player.userId);
         const nextRoom = this.nextRoomToward(player.roomId, targetRoom.id);
         const anchor = nextRoom
           ? this.authoredPartyNavigationAnchor(player, nextRoom)
           : this.core.roomWorldCenterOf(targetRoom.id);
         this.aiApproach(player, anchor.x, anchor.y, 12);
       }
-      const enemy = this.nearestPlayerInRoomEnemy(player);
+      const enemy = player.aiRole === "defender" ? null : this.nearestPlayerInRoomEnemy(player);
       if (enemy && (this.core.phase === "day" || this.core.phase === "night" || this.core.phase === "boss")) {
         player.aim = Math.atan2(enemy.y - player.y, enemy.x - player.x);
         this.core.performAutoAttack(player.userId);
       }
     }
+  }
+
+  private nearestBaseInvader(player: CorePlayer, baseRoomId: CoreRoomId): CoreEnemy | null {
+    let nearest: CoreEnemy | null = null;
+    let nearestDistance = Number.POSITIVE_INFINITY;
+    for (const enemy of this.core.enemies.values()) {
+      if (!enemy.alive || enemy.behavior !== "invader" || enemy.roomId !== baseRoomId) continue;
+      const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
+      if (distance < nearestDistance) {
+        nearest = enemy;
+        nearestDistance = distance;
+      }
+    }
+    return nearest;
+  }
+
+  private updateDefenderPatrol(player: CorePlayer): void {
+    let patrol = this.defenderPatrols.get(player.userId);
+    if (!patrol) {
+      const random = createSeededRandom(`${this.core.options.seed}:defender-patrol:${player.userId}`);
+      const target = this.nextDefenderPatrolTarget(player, random);
+      patrol = { random, targetX: target.x, targetY: target.y, waitUntil: 0 };
+      this.defenderPatrols.set(player.userId, patrol);
+    }
+
+    const distance = Math.hypot(patrol.targetX - player.x, patrol.targetY - player.y);
+    if (distance > DEFENDER_PATROL_ARRIVAL_RADIUS) {
+      patrol.waitUntil = 0;
+      this.aiApproach(player, patrol.targetX, patrol.targetY, DEFENDER_PATROL_ARRIVAL_RADIUS);
+      return;
+    }
+
+    player.inputX = 0;
+    player.inputY = 0;
+    if (patrol.waitUntil === 0) {
+      const waitRange = DEFENDER_PATROL_MAX_WAIT_SECONDS - DEFENDER_PATROL_MIN_WAIT_SECONDS;
+      patrol.waitUntil = this.core.elapsed + DEFENDER_PATROL_MIN_WAIT_SECONDS + patrol.random.next() * waitRange;
+      return;
+    }
+    if (this.core.elapsed < patrol.waitUntil) return;
+
+    const target = this.nextDefenderPatrolTarget(player, patrol.random);
+    patrol.targetX = target.x;
+    patrol.targetY = target.y;
+    patrol.waitUntil = 0;
+    this.aiApproach(player, patrol.targetX, patrol.targetY, DEFENDER_PATROL_ARRIVAL_RADIUS);
+  }
+
+  private nextDefenderPatrolTarget(player: CorePlayer, random: RandomSource): Readonly<{ x: number; y: number }> {
+    const rect = this.core.roomRectOf(this.core.startRoomId());
+    const inset = ACTOR_COLLISION_RADIUS + DEFENDER_PATROL_EDGE_MARGIN;
+    const minimumX = rect.x + inset;
+    const maximumX = rect.x + rect.width - inset;
+    const minimumY = rect.y + inset;
+    const maximumY = rect.y + rect.height - inset;
+    if (maximumX <= minimumX || maximumY <= minimumY) return this.core.roomWorldCenterOf(this.core.startRoomId());
+
+    let best = { x: minimumX, y: minimumY };
+    let bestDistance = -1;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const candidate = {
+        x: minimumX + random.next() * (maximumX - minimumX),
+        y: minimumY + random.next() * (maximumY - minimumY),
+      };
+      const distance = Math.hypot(candidate.x - player.x, candidate.y - player.y);
+      if (distance >= DEFENDER_PATROL_MIN_DISTANCE) return candidate;
+      if (distance > bestDistance) {
+        best = candidate;
+        bestDistance = distance;
+      }
+    }
+    return best;
   }
 
   private aiLeader(ai: CorePlayer): CorePlayer | null {

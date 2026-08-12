@@ -478,6 +478,33 @@ test("crossing into a connected room keeps a continuous transform while a real t
   assert.equal(teleport.vx, 0);
 });
 
+test("stopped transforms publish zero velocity and restart from the latest stationary sample", () => {
+  const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
+  harness.previousTransforms = new Map();
+  const transformSample = (PartyRoom.prototype as unknown as {
+    transformSample(
+      this: PartyRoom,
+      cacheKey: string,
+      id: string,
+      roomId: string,
+      x: number,
+      y: number,
+      aim: number,
+      serverTime: number,
+    ): { vx: number; vy: number };
+  }).transformSample;
+
+  transformSample.call(harness as unknown as PartyRoom, "player:ai", "ai", "base", 100, 100, 0, 1_000);
+  const moving = transformSample.call(harness as unknown as PartyRoom, "player:ai", "ai", "base", 110, 100, 0, 1_100);
+  const stopped = transformSample.call(harness as unknown as PartyRoom, "player:ai", "ai", "base", 110, 100, 0, 1_200);
+  const restarted = transformSample.call(harness as unknown as PartyRoom, "player:ai", "ai", "base", 120, 100, 0, 1_300);
+
+  assert.equal(moving.vx, 100);
+  assert.equal(stopped.vx, 0);
+  assert.equal(stopped.vy, 0);
+  assert.equal(restarted.vx, 100, "stationary time must not dilute the resumed movement velocity");
+});
+
 test("world frames send enemy deltas and recover with a five-second keyframe", () => {
   const frames: WorldFrame[] = [];
   const player = { userId: "viewer", roomId: "room-a", x: 10, y: 10, aim: 0 };
