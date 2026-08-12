@@ -3,7 +3,6 @@ import type { RoomMapCell } from "./types";
 export type SharedPartyProgressInput = {
   baseHp: number;
   baseMaxHp: number;
-  gold: number;
   currentZone: number;
   teamLevel: number;
   teamXp: number;
@@ -27,7 +26,6 @@ export function resolveSharedPartyProgress(input: SharedPartyProgressInput) {
   return {
     baseHp: input.baseHp,
     baseMaxHp: input.baseMaxHp,
-    gold: input.gold,
     level: input.teamLevel,
     xp: input.teamXp,
     xpToNext: input.teamXpToNext,

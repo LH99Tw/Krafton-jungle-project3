@@ -81,7 +81,6 @@ type PlayerStateLike = {
   kills?: number;
   deaths?: number;
   structuresBuilt?: number;
-  goldSpent?: number;
   gatesDestroyed?: number;
   ready?: boolean;
   connected?: boolean;
@@ -120,9 +119,8 @@ type PlayerStateLike = {
     defenseBonus?: number;
     attackSpeedBonus?: number;
   };
-  inventory?: SchemaCollection<{ id?: string; slot?: string; rarity?: string; upgradeLevel?: number }>;
+  inventory?: SchemaCollection<{ id?: string; slot?: string; rarity?: string }>;
   respawnRoomId?: string;
-  gambleAttempts?: number;
   altarAttempts?: number;
   shrineBuff?: string;
   shrineBuffRemaining?: number;
@@ -184,8 +182,7 @@ type DropStateLike = {
   specialOptionCount?: number;
   claimed?: boolean;
 };
-type SpecialRoomStateLike = { roomId?: string; kind?: string; shrineKind?: string; shrineClaimedBy?: string; shrineClaimingBy?: string; shrineClaimProgress?: number; trapPhase?: string; trapDebuff?: string; trapParticipants?: SchemaCollection<string>; goldClaimed?: boolean };
-type ShopOfferStateLike = { id?: string; playerId?: string; roomId?: string; kind?: string; slot?: string; rarity?: string; price?: number; sold?: boolean; locked?: boolean };
+type SpecialRoomStateLike = { roomId?: string; kind?: string; shrineKind?: string; shrineClaimedBy?: string; shrineClaimingBy?: string; shrineClaimProgress?: number; trapPhase?: string; trapDebuff?: string; trapParticipants?: SchemaCollection<string> };
 
 type PartyStateLike = {
   matchId?: string;
@@ -199,7 +196,6 @@ type PartyStateLike = {
   phaseEndsAt?: number;
   baseHp?: number;
   baseMaxHp?: number;
-  gold?: number;
   currentZone?: number;
   teamLevel?: number;
   teamXp?: number;
@@ -212,7 +208,6 @@ type PartyStateLike = {
   enemies?: SchemaCollection<EnemyStateLike>;
   drops?: SchemaCollection<DropStateLike>;
   specialRooms?: SchemaCollection<SpecialRoomStateLike>;
-  shopOffers?: SchemaCollection<ShopOfferStateLike>;
 };
 
 class ColyseusTransport {
@@ -332,7 +327,7 @@ class ColyseusTransport {
     this.send("equipment.equip", { dropId });
   }
 
-  specialCommand(type: "shop.buy" | "shop.reroll" | "shop.lock" | "shop.sell" | "shop.upgrade" | "equipment.inventory-equip" | "shrine.claim" | "checkpoint.set" | "gamble.play" | "altar.reroll" | "gold.claim", payload: Record<string, string | number> = {}): void {
+  specialCommand(type: "equipment.inventory-equip" | "equipment.inventory-discard" | "shrine.claim" | "checkpoint.set" | "altar.reroll", payload: Record<string, string | number> = {}): void {
     this.send(type, payload);
   }
 
@@ -680,10 +675,9 @@ class ColyseusTransport {
       isLocal: player.userId === this.localUserId,
       equipment: equipmentSummaries(player.equipment),
       inventory: collectionValues(player.inventory).map((item) => item.id && isDropSlot(item.slot) && isDropRarity(item.rarity) ? {
-        id: item.id, slot: item.slot, rarity: item.rarity, upgradeLevel: item.upgradeLevel ?? 0,
+        id: item.id, slot: item.slot, rarity: item.rarity,
       } : null),
       respawnRoomId: player.respawnRoomId ?? "",
-      gambleAttempts: player.gambleAttempts ?? 0,
       altarAttempts: player.altarAttempts ?? 0,
       shrineBuff: player.shrineBuff ?? "",
       shrineBuffRemaining: player.shrineBuffRemaining ?? 0,
@@ -734,7 +728,6 @@ class ColyseusTransport {
       kills: total.kills + (player.kills ?? 0),
       deaths: total.deaths + (player.deaths ?? 0),
       structuresBuilt: total.structuresBuilt + (player.structuresBuilt ?? 0),
-      goldSpent: total.goldSpent + (player.goldSpent ?? 0),
       gatesDestroyed: total.gatesDestroyed + (player.gatesDestroyed ?? 0),
     }), {
       damage: 0,
@@ -742,7 +735,6 @@ class ColyseusTransport {
       kills: 0,
       deaths: 0,
       structuresBuilt: 0,
-      goldSpent: 0,
       gatesDestroyed: 0,
     });
     const connections = new Map<string, string[]>();
@@ -815,7 +807,6 @@ class ColyseusTransport {
       phaseEndsAt: state.phaseEndsAt ?? 0,
       baseHp: state.baseHp ?? 0,
       baseMaxHp: state.baseMaxHp ?? 900,
-      gold: state.gold ?? 0,
       currentZone: state.currentZone ?? 1,
       teamLevel: state.teamLevel ?? 1,
       teamXp: state.teamXp ?? 0,
@@ -833,12 +824,7 @@ class ColyseusTransport {
         roomId: entry.roomId ?? "", kind: entry.kind ?? "", shrineKind: entry.shrineKind ?? "",
         shrineClaimedBy: entry.shrineClaimedBy ?? "", shrineClaimingBy: entry.shrineClaimingBy ?? "",
         shrineClaimProgress: entry.shrineClaimProgress ?? 0, trapPhase: entry.trapPhase ?? "", trapDebuff: entry.trapDebuff ?? "",
-        goldClaimed: entry.goldClaimed ?? false,
         trapParticipants: collectionValues(entry.trapParticipants),
-      })),
-      shopOffers: collectionValues(state.shopOffers).filter((offer) => offer.playerId === this.localUserId).map((offer) => ({
-        id: offer.id ?? "", playerId: offer.playerId ?? "", roomId: offer.roomId ?? "", kind: offer.kind ?? "",
-        slot: offer.slot ?? "", rarity: offer.rarity ?? "", price: offer.price ?? 0, sold: offer.sold ?? false, locked: offer.locked ?? false,
       })),
     };
     this.latestState = snapshot;
@@ -893,7 +879,7 @@ function isNetworkResult(value: string | undefined): value is Exclude<NetworkWor
 
 function isRoomType(value: string | undefined): value is RoomMapCell["type"] {
   return value === "start" || value === "gate" || value === "resource" || value === "static-monster" || value === "empty" || value === "central-waypoint" || value === "hidden-monster" || value === "boss"
-    || value === "shop" || value === "shrine" || value === "trap" || value === "checkpoint" || value === "gamble" || value === "altar";
+    || value === "shrine" || value === "trap" || value === "checkpoint" || value === "altar";
 }
 
 function isEnemyBehavior(value: string | undefined): value is NetworkEnemySnapshot["behavior"] {

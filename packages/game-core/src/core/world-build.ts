@@ -14,11 +14,13 @@ import {
 import type { ThreeZoneMap } from "../v02/map";
 import { createSeededRandom } from "../v02/random";
 import type { GameCoreOptions } from "./types";
+import type { BalancePartySize } from "../v02/balance";
 
 export function createAuthoredRuntimeWorld(
   definition: CoreWorldDefinition,
   seed: string,
   difficulty: GameCoreOptions["difficulty"],
+  balancePartySize: BalancePartySize = 1,
 ): RuntimeWorld {
   const activeGateCandidates = selectGateCandidates(definition, seed);
   const rooms = new Map<CoreRoomId, CoreRoom>();
@@ -38,7 +40,7 @@ export function createAuthoredRuntimeWorld(
       depth: room.depth,
       connections: room.connections,
       discovered: room.id === definition.baseRoomId,
-      cleared: ["start", "empty", "central-waypoint", "shop", "shrine", "checkpoint", "gamble", "altar", "gold"].includes(runtimeKind),
+      cleared: ["start", "empty", "central-waypoint", "shrine", "checkpoint", "altar"].includes(runtimeKind),
       rect: room.rect,
     });
     const enemyKind = runtimeKind === "static-monster" ? "static"
@@ -55,6 +57,7 @@ export function createAuthoredRuntimeWorld(
         room.rect.y,
         room.rect.width,
         room.rect.height,
+        balancePartySize,
       );
       enemies.set(enemy.id, enemy);
     }

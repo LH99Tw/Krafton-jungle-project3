@@ -17,11 +17,15 @@ import {
 test("caps progression at level 30 and reports every crossed level", () => {
   assert.equal(MAX_LEVEL, 30);
   assert.deepEqual(MILESTONE_LEVELS, [10, 20, 30]);
-  assert.equal(xpRequiredForNextLevel(1), 23);
-  assert.equal(xpRequiredForNextLevel(29), 275);
+  assert.equal(xpRequiredForNextLevel(1), 20);
+  assert.equal(xpRequiredForNextLevel(2), 30);
+  assert.equal(xpRequiredForNextLevel(29), 280);
   assert.equal(xpRequiredForNextLevel(30), null);
+  for (let level = 1; level < MAX_LEVEL; level += 1) {
+    assert.equal((xpRequiredForNextLevel(level) ?? 0) % 10, 0);
+  }
 
-  const oneLevel = addExperience({ level: 1, xp: 0 }, 23);
+  const oneLevel = addExperience({ level: 1, xp: 0 }, 20);
   assert.deepEqual(oneLevel.progress, { level: 2, xp: 0 });
   assert.deepEqual(oneLevel.gainedLevels, [2]);
 
@@ -44,7 +48,18 @@ test("general pool is attack-only and has enough capacity for 26 regular choices
   assert.equal(GENERAL_AUGMENTS.length, 10);
   assert.ok(GENERAL_AUGMENTS.every((augment) => augment.pool === "general"));
   assert.ok(GENERAL_AUGMENTS.every((augment) => augment.maxStacks >= 2));
-  assert.ok(!GENERAL_AUGMENTS.some((augment) => ["vitality", "armor", "mobility"].includes(augment.id)));
+  assert.ok(GENERAL_AUGMENTS.every((augment) => [
+    "attack-flat",
+    "attack-speed-percent",
+    "class-adaptive-multishot",
+    "skill-power-percent",
+    "critical-chance-points",
+    "critical-damage-percent",
+    "major-target-damage-percent",
+    "skill-cooldown-reduction-percent",
+    "attack-area-percent",
+    "consecutive-hit-damage",
+  ].includes(augment.effect.kind)));
 });
 
 test("each class has five one-time milestone augments", () => {

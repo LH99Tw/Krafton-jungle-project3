@@ -25,7 +25,7 @@ type LobbyMetadata = {
   roomName: string;
   phase: "waiting" | "selecting" | "in_game";
   sessionMode: "prototype" | "full";
-  difficulty: "easy" | "normal" | "hard";
+  difficulty: "normal" | "hard";
   partySize: number;
 };
 

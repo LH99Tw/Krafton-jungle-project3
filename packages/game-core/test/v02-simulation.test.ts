@@ -784,6 +784,23 @@ test("gate invaders split evenly between the base and nearby players", () => {
   assert.equal(invaders.filter((invader) => invader.targetId === "base").length, invaders.length / 2);
 });
 
+test("night invaders assign seventy-five percent of spawns to the base", () => {
+  const core = startedCore("night-invader-targets");
+  core.phase = "night";
+  const player = core.players.get("p1")!;
+  const invaders = Array.from({ length: 12 }, () => core.spawnInvader(1));
+  core.movePlayerToRoom(player.userId, invaders[0]!.roomId);
+  player.hp = 10_000;
+  player.maxHp = 10_000;
+  for (const [index, invader] of invaders.entries()) {
+    invader.x = player.x + 100 + index;
+    invader.y = player.y;
+  }
+  core.update(0.01);
+  assert.equal(invaders.filter((invader) => invader.targetId === player.userId).length, 3);
+  assert.equal(invaders.filter((invader) => invader.targetId === "base").length, 9);
+});
+
 test("a 21-invader wave leaves its distributed gate slots without corridor deadlock", () => {
   const core = startedCore("invader-large-wave");
   core.setConnected("p1", false);
@@ -854,23 +871,33 @@ test("stalled invaders blacklist the blocked edge and safely choose another rout
   assert.equal(invader.y, invader.spawnY);
 });
 
-test("resource rooms grant a nearby pickup before producing shared gold every five seconds", () => {
-  const core = startedCore("resource-production");
+test("resource rooms grant one personal equipment cache without repeat production", () => {
+  const core = startedCore("resource-cache");
   const player = core.players.get("p1")!;
   const resources = [...core.rooms.values()].filter((room) => room.kind === "resource");
   assert.ok(resources.length >= 2);
-  const initialGold = core.gold;
   core.movePlayerToRoom(player.userId, resources[0]!.id);
   core.update(0.1);
-  assert.equal(core.gold, initialGold + 15, "moving onto the icon should collect its one-time gold reward");
-  for (let index = 0; index < 49; index += 1) core.update(0.1);
-  assert.equal(core.gold, initialGold + 16);
+  assert.equal(resources[0]!.cleared, true);
+  const firstRewardIds = new Set([
+    ...Object.values(player.equipment).flatMap((item) => item ? [item.id] : []),
+    ...core.drops.keys(),
+  ]);
+  assert.ok(firstRewardIds.size > 0);
+  for (let index = 0; index < 50; index += 1) core.update(0.1);
+  assert.deepEqual(new Set([
+    ...Object.values(player.equipment).flatMap((item) => item ? [item.id] : []),
+    ...core.drops.keys(),
+  ]), firstRewardIds);
 
   core.movePlayerToRoom(player.userId, resources[1]!.id);
   core.update(0.1);
-  assert.equal(core.gold, initialGold + 31, "each resource room should expose its own collectible icon");
-  for (let index = 1; index < 50; index += 1) core.update(0.1);
-  assert.equal(core.gold, initialGold + 33, "two collected resource rooms must produce independently");
+  assert.equal(resources[1]!.cleared, true);
+  const secondRewardIds = new Set([
+    ...Object.values(player.equipment).flatMap((item) => item ? [item.id] : []),
+    ...core.drops.keys(),
+  ]);
+  assert.ok([...secondRewardIds].some((id) => !firstRewardIds.has(id)));
 });
 
 test("normal static enemies respawn at their exact spawn after the mode-specific delay", () => {
@@ -1059,18 +1086,18 @@ test("boss pattern volley damages players inside the boss room", () => {
   assert.equal(boss.alive, true);
 });
 
-test("a living gate spawns exactly 36 daytime and 120 nighttime invaders per phase", () => {
+test("a living gate spawns the normal 36 daytime and 168 nighttime invaders per phase", () => {
   const core = startedCore("day-spawn");
   const spawnedOrQueued = () => core.liveInvaderCount + core.pendingInvaderCount + core.retiredInvaderCount;
   for (let index = 0; index < 99; index += 1) core.update(0.1);
   assert.equal(spawnedOrQueued(), 0, "the first gate wave must wait until ten seconds after the match starts");
   core.update(0.1);
-  assert.equal(spawnedOrQueued(), 1, "the first gate wave starts at the ten-second mark");
+  assert.equal(spawnedOrQueued(), 4, "the first balanced gate wave starts at the ten-second mark");
   for (let index = 100; index < 300; index += 1) core.update(0.1);
   assert.equal(
     spawnedOrQueued(),
-    6,
-    "the delayed first half of daytime should contain only the first three scheduled waves",
+    13,
+    "the delayed first half of daytime should contain only the first balanced waves",
   );
   while (core.phase === "day") core.update(0.1);
   assert.equal(
@@ -1081,14 +1108,14 @@ test("a living gate spawns exactly 36 daytime and 120 nighttime invaders per pha
   for (let index = 0; index < 125; index += 1) core.update(0.1);
   assert.equal(
     spawnedOrQueued(),
-    71,
-    "the first half of nighttime should add only 35 invaders",
+    120,
+    "the first half of nighttime should add 84 invaders",
   );
   while (core.phase === "night") core.update(0.1);
   assert.equal(
     spawnedOrQueued(),
-    156,
-    "a living gate should add 120 invaders during the full nighttime phase",
+    204,
+    "a living gate should add 168 invaders during the full nighttime phase",
   );
 });
 
@@ -1553,7 +1580,6 @@ function enemy(id: string, roomId: CoreEnemy["roomId"], x: number, y: number): C
     attackRange: 30,
     attackCooldown: 0,
     xpReward: 0,
-    goldReward: 0,
     alive: true,
     aggroed: false,
     targetId: null,

@@ -204,7 +204,6 @@ export class RoomGameScene extends Phaser.Scene {
     kills: 0,
     deaths: 0,
     structuresBuilt: 0,
-    goldSpent: 0,
     gatesDestroyed: 0,
   };
 
@@ -327,14 +326,11 @@ export class RoomGameScene extends Phaser.Scene {
     this.load.image("enemy-gate-asset", "/images/rift_gate.png");
     this.load.image("enemy-boss-bull-asset", "/images/boss_bull.png");
     this.load.image("enemy-boss-dragon-asset", "/images/boss_dragon.png");
-    this.load.image("resource-gold-pickup", "/Asset/pickups/gold-pile.png");
     this.load.image("expedition-base-house", "/Asset/environment/expedition-base-house-v1.png");
-    this.load.image("special-room-shop", "/Asset/special-rooms/merchant-wagon.webp");
     this.load.image("special-room-shrine", "/Asset/special-rooms/echo-shrine.webp");
     this.load.image("special-room-shrine-used", "/Asset/special-rooms/echo-shrine-used.webp");
     this.load.image("special-room-trap", "/Asset/special-rooms/trap-device.webp");
     this.load.image("special-room-checkpoint", "/Asset/special-rooms/checkpoint-runestone.webp");
-    this.load.image("special-room-gamble", "/Asset/special-rooms/gamble-wheel.webp");
     this.load.image("special-room-altar", "/Asset/special-rooms/blood-altar.webp");
     this.load.image("waypoint-circle-zone-1", "/Asset/waypoints/waypoint-circle-zone-1.png");
     this.load.image("waypoint-circle-zone-2", "/Asset/waypoints/waypoint-circle-zone-2.png");
@@ -1058,6 +1054,7 @@ export class RoomGameScene extends Phaser.Scene {
         sprite.x,
         sprite.y,
         true,
+        kind === "boss" ? Math.min(3, Math.floor((1 - enemy.hp / enemy.maxHp) * 4)) : 0,
       );
       if (action.actionKind === "pattern-resolve") {
         const isBoss = kind === "boss";
@@ -1303,7 +1300,6 @@ export class RoomGameScene extends Phaser.Scene {
     const shared = resolveSharedPartyProgress({
       baseHp: state?.baseHp ?? 0,
       baseMaxHp: state?.baseMaxHp ?? BASE_MAX_HP,
-      gold: state?.gold ?? 0,
       currentZone: state?.currentZone ?? 1,
       teamLevel: state?.teamLevel ?? 1,
       teamXp: state?.teamXp ?? 0,
@@ -1325,7 +1321,6 @@ export class RoomGameScene extends Phaser.Scene {
       level: shared.level,
       xp: shared.xp,
       xpToNext: shared.xpToNext,
-      gold: shared.gold,
       teamPower: state?.players.reduce((sum, member) => sum + member.teamPower, 0) ?? 0,
       gatesDestroyed: shared.gatesDestroyed,
       buildMode: null,
@@ -1363,13 +1358,11 @@ export class RoomGameScene extends Phaser.Scene {
         destinationId: activeWaypoint?.destinationId ?? "",
         holdProgress: activeWaypoint?.holdProgress ?? state?.waypointHoldProgress ?? 0,
       },
-      specialRoom: currentRoom && ["shop", "shrine", "trap", "checkpoint", "gamble", "altar", "gold"].includes(currentRoom.type) ? {
+      specialRoom: currentRoom && ["shrine", "trap", "checkpoint", "altar"].includes(currentRoom.type) ? {
         kind: currentRoom.type,
         state: state?.specialRooms.find((entry) => entry.roomId === currentRoom.id) ?? null,
-        offers: state?.shopOffers.filter((offer) => offer.roomId === currentRoom.id) ?? [],
         inventory: local?.inventory ?? [],
         respawnRoomId: local?.respawnRoomId ?? "",
-        gambleAttempts: local?.gambleAttempts ?? 0,
         altarAttempts: local?.altarAttempts ?? 0,
         shrineBuff: local?.shrineBuff ?? "",
         shrineBuffRemaining: local?.shrineBuffRemaining ?? 0,

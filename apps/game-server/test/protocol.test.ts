@@ -42,7 +42,7 @@ test("rejects out-of-range player input", () => {
   assert.equal(result.success, false);
 });
 
-test("resolves protocol v9 room party mode and rejects older versions", () => {
+test("resolves protocol v10 room options and rejects easy or older clients", () => {
   const defaults = roomOptionsSchema.parse({
     heroClass: "swordsman",
     protocolVersion: PROTOCOL_VERSION,
@@ -61,26 +61,30 @@ test("resolves protocol v9 room party mode and rejects older versions", () => {
     mapRevision: OFFICIAL_MAP_MANIFEST.mapRevision,
   });
   assert.equal(solo.partyMode, "solo");
+  assert.equal(roomOptionsSchema.safeParse({ ...solo, difficulty: "easy" }).success, false);
   assert.equal(roomOptionsSchema.safeParse({ ...solo, protocolVersion: 1 }).success, false);
   assert.equal(roomOptionsSchema.safeParse({ ...solo, mapRevision: undefined }).success, false);
   assert.doesNotThrow(() => assertOfficialMapRevision(OFFICIAL_MAP_MANIFEST.mapRevision));
   assert.throws(() => assertOfficialMapRevision("outdated-map"), /MAP_REVISION_MISMATCH/);
 });
 
-test("accepts the v9 interaction, travel, recall, and equipment commands", () => {
+test("accepts the v10 interaction, travel, recall, and equipment commands", () => {
   const base = { v: PROTOCOL_VERSION, seq: 7, clientTime: 12.5 } as const;
   const commands = [
     { ...base, type: "player.interact", payload: { targetId: "gate-zone-1" } },
     { ...base, type: "travel.request", payload: { waypointId: "wp-start", destinationId: "wp-center" } },
     { ...base, type: "recall.request", payload: {} },
     { ...base, type: "equipment.equip", payload: { dropId: "drop-mythic-1" } },
-    { ...base, type: "gold.claim", payload: {} },
+    { ...base, type: "equipment.inventory-discard", payload: { inventoryIndex: 0 } },
   ];
 
   for (const command of commands) assert.equal(clientCommandSchema.safeParse(command).success, true);
+  for (const type of ["gold.claim", "gamble.play", "shop.buy"]) {
+    assert.equal(clientCommandSchema.safeParse({ ...base, type, payload: {} }).success, false);
+  }
 });
 
-test("strictly validates protocol v9 combat action events", () => {
+test("strictly validates protocol v10 combat action events", () => {
   const event = {
     v: PROTOCOL_VERSION,
     sequence: 1,
@@ -118,7 +122,7 @@ test("strictly validates every command envelope and payload", () => {
   assert.equal(clientCommandSchema.safeParse({ ...valid, payload: { ...valid.payload, unexpected: true } }).success, false);
 });
 
-test("exposes the v9 room state graph through Colyseus schema collections", () => {
+test("exposes the v10 room state graph through Colyseus schema collections", () => {
   const state = new PartyRoomState();
   state.seed = "seed-001";
   state.currentZone = 2;
@@ -175,7 +179,7 @@ test("exposes the v9 room state graph through Colyseus schema collections", () =
   assert.equal(state.drops.size, 1);
 });
 
-test("validates v9 input and AOI world frames", () => {
+test("validates v10 input and AOI world frames", () => {
   assert.equal(inputFrameSchema.safeParse({
     v: PROTOCOL_VERSION,
     seq: 4,
@@ -260,6 +264,7 @@ test("consumes each game ticket jti only once", async () => {
 test("validates lobby creation, class selection, and chat payloads", () => {
   assert.equal(lobbyCreateOptionsSchema.safeParse({ roomName: "새벽 원정대", protocolVersion: PROTOCOL_VERSION }).success, true);
   assert.equal(lobbyCreateOptionsSchema.safeParse({ roomName: "x", protocolVersion: PROTOCOL_VERSION }).success, false);
+  assert.equal(lobbyCreateOptionsSchema.safeParse({ roomName: "Legacy", difficulty: "easy", protocolVersion: PROTOCOL_VERSION }).success, false);
   assert.equal(lobbyClassSelectSchema.safeParse({ heroClass: null }).success, true);
   assert.equal(lobbyChatSchema.safeParse({ message: "원정 준비 완료" }).success, true);
   assert.equal(lobbyChatSchema.safeParse({ message: "x".repeat(181) }).success, false);

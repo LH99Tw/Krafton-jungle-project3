@@ -1,0 +1,1 @@
+ALTER TABLE "match_players" DROP COLUMN "gold_spent";

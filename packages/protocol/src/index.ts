@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 export const PLAYER_VISION_RADIUS = 800;
 export const NIGHT_PLAYER_VISION_RADIUS = 420;
 export const NIGHT_ATTACK_RANGE_MULTIPLIER = 0.65;
@@ -27,7 +27,7 @@ const publicText = (minimum: number, maximum: number) => z.string()
 
 export const heroClassSchema = z.enum(["swordsman", "archer", "mage"]);
 export const sessionModeSchema = z.enum(["prototype", "full"]);
-export const difficultySchema = z.enum(["easy", "normal", "hard"]);
+export const difficultySchema = z.enum(["normal", "hard"]);
 export const partyModeSchema = z.enum(["solo", "coop"]);
 export const networkIdSchema = z.string().trim().min(1).max(96);
 
@@ -269,17 +269,11 @@ const specialRoomCommand = <TType extends string, T extends z.ZodRawShape>(type:
   payload: z.object(payload).strict(),
 }).strict();
 
-export const shopBuySchema = specialRoomCommand("shop.buy", { offerId: networkIdSchema });
-export const shopRerollSchema = specialRoomCommand("shop.reroll", {});
-export const shopLockSchema = specialRoomCommand("shop.lock", { offerId: networkIdSchema });
-export const shopSellSchema = specialRoomCommand("shop.sell", { inventoryIndex: z.number().int().min(0).max(5) });
-export const shopUpgradeSchema = specialRoomCommand("shop.upgrade", { inventoryIndex: z.number().int().min(0).max(5) });
 export const equipmentInventoryEquipSchema = specialRoomCommand("equipment.inventory-equip", { inventoryIndex: z.number().int().min(0).max(5) });
+export const equipmentInventoryDiscardSchema = specialRoomCommand("equipment.inventory-discard", { inventoryIndex: z.number().int().min(0).max(5) });
 export const shrineClaimSchema = specialRoomCommand("shrine.claim", {});
 export const checkpointSetSchema = specialRoomCommand("checkpoint.set", {});
-export const gamblePlaySchema = specialRoomCommand("gamble.play", {});
 export const altarRerollSchema = specialRoomCommand("altar.reroll", {});
-export const goldClaimSchema = specialRoomCommand("gold.claim", {});
 
 export const clientCommandSchema = z.discriminatedUnion("type", [
   playerInputSchema,
@@ -292,17 +286,11 @@ export const clientCommandSchema = z.discriminatedUnion("type", [
   travelRequestSchema,
   recallRequestSchema,
   equipmentEquipSchema,
-  shopBuySchema,
-  shopRerollSchema,
-  shopLockSchema,
-  shopSellSchema,
-  shopUpgradeSchema,
   equipmentInventoryEquipSchema,
+  equipmentInventoryDiscardSchema,
   shrineClaimSchema,
   checkpointSetSchema,
-  gamblePlaySchema,
   altarRerollSchema,
-  goldClaimSchema,
 ]);
 
 export type CommandEnvelope = z.infer<typeof commandEnvelopeSchema>;

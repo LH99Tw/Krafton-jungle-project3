@@ -57,9 +57,7 @@ function parseAutoStartOptions(query: Record<string, string | string[] | undefin
     ? (rawClass as GameStartOptions["heroClass"])
     : "swordsman";
   const sessionMode = query.mode === "full" ? "full" : "prototype";
-  const difficulty = ["easy", "normal", "hard"].includes(String(query.difficulty))
-    ? query.difficulty as GameStartOptions["difficulty"]
-    : "normal";
+  const difficulty: GameStartOptions["difficulty"] = query.difficulty === "hard" ? "hard" : "normal";
   const partyMode = query.party === "coop" ? "coop" : "solo";
   return { heroClass, sessionMode, difficulty, partyMode };
 }

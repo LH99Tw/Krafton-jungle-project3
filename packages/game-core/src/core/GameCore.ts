@@ -1,9 +1,10 @@
 import { NIGHT_ATTACK_RANGE_MULTIPLIER, NIGHT_PLAYER_VISION_RADIUS, PLAYER_VISION_RADIUS, PROTOCOL_VERSION, type CombatActionEvent, type HeroClassId, type PlayerInputCommand } from "@five-days/protocol";
-import { EQUIPMENT_RARITIES, EQUIPMENT_SLOTS, rollPartyHiddenDrops, type EquipmentRarity, type EquipmentSlot, type PersonalHiddenDrop } from "../v02/equipment";
+import { rollPartyHiddenDrops, type EquipmentSlot, type PersonalHiddenDrop } from "../v02/equipment";
 import type { ThreeZoneMap, ZoneId } from "../v02/map";
 import {
   addAugmentStack,
   addExperience,
+  augmentEffectValue,
   createAugmentDraft,
   xpRequiredForNextLevel,
   type AugmentId,
@@ -50,14 +51,15 @@ import {
   type WorldRect,
   type WalkableSpatialIndex,
 } from "../v02/world";
-import { ACTOR_COLLISION_RADIUS, GOLD_ROOM_REWARDS, PLAYER_RESPAWN_SECONDS, RESOURCE_PRODUCTION_SECONDS, SIMULATION_EPSILON, STATIC_RESPAWN_SECONDS, durations } from "./constants";
+import { ACTOR_COLLISION_RADIUS, PLAYER_RESPAWN_SECONDS, SIMULATION_EPSILON, STATIC_RESPAWN_SECONDS, durations } from "./constants";
 import { aiAugmentScore, clamp, deterministicCombatRoll, invaderEdgeKey, pointInWorldRect, shouldAiYieldEquipment } from "./helpers";
 import { createAuthoredRuntimeWorld } from "./world-build";
 import { AiPlayersDirector } from "./systems/AiPlayersDirector";
 import { InvaderDirector } from "./systems/InvaderDirector";
 import { TravelDirector } from "./systems/TravelDirector";
-import type { CoreAltarStat, CoreCombatStats, CoreNotice, CorePhase, CorePlayer, CoreResult, CoreShopOffer, CoreShopStock, CoreShrineKind, CoreSpecialRoomState, GameCoreOptions, InvaderSimulationTiers, TeamProgress } from "./types";
-import { createSeededRandom, hashSeed } from "../v02/random";
+import type { CoreAltarStat, CoreCombatStats, CoreNotice, CorePhase, CorePlayer, CoreResult, CoreShrineKind, CoreSpecialRoomState, GameCoreOptions, InvaderSimulationTiers, TeamProgress } from "./types";
+import { createSeededRandom } from "../v02/random";
+import { EQUIPMENT_BALANCE, SPECIAL_ROOM_BALANCE, ZONE_CLEAR_XP, type BalancePartySize } from "../v02/balance";
 
 const authoredWalkableWithoutBossCache = new WeakMap<CoreWorldDefinition, readonly WorldRect[]>();
 const ENEMY_AGGRO_MEMORY_SECONDS = 12;
@@ -87,7 +89,6 @@ export class GameCore {
   readonly discoveredRooms = new Set<CoreRoomId>();
   readonly activatedEnemyRooms = new Set<CoreRoomId>();
   readonly specialRooms = new Map<CoreRoomId, CoreSpecialRoomState>();
-  readonly shopStocks = new Map<string, CoreShopStock>();
 
   phase: CorePhase = "lobby";
   currentZone: ZoneId = 1;
@@ -96,7 +97,6 @@ export class GameCore {
   phaseRemaining = 0;
   baseMaxHp = 900;
   baseHp = this.baseMaxHp;
-  gold = 100;
   teamLevel = 1;
   teamXp = 0;
   result: CoreResult | null = null;
@@ -110,6 +110,7 @@ export class GameCore {
   readonly authoredConnectionsByEdge = new Map<string, CoreWorldDefinition["connections"][number]>();
 
   private readonly minimumPlayers: number;
+  readonly balancePartySize: BalancePartySize;
   /** @internal optional authored world definition consumed by subsystems. */
   readonly authoredWorld: CoreWorldDefinition | null;
   private readonly invaderDirector: InvaderDirector;
@@ -120,7 +121,6 @@ export class GameCore {
   private combatActionSequence = 0;
   private combatActionEventCount = 0;
   private readonly combatActionEvents: CombatActionEvent[] = [];
-  private readonly resourceAccumulators = new Map<CoreRoomId, number>();
   private readonly vulnerableEnemies = new Map<string, { playerId: string; expiresAt: number }>();
   private readonly markedEnemies = new Map<string, { playerId: string; expiresAt: number }>();
   private readonly authoredRoomCells = new Map<number, Map<number, CoreRoomId[]>>();
@@ -136,13 +136,15 @@ export class GameCore {
   private readonly trapEnemyRooms = new Map<string, CoreRoomId>();
   private readonly returningHiddenEnemies = new Set<string>();
   private readonly hiddenNavigationWalkableByEnemy = new Map<string, readonly WorldRect[]>();
+  private readonly rewardedZones = new Set<ZoneId>();
 
   constructor(readonly options: GameCoreOptions) {
     this.minimumPlayers = options.minimumPlayers ?? 3;
+    this.balancePartySize = options.balancePartySize ?? Math.max(1, Math.min(3, this.minimumPlayers)) as BalancePartySize;
     this.authoredWorld = options.world ?? null;
     const world = options.world
-      ? createAuthoredRuntimeWorld(options.world, options.seed, options.difficulty)
-      : createRuntimeWorld(options.seed, options.difficulty);
+      ? createAuthoredRuntimeWorld(options.world, options.seed, options.difficulty, this.balancePartySize)
+      : createRuntimeWorld(options.seed, options.difficulty, this.balancePartySize);
     this.maps = world.maps;
     this.rooms = world.rooms;
     this.doors = world.doors;
@@ -154,7 +156,7 @@ export class GameCore {
       this.roomRects.set(room.id, rect);
       this.roomCenters.set(room.id, { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
       if (options.world) this.addRoomToSpatialCells(room.id, rect);
-      if (["shop", "shrine", "trap", "checkpoint", "gamble", "altar", "gold"].includes(room.kind)) {
+      if (["shrine", "trap", "checkpoint", "altar"].includes(room.kind)) {
         const state: CoreSpecialRoomState = { roomId: room.id, kind: room.kind as CoreSpecialRoomState["kind"] };
         if (room.kind === "shrine") state.shrineKind = this.rollShrineKind(room.id);
         if (room.kind === "trap") state.trapPhase = "idle";
@@ -251,7 +253,7 @@ export class GameCore {
     return this.combatActionEvents.splice(0, this.combatActionEvents.length);
   }
 
-  /** @deprecated Protocol v9 consumers should use takeCombatActionEvents. */
+  /** @deprecated Protocol v10 consumers should use takeCombatActionEvents. */
   takeCombatAttackEvents(): CombatActionEvent[] {
     return this.takeCombatActionEvents();
   }
@@ -289,7 +291,6 @@ export class GameCore {
       equipment: createEmptyEquipment(),
       inventory: Array.from({ length: PERSONAL_INVENTORY_SIZE }, () => null),
       respawnRoomId: startRoomId,
-      gambleAttempts: 0,
       altarAttempts: 0,
       altarMultipliers: { attack: 1, attackSpeed: 1, maxHp: 1, moveSpeed: 1, criticalDamage: 1 },
       shrineBuff: null,
@@ -317,7 +318,6 @@ export class GameCore {
       kills: 0,
       deaths: 0,
       structuresBuilt: 0,
-      goldSpent: 0,
       gatesDestroyed: 0,
     };
     if (input.userId.startsWith("ai:")) {
@@ -438,8 +438,7 @@ export class GameCore {
     this.invaderDirector.update(delta);
     this.invaderDirector.retireInactive();
     this.invaderDirector.updateSpawning(delta);
-    this.updateResourcePickups();
-    this.updateResourceProduction(delta);
+    this.updateResourceCaches();
     this.travelDirector.update(delta);
     this.refreshCurrentZone();
 
@@ -491,11 +490,11 @@ export class GameCore {
     }
     if (this.trapDebuff(player) === "basic-disabled") return null;
     const rules = CLASS_COMBAT_RULES[player.heroClass];
-    const rangeMultiplier = 1 + (player.upgrades["area-power"] ?? 0) * 0.12
-      + (player.heroClass === "swordsman" ? (player.upgrades.multishot ?? 0) * 0.2 : 0);
-    const bladeRange = player.heroClass === "swordsman" && player.upgrades["swordsman-blade"] ? 240 : 0;
+    const rangeMultiplier = 1 + augmentEffectValue(player.upgrades, "area-power", "percent") / 100
+      + (player.heroClass === "swordsman" ? augmentEffectValue(player.upgrades, "multishot", "meleeRangePercent") / 100 : 0);
+    const bladeRange = player.heroClass === "swordsman" ? augmentEffectValue(player.upgrades, "swordsman-blade", "range") : 0;
     const range = this.playerAttackRange(Math.max(rules.attackRange * rangeMultiplier, bladeRange));
-    const cone = rules.coneHalfAngle * (player.heroClass === "swordsman" && player.upgrades["swordsman-whirlwind"] ? 1.45 : 1);
+    const cone = rules.coneHalfAngle * (1 + (player.heroClass === "swordsman" ? augmentEffectValue(player.upgrades, "swordsman-whirlwind", "percent") / 100 : 0));
     const aimedTargets = this.enemiesInAttackCone(player, range, cone);
     const targets = aimedTargets.length > 0 ? aimedTargets : this.enemiesInAttackCone(player, range, Math.PI);
     const target = targets[0];
@@ -508,14 +507,17 @@ export class GameCore {
       player.consecutiveHits = 1;
     }
     const shrine = this.activeShrine(player);
-    const haste = (player.upgrades.haste ?? 0) * 0.12 + (["berserker", "wind"].includes(shrine ?? "") ? 0.5 : 0);
+    const haste = augmentEffectValue(player.upgrades, "haste", "percent") / 100
+      + (["berserker", "wind"].includes(shrine ?? "") ? SPECIAL_ROOM_BALANCE.shrineAttackSpeed : 0);
     const equipmentHaste = equipmentBonuses(player.equipment).attackSpeedBonus / 100;
     const trapRate = this.trapDebuff(player) === "attack-speed" ? 0.5 : 1;
     player.autoAttackCooldown = Math.max(0.12, rules.attackInterval / ((1 + haste + equipmentHaste) * player.altarMultipliers.attackSpeed * trapRate));
-    let additionalTargets = player.heroClass === "swordsman" ? 0 : (player.upgrades.multishot ?? 0);
+    let additionalTargets = player.heroClass === "swordsman" ? 0 : augmentEffectValue(player.upgrades, "multishot", "projectileCount");
     if (player.heroClass === "archer") {
-      additionalTargets += (player.upgrades["archer-volley"] ?? 0) + (player.upgrades["archer-piercing"] ?? 0) * 2 + (player.upgrades["archer-ricochet"] ?? 0);
-    } else if (player.heroClass === "mage") additionalTargets += player.upgrades["mage-chain"] ?? 0;
+      additionalTargets += augmentEffectValue(player.upgrades, "archer-volley", "additionalProjectiles")
+        + augmentEffectValue(player.upgrades, "archer-piercing", "count")
+        + augmentEffectValue(player.upgrades, "archer-ricochet", "targets");
+    } else if (player.heroClass === "mage") additionalTargets += augmentEffectValue(player.upgrades, "mage-chain", "targets");
     const attackTargetCount = Math.min(targets.length, 1 + additionalTargets);
     for (let index = 0; index < attackTargetCount; index += 1) {
       const candidate = targets[index]!;
@@ -576,14 +578,14 @@ export class GameCore {
     if (player[cooldownKey] > 0) return false;
     const anchor = this.autoSkillTarget(player, skillId);
     if (!anchor) return false;
-    const shrineReduction = this.activeShrine(player) === "infinity" ? 0.7 : 0;
-    const cooldownReduction = Math.min(0.7, shrineReduction + (player.upgrades["skill-haste"] ?? 0) * 0.03
-      + (player.heroClass === "mage" && player.upgrades["mage-tempo"] ? 0.125 : 0));
+    const shrineReduction = this.activeShrine(player) === "infinity" ? SPECIAL_ROOM_BALANCE.shrineCooldownReduction : 0;
+    const cooldownReduction = Math.min(0.7, shrineReduction + augmentEffectValue(player.upgrades, "skill-haste", "percent") / 100
+      + (player.heroClass === "mage" ? augmentEffectValue(player.upgrades, "mage-tempo", "percent") / 100 : 0));
     player[cooldownKey] = definition.cooldownSeconds * (1 - cooldownReduction);
-    const skillPower = 1 + (player.upgrades["skill-power"] ?? 0) * 0.11;
-    const areaMultiplier = (1 + (player.upgrades["area-power"] ?? 0) * 0.06
-      + (player.heroClass === "mage" && player.upgrades["mage-nova"] ? 0.275 : 0));
-    const shrineAreaMultiplier = this.activeShrine(player) === "giant" ? 2 : 1;
+    const skillPower = 1 + augmentEffectValue(player.upgrades, "skill-power", "percent") / 100;
+    const areaMultiplier = 1 + augmentEffectValue(player.upgrades, "area-power", "percent") / 100
+      + (player.heroClass === "mage" ? augmentEffectValue(player.upgrades, "mage-nova", "percent") / 100 : 0);
+    const shrineAreaMultiplier = this.activeShrine(player) === "giant" ? SPECIAL_ROOM_BALANCE.shrineArea : 1;
     const targetX = anchor.x;
     const targetY = anchor.y;
     const range = definition.range * areaMultiplier * shrineAreaMultiplier;
@@ -612,13 +614,13 @@ export class GameCore {
     for (const target of targets) {
       this.damageEnemy(userId, target.id, baseDamage);
       if (player.heroClass === "swordsman" && player.upgrades["swordsman-rupture"]) {
-        this.vulnerableEnemies.set(target.id, { playerId: userId, expiresAt: this.elapsed + 3 });
+        this.vulnerableEnemies.set(target.id, { playerId: userId, expiresAt: this.elapsed + augmentEffectValue(player.upgrades, "swordsman-rupture", "durationMs") / 1_000 });
       }
       if (player.heroClass === "archer" && player.upgrades["archer-mark"]) {
-        this.markedEnemies.set(target.id, { playerId: userId, expiresAt: this.elapsed + 5 });
+        this.markedEnemies.set(target.id, { playerId: userId, expiresAt: this.elapsed + augmentEffectValue(player.upgrades, "archer-mark", "durationMs") / 1_000 });
       }
       if (player.heroClass === "mage" && player.upgrades["mage-echo"] && target.alive) {
-        this.damageEnemy(userId, target.id, baseDamage * 0.275);
+        this.damageEnemy(userId, target.id, baseDamage * augmentEffectValue(player.upgrades, "mage-echo", "damagePercent") / 100);
       }
     }
     return true;
@@ -687,92 +689,25 @@ export class GameCore {
     return true;
   }
 
-  getShopStock(userId: string, roomId: CoreRoomId): CoreShopStock | null {
-    const player = this.players.get(userId);
-    const room = this.rooms.get(roomId);
-    if (!player || !room || room.kind !== "shop") return null;
-    const key = `${roomId}:${userId}`;
-    let stock = this.shopStocks.get(key);
-    if (!stock) {
-      stock = { roomId, playerId: userId, rerolls: 0, offers: this.rollShopOffers(room, player, 0) };
-      this.shopStocks.set(key, stock);
-    }
-    return stock;
-  }
-
-  shopBuy(userId: string, offerId: string): boolean {
-    const player = this.players.get(userId);
-    if (!player || !this.canUseSpecialRoom(player, "shop")) return false;
-    const stock = this.getShopStock(userId, player.roomId);
-    const offer = stock?.offers.find((candidate) => candidate.id === offerId);
-    if (!stock || !offer || offer.sold || this.gold < offer.price) return false;
-    if (offer.kind === "equipment" && player.inventory.every(Boolean)) return false;
-    this.gold -= offer.price;
-    player.goldSpent += offer.price;
-    if (offer.kind === "heal") player.hp = Math.min(player.maxHp, player.hp + Math.ceil(player.maxHp * 0.5));
-    else if (offer.item) player.inventory[player.inventory.findIndex((item) => !item)] = offer.item;
-    stock.offers = stock.offers.map((candidate) => candidate.id === offerId ? { ...candidate, sold: true, locked: false } : candidate);
-    return true;
-  }
-
-  shopReroll(userId: string): boolean {
-    const player = this.players.get(userId);
-    if (!player || !this.canUseSpecialRoom(player, "shop")) return false;
-    const stock = this.getShopStock(userId, player.roomId);
-    if (!stock) return false;
-    const zone = this.rooms.get(player.roomId)?.zone ?? 1;
-    const cost = 10 * zone + stock.rerolls * 5 * zone;
-    if (this.gold < cost) return false;
-    this.gold -= cost;
-    player.goldSpent += cost;
-    const preserved = stock.offers.find((offer) => offer.locked && !offer.sold);
-    stock.rerolls += 1;
-    stock.offers = this.rollShopOffers(this.rooms.get(player.roomId)!, player, stock.rerolls, preserved ? { ...preserved, locked: false } : undefined);
-    return true;
-  }
-
-  shopLock(userId: string, offerId: string): boolean {
-    const player = this.players.get(userId);
-    if (!player || !this.canUseSpecialRoom(player, "shop")) return false;
-    const stock = this.getShopStock(userId, player.roomId);
-    if (!stock || !stock.offers.some((offer) => offer.id === offerId && !offer.sold)) return false;
-    stock.offers = stock.offers.map((offer) => ({ ...offer, locked: offer.id === offerId }));
-    return true;
-  }
-
-  shopSell(userId: string, inventoryIndex: number): boolean {
-    const player = this.players.get(userId);
-    if (!player || !this.canUseSpecialRoom(player, "shop") || !Number.isInteger(inventoryIndex)) return false;
-    const item = player.inventory[inventoryIndex];
-    if (!item) return false;
-    this.gold += Math.floor(this.equipmentPrice(item, this.rooms.get(player.roomId)?.zone ?? 1) * 0.4);
-    player.inventory[inventoryIndex] = null;
-    return true;
-  }
-
-  shopUpgrade(userId: string, inventoryIndex: number): boolean {
-    const player = this.players.get(userId);
-    if (!player || !this.canUseSpecialRoom(player, "shop") || !Number.isInteger(inventoryIndex)) return false;
-    const item = player.inventory[inventoryIndex];
-    const zone = this.rooms.get(player.roomId)?.zone ?? 1;
-    const level = item?.upgradeLevel ?? 0;
-    const cost = [35, 70, 105][level];
-    if (!item || level >= zone || cost === undefined || this.gold < cost) return false;
-    this.gold -= cost;
-    player.goldSpent += cost;
-    player.inventory[inventoryIndex] = { ...item, upgradeLevel: level + 1 };
-    this.recalculateTeamPower(player);
-    return true;
-  }
-
   equipInventoryItem(userId: string, inventoryIndex: number): boolean {
     const player = this.players.get(userId);
     if (!player || !Number.isInteger(inventoryIndex)) return false;
     const item = player.inventory[inventoryIndex];
     if (!item) return false;
+    const previousMaxHp = player.maxHp;
     const previous = player.equipment[item.slot];
     player.inventory[inventoryIndex] = previous;
-    this.equipItem(player, item);
+    player.equipment[item.slot] = item;
+    this.recalculateMaxHp(player, previousMaxHp);
+    this.recalculateTeamPower(player);
+    return true;
+  }
+
+  discardInventoryItem(userId: string, inventoryIndex: number): boolean {
+    const player = this.players.get(userId);
+    if (!player || !Number.isInteger(inventoryIndex) || inventoryIndex < 0 || inventoryIndex >= player.inventory.length) return false;
+    if (!player.inventory[inventoryIndex]) return false;
+    player.inventory[inventoryIndex] = null;
     return true;
   }
 
@@ -791,33 +726,6 @@ export class GameCore {
     return false;
   }
 
-  claimGoldRoom(userId: string): number | null {
-    const player = this.players.get(userId);
-    const state = player ? this.specialRooms.get(player.roomId) : null;
-    if (!player || !state || state.kind !== "gold" || state.goldClaimed || !this.isNearRoomCenter(player, 145)) return null;
-    const zone = this.rooms.get(player.roomId)?.zone ?? 1;
-    const reward = GOLD_ROOM_REWARDS[zone];
-    state.goldClaimed = true;
-    this.gold += reward;
-    return reward;
-  }
-
-  playGamble(userId: string): number | null {
-    const player = this.players.get(userId);
-    if (!player || !this.canUseSpecialRoom(player, "gamble") || player.gambleAttempts >= 3) return null;
-    const zone = this.rooms.get(player.roomId)?.zone ?? 1;
-    const stake = 25 * zone;
-    if (this.gold < stake) return null;
-    this.gold -= stake;
-    player.goldSpent += stake;
-    const roll = createSeededRandom(`gamble:${this.options.seed}:${player.roomId}:${userId}:${player.gambleAttempts}`).next();
-    player.gambleAttempts += 1;
-    const multiplier = roll < 0.5 ? 0 : roll < 0.85 ? 2 : roll < 0.98 ? 4 : 10;
-    const payout = stake * multiplier;
-    this.gold += payout;
-    return payout;
-  }
-
   rerollAltar(userId: string): Readonly<{ increased: CoreAltarStat; decreased: CoreAltarStat }> | null {
     const player = this.players.get(userId);
     if (!player || !this.canUseSpecialRoom(player, "altar") || player.altarAttempts >= 3) return null;
@@ -826,8 +734,16 @@ export class GameCore {
     const increased = random.pick(stats);
     const decreased = random.pick(stats.filter((stat) => stat !== increased));
     const previousMaxHp = player.maxHp;
-    player.altarMultipliers[increased] = clamp(player.altarMultipliers[increased] * 1.25, 0.5, 2);
-    player.altarMultipliers[decreased] = clamp(player.altarMultipliers[decreased] * 0.85, 0.5, 2);
+    player.altarMultipliers[increased] = clamp(
+      player.altarMultipliers[increased] * SPECIAL_ROOM_BALANCE.altarIncrease,
+      SPECIAL_ROOM_BALANCE.altarMinimum,
+      SPECIAL_ROOM_BALANCE.altarMaximum,
+    );
+    player.altarMultipliers[decreased] = clamp(
+      player.altarMultipliers[decreased] * SPECIAL_ROOM_BALANCE.altarDecrease,
+      SPECIAL_ROOM_BALANCE.altarMinimum,
+      SPECIAL_ROOM_BALANCE.altarMaximum,
+    );
     player.altarAttempts += 1;
     this.recalculateMaxHp(player, previousMaxHp);
     this.recalculateTeamPower(player);
@@ -866,7 +782,7 @@ export class GameCore {
     const player = this.players.get(userId);
     const drop = this.drops.get(dropId);
     if (!player || !drop || drop.claimed || drop.ownerPlayerId !== userId || drop.roomId !== player.roomId) return false;
-    this.equipItem(player, drop);
+    if (!this.equipItem(player, drop)) return false;
     drop.claimed = true;
     this.drops.delete(dropId);
     return true;
@@ -971,17 +887,19 @@ export class GameCore {
     const rules = CLASS_COMBAT_RULES[player.heroClass];
     const equipment = equipmentBonuses(player.equipment);
     const shrine = this.activeShrine(player);
-    const haste = ((player.upgrades.haste ?? 0) * 0.12 + equipment.attackSpeedBonus / 100)
-      * player.altarMultipliers.attackSpeed + (shrine === "berserker" || shrine === "wind" ? 0.5 : 0);
-    const rangeMultiplier = 1 + (player.upgrades["area-power"] ?? 0) * 0.12
-      + (player.heroClass === "swordsman" ? (player.upgrades.multishot ?? 0) * 0.2 : 0);
-    const bladeRange = player.heroClass === "swordsman" && player.upgrades["swordsman-blade"] ? 240 : 0;
+    const haste = (augmentEffectValue(player.upgrades, "haste", "percent") / 100 + equipment.attackSpeedBonus / 100)
+      * player.altarMultipliers.attackSpeed
+      + (shrine === "berserker" || shrine === "wind" ? SPECIAL_ROOM_BALANCE.shrineAttackSpeed : 0);
+    const rangeMultiplier = 1 + augmentEffectValue(player.upgrades, "area-power", "percent") / 100
+      + (player.heroClass === "swordsman" ? augmentEffectValue(player.upgrades, "multishot", "meleeRangePercent") / 100 : 0);
+    const bladeRange = player.heroClass === "swordsman" ? augmentEffectValue(player.upgrades, "swordsman-blade", "range") : 0;
     return {
       attackDamage: (rules.attackDamage + equipment.attackBonus + augmentAttackBonus(player.upgrades))
-        * player.altarMultipliers.attack * (["berserker", "doom"].includes(shrine ?? "") ? 2 : shrine === "giant" ? 1.5 : 1),
+        * player.altarMultipliers.attack * this.shrineAttackMultiplier(shrine),
       defense: equipment.defenseBonus,
-      criticalChance: shrine === "assassin" || shrine === "doom" ? 100 : (player.upgrades.precision ?? 0) * 6,
-      criticalDamage: (150 + (player.upgrades.ferocity ?? 0) * 20 + (shrine === "assassin" ? 50 : 0)) * player.altarMultipliers.criticalDamage,
+      criticalChance: 100 * Math.min(1, augmentEffectValue(player.upgrades, "precision", "points") / 100 + this.shrineCriticalChance(shrine)),
+      criticalDamage: (150 + augmentEffectValue(player.upgrades, "ferocity", "percent")
+        + (shrine === "assassin" ? SPECIAL_ROOM_BALANCE.shrineCriticalDamage * 100 : 0)) * player.altarMultipliers.criticalDamage,
       attacksPerSecond: (1 + haste) / rules.attackInterval,
       attackRange: this.playerAttackRange(Math.max(rules.attackRange * rangeMultiplier, bladeRange)),
       moveSpeed: this.effectiveMoveSpeed(player),
@@ -1279,7 +1197,8 @@ export class GameCore {
   damagePlayer(player: CorePlayer, rawDamage: number): void {
     if (!player.alive) return;
     const defense = equipmentBonuses(player.equipment).defenseBonus;
-    player.hp = Math.max(0, player.hp - Math.max(1, Math.round(rawDamage - defense)));
+    const reduction = Math.min(EQUIPMENT_BALANCE.maxDefensePercent, defense) / 100;
+    player.hp = Math.max(0, player.hp - Math.max(1, Math.round(rawDamage * (1 - reduction))));
     if (player.hp > 0) return;
     player.alive = false;
     player.respawnRemaining = PLAYER_RESPAWN_SECONDS;
@@ -1328,7 +1247,7 @@ export class GameCore {
     this.phase = "boss";
     this.phaseRemaining = 0;
     if (![...this.enemies.values()].some((enemy) => enemy.kind === "boss" && enemy.alive)) {
-      const boss = createBossEnemy(this.options.seed, this.options.difficulty);
+      const boss = createBossEnemy(this.options.seed, this.options.difficulty, this.balancePartySize);
       if (this.authoredWorld) {
         const roomId = this.authoredWorld.bossRoomId;
         const center = this.roomWorldCenterOf(roomId);
@@ -1415,28 +1334,46 @@ export class GameCore {
     const rules = CLASS_COMBAT_RULES[player.heroClass];
     const shrine = this.activeShrine(player);
     let damage = (rules.attackDamage + equipmentBonuses(player.equipment).attackBonus + augmentAttackBonus(player.upgrades))
-      * player.altarMultipliers.attack * (["berserker", "doom"].includes(shrine ?? "") ? 2 : shrine === "giant" ? 1.5 : 1);
+      * player.altarMultipliers.attack * this.shrineAttackMultiplier(shrine);
     if (this.trapDebuff(player) === "attack") damage *= 0.5;
-    const criticalChance = shrine === "assassin" || shrine === "doom" ? 1 : (player.upgrades.precision ?? 0) * 0.06;
+    const criticalChance = Math.min(1, augmentEffectValue(player.upgrades, "precision", "points") / 100 + this.shrineCriticalChance(shrine));
     const critical = deterministicCombatRoll(this.options.seed, player.userId, player.attackCount) < criticalChance;
     player.lastAttackCritical = critical;
     if (critical) {
-      damage *= (1.5 + (player.upgrades.ferocity ?? 0) * 0.2 + (shrine === "assassin" ? 0.5 : 0)) * player.altarMultipliers.criticalDamage;
+      damage *= (1.5 + augmentEffectValue(player.upgrades, "ferocity", "percent") / 100
+        + (shrine === "assassin" ? SPECIAL_ROOM_BALANCE.shrineCriticalDamage : 0)) * player.altarMultipliers.criticalDamage;
     }
     const momentumStacks = player.upgrades.momentum ?? 0;
-    if (momentumStacks > 0) damage *= 1 + Math.min(0.2 * momentumStacks, player.consecutiveHits * 0.04 * momentumStacks);
-    if (["hidden", "gate", "boss"].includes(enemy.kind)) damage *= 1 + (player.upgrades["boss-hunter"] ?? 0) * 0.12;
-    if (player.heroClass === "swordsman" && player.upgrades["swordsman-execution"] && enemy.hp / enemy.maxHp <= 0.3) {
-      damage *= 1.6;
+    if (momentumStacks > 0) damage *= 1 + Math.min(
+      augmentEffectValue(player.upgrades, "momentum", "maxPercent") / 100,
+      player.consecutiveHits * augmentEffectValue(player.upgrades, "momentum", "percentPerHit") / 100,
+    );
+    if (["hidden", "gate", "boss"].includes(enemy.kind)) damage *= 1 + augmentEffectValue(player.upgrades, "boss-hunter", "percent") / 100;
+    if (player.heroClass === "swordsman" && player.upgrades["swordsman-execution"]
+      && enemy.hp / enemy.maxHp <= augmentEffectValue(player.upgrades, "swordsman-execution", "hpThresholdPercent") / 100) {
+      damage *= 1 + augmentEffectValue(player.upgrades, "swordsman-execution", "damagePercent") / 100;
     }
     if (player.heroClass === "archer" && player.upgrades["archer-sniper"]) {
       const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
-      damage *= 1 + Math.min(0.55, Math.max(0, (distance - 180) / 280) * 0.55);
+      const maxBonus = augmentEffectValue(player.upgrades, "archer-sniper", "maxPercent") / 100;
+      const startDistance = augmentEffectValue(player.upgrades, "archer-sniper", "startDistance");
+      const maxDistance = augmentEffectValue(player.upgrades, "archer-sniper", "maxDistance");
+      damage *= 1 + Math.min(maxBonus, Math.max(0, (distance - startDistance) / (maxDistance - startDistance)) * maxBonus);
     }
-    if (player.heroClass === "swordsman" && player.upgrades["swordsman-combo"] && player.attackCount % 3 === 0) damage *= 2;
-    if (player.heroClass === "mage" && player.upgrades["mage-overcharge"] && player.attackCount % 4 === 0) damage *= 2.2;
-    if (this.vulnerableEnemies.get(enemy.id)?.playerId === player.userId && (this.vulnerableEnemies.get(enemy.id)?.expiresAt ?? 0) > this.elapsed) damage *= 1.15;
-    if (this.markedEnemies.get(enemy.id)?.playerId === player.userId && (this.markedEnemies.get(enemy.id)?.expiresAt ?? 0) > this.elapsed) damage *= 1.25;
+    const comboAttack = augmentEffectValue(player.upgrades, "swordsman-combo", "attackNumber");
+    if (player.heroClass === "swordsman" && comboAttack > 0 && player.attackCount % comboAttack === 0) {
+      damage *= 1 + augmentEffectValue(player.upgrades, "swordsman-combo", "damagePercent") / 100;
+    }
+    const overchargeAttack = augmentEffectValue(player.upgrades, "mage-overcharge", "attackNumber");
+    if (player.heroClass === "mage" && overchargeAttack > 0 && player.attackCount % overchargeAttack === 0) {
+      damage *= 1 + augmentEffectValue(player.upgrades, "mage-overcharge", "damagePercent") / 100;
+    }
+    if (this.vulnerableEnemies.get(enemy.id)?.playerId === player.userId && (this.vulnerableEnemies.get(enemy.id)?.expiresAt ?? 0) > this.elapsed) {
+      damage *= 1 + augmentEffectValue(player.upgrades, "swordsman-rupture", "damagePercent") / 100;
+    }
+    if (this.markedEnemies.get(enemy.id)?.playerId === player.userId && (this.markedEnemies.get(enemy.id)?.expiresAt ?? 0) > this.elapsed) {
+      damage *= 1 + augmentEffectValue(player.upgrades, "archer-mark", "autoAttackDamagePercent") / 100;
+    }
     return Math.max(1, Math.round(damage));
   }
 
@@ -1485,8 +1422,9 @@ export class GameCore {
     enemy.patternRemaining = 0;
     enemy.respawnRemaining = enemy.kind === "static" && !this.trapEnemyRooms.has(enemy.id) ? STATIC_RESPAWN_SECONDS[this.options.mode] : null;
     killer.kills += 1;
-    this.gold += enemy.goldReward;
-    if (enemy.xpReward > 0) this.addTeamExperience(enemy.xpReward);
+    const xpReward = enemy.xpReward;
+    enemy.xpReward = 0;
+    if (xpReward > 0) this.addTeamExperience(xpReward);
 
     if (enemy.kind === "gate") {
       killer.gatesDestroyed += 1;
@@ -1506,6 +1444,10 @@ export class GameCore {
           ? `구역 ${zone}의 모든 게이트가 파괴되었습니다. 다음 구역이 개방됩니다!`
           : `구역 ${zone} 게이트 파괴! (${destroyed}/${goal})`,
       });
+      if (allDestroyed && !this.rewardedZones.has(zone)) {
+        this.rewardedZones.add(zone);
+        this.addTeamExperience(ZONE_CLEAR_XP[zone]);
+      }
     } else if (enemy.kind === "hidden") {
       this.rewardHiddenRoom(enemy.spawnRoomId);
     } else if (enemy.kind === "boss") {
@@ -1545,8 +1487,7 @@ export class GameCore {
         }
       }
       const current = player.equipment[item.slot];
-      if (equipmentPower(item) > equipmentPower(current)) this.equipItem(player, item);
-      else this.placeDrop(item, roomId);
+      if (equipmentPower(item) <= equipmentPower(current) || !this.equipItem(player, item)) this.placeDrop(item, roomId);
     }
   }
 
@@ -1556,17 +1497,18 @@ export class GameCore {
     this.drops.set(item.id, { ...item, roomId, x: center.x, y: center.y, claimed: false });
   }
 
-  private equipItem(player: CorePlayer, item: PersonalHiddenDrop): void {
+  private equipItem(player: CorePlayer, item: PersonalHiddenDrop): boolean {
     const previousMaxHp = player.maxHp;
     const previous = player.equipment[item.slot as EquipmentSlot];
     if (previous) {
       const empty = player.inventory.findIndex((entry) => !entry);
-      if (empty < 0) return;
+      if (empty < 0) return false;
       player.inventory[empty] = previous;
     }
     player.equipment[item.slot as EquipmentSlot] = item;
     this.recalculateMaxHp(player, previousMaxHp);
     this.recalculateTeamPower(player);
+    return true;
   }
 
   private recalculateTeamPower(player: CorePlayer): void {
@@ -1579,64 +1521,12 @@ export class GameCore {
   }
 
   private canUseSpecialRoom(player: CorePlayer, kind: CoreSpecialRoomState["kind"]): boolean {
-    // Shop offers and inventories are already scoped to the requesting player.
-    // The HUD is visible throughout the shop room, so requiring an unrendered
-    // 92px personal hotspot made every visible purchase button look broken.
     return player.alive && this.rooms.get(player.roomId)?.kind === kind && this.specialRooms.get(player.roomId)?.kind === kind;
   }
 
   private isNearRoomCenter(player: CorePlayer, radius: number): boolean {
     const center = this.roomWorldCenterOf(player.roomId);
     return Math.hypot(player.x - center.x, player.y - center.y) <= radius;
-  }
-
-  private equipmentPrice(item: PersonalHiddenDrop, zone: ZoneId): number {
-    const base: Record<EquipmentRarity, number> = { normal: 30, rare: 50, epic: 80, legendary: 120, mythic: 180 };
-    return base[item.rarity] + zone * 10;
-  }
-
-  private rollShopOffers(room: CoreRoom, player: CorePlayer, reroll: number, preserved?: CoreShopOffer): CoreShopOffer[] {
-    const random = createSeededRandom(`shop:${this.options.seed}:${room.id}:${player.userId}:${reroll}`);
-    const slots = Object.keys(EQUIPMENT_SLOTS) as EquipmentSlot[];
-    const offers: CoreShopOffer[] = preserved ? [preserved] : [];
-    while (offers.filter((offer) => offer.kind === "equipment").length < 4) {
-      const index = offers.length;
-      const rarity = this.rollShopRarity(room.zone, random.next());
-      const rule = EQUIPMENT_RARITIES[rarity];
-      const slot = random.pick(slots);
-      const fingerprint = hashSeed(`shop-item:${this.options.seed}:${room.id}:${player.userId}:${reroll}:${index}`).toString(16);
-      const item: PersonalHiddenDrop = {
-        id: `shop-${room.zone}-${fingerprint}`,
-        ownerPlayerId: player.userId,
-        zone: room.zone,
-        hiddenRoomId: room.id,
-        dropIndex: reroll * 10 + index,
-        rarity,
-        slot,
-        statMultiplier: rule.statMultiplier,
-        specialOptionCount: rule.specialOptionCount,
-        upgradeLevel: 0,
-      };
-      offers.push({ id: `offer:${item.id}`, kind: "equipment", price: this.equipmentPrice(item, room.zone), sold: false, locked: false, item });
-    }
-    if (!offers.some((offer) => offer.kind === "heal")) {
-      offers.push({ id: `offer:heal:${room.id}:${player.userId}:${reroll}`, kind: "heal", price: [30, 45, 60][room.zone - 1]!, sold: false, locked: false, item: null });
-    }
-    return offers.slice(0, 5);
-  }
-
-  private rollShopRarity(zone: ZoneId, roll: number): EquipmentRarity {
-    const table: Record<ZoneId, Array<readonly [EquipmentRarity, number]>> = {
-      1: [["normal", 0.65], ["rare", 0.3], ["epic", 0.05]],
-      2: [["normal", 0.25], ["rare", 0.45], ["epic", 0.25], ["legendary", 0.05]],
-      3: [["rare", 0.25], ["epic", 0.4], ["legendary", 0.28], ["mythic", 0.07]],
-    };
-    let cumulative = 0;
-    for (const [rarity, chance] of table[zone]) {
-      cumulative += chance;
-      if (roll < cumulative) return rarity;
-    }
-    return table[zone].at(-1)![0];
   }
 
   private rollShrineKind(roomId: CoreRoomId): CoreShrineKind {
@@ -1649,9 +1539,22 @@ export class GameCore {
     return player.shrineBuff && player.shrineBuff.expiresAt > this.elapsed ? player.shrineBuff.kind : null;
   }
 
+  private shrineAttackMultiplier(shrine: CoreShrineKind | null): number {
+    if (shrine === "berserker") return SPECIAL_ROOM_BALANCE.shrineAttack.berserker;
+    if (shrine === "giant") return SPECIAL_ROOM_BALANCE.shrineAttack.giant;
+    if (shrine === "doom") return SPECIAL_ROOM_BALANCE.shrineAttack.doom;
+    return 1;
+  }
+
+  private shrineCriticalChance(shrine: CoreShrineKind | null): number {
+    if (shrine === "assassin") return SPECIAL_ROOM_BALANCE.shrineCriticalChance.assassin;
+    if (shrine === "doom") return SPECIAL_ROOM_BALANCE.shrineCriticalChance.doom;
+    return 0;
+  }
+
   private effectiveMoveSpeed(player: CorePlayer): number {
     const shrine = this.activeShrine(player);
-    const shrineMultiplier = shrine === "wind" || shrine === "doom" ? 2 : shrine === "giant" ? 0.8 : 1;
+    const shrineMultiplier = shrine === "wind" || shrine === "doom" ? SPECIAL_ROOM_BALANCE.shrineMoveSpeed : shrine === "giant" ? 0.8 : 1;
     const trapMultiplier = this.trapDebuff(player) === "move-speed" ? 0.5 : 1;
     return CLASS_COMBAT_RULES[player.heroClass].speed * player.altarMultipliers.moveSpeed * shrineMultiplier * trapMultiplier;
   }
@@ -1671,7 +1574,6 @@ export class GameCore {
 
   private updateSpecialRooms(delta: number): void {
     for (const player of this.players.values()) {
-      if (player.alive && this.rooms.get(player.roomId)?.kind === "shop") this.getShopStock(player.userId, player.roomId);
       if (player.shrineBuff && player.shrineBuff.expiresAt <= this.elapsed) {
         if (player.shrineBuff.kind === "doom" && player.alive) player.hp = 1;
         player.shrineBuff = null;
@@ -1750,7 +1652,7 @@ export class GameCore {
     if (!room) return;
     const rect = this.roomRectOf(roomId);
     for (let index = 0; index < 10; index += 1) {
-      const enemy = createSeededRoomEnemy(`${this.options.seed}:trap:${index}`, roomId, room.zone, "static", this.options.difficulty, rect.x, rect.y, rect.width, rect.height);
+      const enemy = createSeededRoomEnemy(`${this.options.seed}:trap:${index}`, roomId, room.zone, "static", this.options.difficulty, rect.x, rect.y, rect.width, rect.height, this.balancePartySize);
       enemy.id = `enemy:trap:${roomId}:${index}`;
       enemy.x = enemy.spawnX = rect.x + rect.width * (0.16 + (index % 5) * 0.17);
       enemy.y = enemy.spawnY = rect.y + rect.height * (index < 5 ? 0.3 : 0.7);
@@ -1794,7 +1696,7 @@ export class GameCore {
     const room = this.rooms.get(roomId);
     if (!room) return;
     const rect = this.roomRectOf(roomId);
-    const enemy = createSeededRoomEnemy(`${this.options.seed}:trap:hidden`, roomId, room.zone, "hidden", this.options.difficulty, rect.x, rect.y, rect.width, rect.height);
+    const enemy = createSeededRoomEnemy(`${this.options.seed}:trap:hidden`, roomId, room.zone, "hidden", this.options.difficulty, rect.x, rect.y, rect.width, rect.height, this.balancePartySize);
     enemy.id = `enemy:trap-hidden:${roomId}`;
     this.enemies.set(enemy.id, enemy);
     this.trapEnemyRooms.set(enemy.id, roomId);
@@ -1847,6 +1749,7 @@ export class GameCore {
 
   private autoChooseAiUpgrades(player: CorePlayer): void {
     if (!player.aiRole) return;
+    const previousMaxHp = player.maxHp;
     while (player.upgradeDraft) {
       const choice = [...player.upgradeDraft.choices].sort((left, right) => (
         aiAugmentScore(player.heroClass, right.id) - aiAugmentScore(player.heroClass, left.id)
@@ -1857,6 +1760,7 @@ export class GameCore {
       player.upgradeDraft = null;
       this.activateNextDraft(player);
     }
+    this.recalculateMaxHp(player, previousMaxHp);
     this.recalculateTeamPower(player);
   }
 
@@ -2051,18 +1955,19 @@ export class GameCore {
 
   private resolveEnemyPattern(enemy: CoreEnemy): void {
     const tier = enemy.kind === "boss" ? "boss" : enemy.kind === "hidden" ? "hidden" : "gate";
-    const config = enemyPatternConfig(tier);
+    const intensity = enemy.kind === "boss" ? Math.min(3, Math.floor((1 - enemy.hp / enemy.maxHp) * 4)) : 0;
+    const config = enemyPatternConfig(tier, intensity);
     for (const player of this.players.values()) {
       if (!player.alive || player.roomId !== enemy.roomId) continue;
       let hit = false;
       if (enemy.patternKind === "floor") {
-        hit = enemyFloorPatternCircles(enemy.x, enemy.y, enemy.patternIndex, tier)
+        hit = enemyFloorPatternCircles(enemy.x, enemy.y, enemy.patternIndex, tier, intensity)
           .some((circle) => Math.hypot(player.x - circle.x, player.y - circle.y) <= circle.radius);
       } else {
         const dx = player.x - enemy.x;
         const dy = player.y - enemy.y;
         const distance = Math.hypot(dx, dy);
-        hit = distance <= config.range && enemyFanPatternAngles(enemy.patternIndex, tier).some((angle) => {
+        hit = distance <= config.range && enemyFanPatternAngles(enemy.patternIndex, tier, intensity).some((angle) => {
           const forward = dx * Math.cos(angle) + dy * Math.sin(angle);
           const perpendicular = Math.abs(-dx * Math.sin(angle) + dy * Math.cos(angle));
           return forward >= 0 && forward <= config.range && perpendicular <= 18;
@@ -2346,29 +2251,15 @@ export class GameCore {
     return false;
   }
 
-  private updateResourceProduction(delta: number): void {
-    for (const [roomId, accumulated] of this.resourceAccumulators) {
-      const room = this.rooms.get(roomId);
-      if (!room?.discovered || room.kind !== "resource") continue;
-      let next = accumulated + delta;
-      while (next + SIMULATION_EPSILON >= RESOURCE_PRODUCTION_SECONDS) {
-        next -= RESOURCE_PRODUCTION_SECONDS;
-        this.gold += 1;
-      }
-      this.resourceAccumulators.set(roomId, Math.max(0, next));
-    }
-  }
-
-  private updateResourcePickups(): void {
+  private updateResourceCaches(): void {
     for (const player of this.players.values()) {
       if (!player.alive) continue;
       const room = this.rooms.get(player.roomId);
-      if (!room || room.kind !== "resource" || this.resourceAccumulators.has(room.id)) continue;
+      if (!room || room.kind !== "resource" || room.cleared) continue;
       const center = this.roomWorldCenterOf(room.id);
       if (Math.hypot(player.x - center.x, player.y - center.y) > 64) continue;
-      this.resourceAccumulators.set(room.id, 0);
       room.cleared = true;
-      this.gold += 15;
+      this.rewardHiddenRoom(room.id);
     }
   }
 

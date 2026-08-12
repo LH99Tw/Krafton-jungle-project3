@@ -26,7 +26,7 @@ export type LobbySnapshot = {
   hostId: string;
   phase: LobbyPhase;
   sessionMode: "prototype" | "full";
-  difficulty: "easy" | "normal" | "hard";
+  difficulty: "normal" | "hard";
   players: LobbyPlayer[];
 };
 

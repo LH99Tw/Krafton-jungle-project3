@@ -56,7 +56,6 @@ export type CorePlayer = {
   equipment: CoreEquipmentLoadout;
   inventory: Array<PersonalHiddenDrop | null>;
   respawnRoomId: CoreRoomId;
-  gambleAttempts: number;
   altarAttempts: number;
   altarMultipliers: CoreAltarMultipliers;
   shrineBuff: CoreShrineBuff | null;
@@ -84,7 +83,6 @@ export type CorePlayer = {
   kills: number;
   deaths: number;
   structuresBuilt: number;
-  goldSpent: number;
   gatesDestroyed: number;
   /** Assigned to AI-controlled party members so the server can drive them. */
   aiRole?: "follower" | "defender";
@@ -95,26 +93,9 @@ export type CoreAltarMultipliers = Record<CoreAltarStat, number>;
 export type CoreShrineKind = "berserker" | "assassin" | "giant" | "wind" | "infinity" | "doom";
 export type CoreShrineBuff = Readonly<{ kind: CoreShrineKind; expiresAt: number }>;
 
-export type CoreShopOffer = Readonly<{
-  id: string;
-  kind: "equipment" | "heal";
-  price: number;
-  sold: boolean;
-  locked: boolean;
-  item: PersonalHiddenDrop | null;
-}>;
-
-export type CoreShopStock = {
-  roomId: CoreRoomId;
-  playerId: string;
-  rerolls: number;
-  offers: CoreShopOffer[];
-};
-
 export type CoreSpecialRoomState = {
   roomId: CoreRoomId;
-  kind: "shop" | "shrine" | "trap" | "checkpoint" | "gamble" | "altar" | "gold";
-  goldClaimed?: boolean;
+  kind: "shrine" | "trap" | "checkpoint" | "altar";
   shrineKind?: CoreShrineKind;
   shrineClaimedBy?: string;
   shrineClaimingBy?: string;
@@ -127,7 +108,9 @@ export type CoreSpecialRoomState = {
 
 export type GameCoreOptions = {
   mode: "prototype" | "full";
-  difficulty: "easy" | "normal" | "hard";
+  difficulty: "normal" | "hard";
+  /** Frozen encounter scaling size, including AI party members. */
+  balancePartySize?: 1 | 2 | 3;
   seed: string;
   minimumPlayers?: number;
   /** Per-room circuit breaker for simultaneously active gate invaders. */
@@ -159,7 +142,6 @@ export type CoreViewSnapshot = Readonly<{
   phaseRemaining: number;
   baseHp: number;
   baseMaxHp: number;
-  gold: number;
   currentZone: ZoneId;
   teamLevel: number;
   teamXp: number;
@@ -171,7 +153,6 @@ export type CoreViewSnapshot = Readonly<{
   drops: readonly CoreDrop[];
   waypoints: readonly CoreWaypoint[];
   specialRooms: readonly CoreSpecialRoomState[];
-  shopStocks: readonly CoreShopStock[];
 }>;
 
 export type InvaderNavigation = {
