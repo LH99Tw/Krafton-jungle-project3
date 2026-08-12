@@ -115,7 +115,7 @@ export const SKELETON_ROW_BY_ANGLE: Readonly<Record<number, number>> = {
   315: 7,
 };
 
-export const STANDARD_ENEMY_ROW_BY_ANGLE: Readonly<Record<number, number>> = {
+const STANDARD_ENEMY_ROW_BY_ANGLE: Readonly<Record<number, number>> = {
   0: 2, 45: 1, 90: 0, 135: 7, 180: 6, 225: 5, 270: 4, 315: 3,
 };
 
