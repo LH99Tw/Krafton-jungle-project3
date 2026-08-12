@@ -930,7 +930,11 @@ export class RoomGameScene extends Phaser.Scene {
         sprite.y,
         true,
       );
-      if (action.actionKind === "pattern-resolve") this.roomRenderer.showImpact(action.targetX, action.targetY, 38, 0xff596c);
+      if (action.actionKind === "pattern-resolve") {
+        const isBoss = kind === "boss";
+        this.roomRenderer.showImpact(action.targetX, action.targetY, isBoss ? 160 : 38, isBoss ? 0xff5533 : 0xff596c);
+        if (isBoss) this.cameras.main.shake(250, 0.01);
+      }
     }
     return true;
   }
@@ -1005,6 +1009,21 @@ export class RoomGameScene extends Phaser.Scene {
         }
       }
       this.networkEnemyHp.set(enemy.id, enemy.hp);
+
+      if (kind === "boss") {
+        const isDragonPhase = enemy.hp <= enemy.maxHp * 0.5;
+        const currentPhase = isDragonPhase ? "dragon" : "bull";
+        if (sprite.getData("bossPhase") !== currentPhase) {
+          sprite.setData("bossPhase", currentPhase);
+          sprite.setData("hasBullMotion", false);
+          sprite.setData("hasDragonMotion", false);
+          this.tweens.killTweensOf(sprite);
+          if (isDragonPhase && previousHp !== undefined) {
+            this.roomRenderer.showImpact(enemy.x, enemy.y, 240, 0xff2266);
+            this.cameras.main.shake(350, 0.015);
+          }
+        }
+      }
 
       // attackSequence is state-recovery metadata; live visuals use combat.action.
       this.networkEnemyAttackSequence.set(enemy.id, enemy.attackSequence);
