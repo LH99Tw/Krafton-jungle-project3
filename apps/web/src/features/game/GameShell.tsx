@@ -21,7 +21,6 @@ import { AccessScreen } from "../lobby/AccessScreen";
 import { CharacterSelectScreen } from "../lobby/CharacterSelectScreen";
 import { LobbyScreen } from "../lobby/LobbyScreen";
 import { MapEditorScreen } from "../map-editor/MapEditorScreen";
-import { AugmentLabScreen } from "../lab/AugmentLabScreen";
 import type { EditorMapDefinition } from "@/src/game/domain/mapEditor";
 import { GameHud } from "./GameHud";
 import { ResultOverlay } from "./ResultOverlay";
@@ -40,8 +39,7 @@ export type Viewer = {
   csrfToken: string;
 } | null;
 
-type Screen = "access" | "lobby" | "selecting" | "editor" | "lab" | "playing";
-const LOCAL_DEVELOPMENT_TOOLS_ENABLED = process.env.NODE_ENV !== "production";
+type Screen = "access" | "lobby" | "selecting" | "editor" | "playing";
 const RUN_RECOVERY_KEY = "five-days:active-run:v1";
 const RUN_RECOVERY_TTL_MS = 35 * 60 * 1000;
 
@@ -468,10 +466,9 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
 
   if (screen === "lobby" && viewer) return <LobbyScreen viewer={viewer} rooms={rooms} snapshot={lobby} messages={messages} busy={busy} error={surfaceError} onCreate={createLobby} onJoin={joinLobby} onLeave={leaveLobby} onReady={(ready) => lobbyTransport.ready(ready)} onStart={() => lobbyTransport.startSelection()} onSoloStart={startSoloExpedition} onChat={(message) => globalChatTransport.chat(message)} onAddAi={() => lobbyTransport.addAi()} onRemoveAi={(userId) => lobbyTransport.removeAi(userId)} onBack={() => setScreen("access")} />;
 
-  if (LOCAL_DEVELOPMENT_TOOLS_ENABLED && screen === "lab") return <AugmentLabScreen onBack={() => setScreen("access")} />;
   if (screen === "editor" && localMapEditorEnabled) return <MapEditorScreen onBack={() => setScreen("access")} onPlay={playEditorMap} />;
 
-  return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onLogout={logout} editorEnabled={localMapEditorEnabled} onOpenEditor={() => { if (localMapEditorEnabled) setScreen("editor"); }} onOpenLab={LOCAL_DEVELOPMENT_TOOLS_ENABLED ? () => setScreen("lab") : undefined} onStart={() => { setSurfaceError(""); setScreen("lobby"); }} />;
+  return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onLogout={logout} editorEnabled={localMapEditorEnabled} onOpenEditor={() => { if (localMapEditorEnabled) setScreen("editor"); }} onStart={() => { setSurfaceError(""); setScreen("lobby"); }} />;
 }
 
 function saveRunRecovery(userId: string, roomId: string, options: GameStartOptions): void {

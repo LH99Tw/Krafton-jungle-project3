@@ -36,7 +36,7 @@ export default async function Home({ searchParams }: {
     ? { userId: user.id, displayName: user.displayName, accountType: user.accountType, csrfToken }
     : null;
 
-  const initialScreen = (query.lab === "1" || query.screen === "lab") ? "lab" : null;
+  const initialScreen = null;
 
   return <GameShell
     viewer={viewer}

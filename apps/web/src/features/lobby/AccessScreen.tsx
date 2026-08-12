@@ -15,7 +15,6 @@ export function AccessScreen({
   onLogout,
   onStart,
   onOpenEditor,
-  onOpenLab,
   editorEnabled,
 }: {
   viewer: Viewer;
@@ -25,7 +24,6 @@ export function AccessScreen({
   onLogout: () => Promise<void>;
   onStart: () => void;
   onOpenEditor: () => void;
-  onOpenLab?: () => void;
   editorEnabled: boolean;
 }) {
   return (
@@ -45,11 +43,6 @@ export function AccessScreen({
             {LOCAL_DEVELOPMENT_TOOLS_ENABLED && editorEnabled && (
               <FantasyButton variant="quiet" size="large" type="button" onClick={onOpenEditor}>
                 로컬 맵 빌더
-              </FantasyButton>
-            )}
-            {LOCAL_DEVELOPMENT_TOOLS_ENABLED && onOpenLab && (
-              <FantasyButton variant="quiet" size="large" type="button" onClick={onOpenLab}>
-                🧪 증강 밸런스 실험실
               </FantasyButton>
             )}
             <FantasyButton
