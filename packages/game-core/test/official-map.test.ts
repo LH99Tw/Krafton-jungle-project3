@@ -101,7 +101,9 @@ test("an undiscovered official gate spawns invaders that pathfind to and damage 
   const player = core.addPlayer({ userId: "player", displayName: "Player", heroClass: "swordsman" });
   core.setReady(player.userId, true);
   core.setConnected(player.userId, false);
-  for (let index = 0; index < 100; index += 1) core.update(0.1);
+  // The first wave is queued after ten seconds, then released through the
+  // one-second micro-spawn scheduler instead of appearing all at once.
+  for (let index = 0; index < 111; index += 1) core.update(0.1);
   const invader = [...core.enemies.values()].find((enemy) => enemy.kind === "invader")!;
   const gate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate" && enemy.roomId === invader.spawnRoomId)!;
   assert.equal(core.rooms.get(gate.roomId)?.zone, 1);
@@ -130,7 +132,7 @@ test("advancing to zone two stops zone-one waves and only uses the zone-two gate
   const updateInvaderSpawning = (core as unknown as { updateInvaderSpawning(delta: number): void }).updateInvaderSpawning.bind(core);
   const waveInterval = 60 / 8;
 
-  for (let index = 0; index < 100; index += 1) core.update(0.1);
+  for (let index = 0; index < 111; index += 1) core.update(0.1);
   const zoneOneInvaders = [...core.enemies.values()].filter((enemy) => enemy.kind === "invader");
   assert.ok(zoneOneInvaders.length > 0);
   assert.ok(zoneOneInvaders.every((enemy) => core.rooms.get(enemy.spawnRoomId)?.zone === 1));

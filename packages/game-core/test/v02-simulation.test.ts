@@ -314,12 +314,16 @@ test("dash follows the movement input direction and falls back to aim while idle
 test("a skipped server interval advances combat clocks and resolves one bounded auto attack", () => {
   const core = startedCore("lag-compensated-auto-attack");
   const player = core.players.get("p1")!;
-  player.x = 100;
-  player.y = 100;
+  const playerRoom = core.rooms.get(player.roomId)!;
+  const playerRoomRect = roomWorldRect({ x: playerRoom.gridX, y: playerRoom.gridY });
+  player.x = playerRoomRect.x + playerRoomRect.width / 2;
+  player.y = playerRoomRect.y + playerRoomRect.height / 2;
   player.aim = 0;
   player.autoAttackCooldown = 0.8;
   player.qCooldown = 2;
-  const target = enemy("lag-target", player.roomId, 180, 100);
+  // Keep the fixture in range after the first attack's authoritative 32px
+  // knockback so this test remains focused on bounded lag compensation.
+  const target = enemy("lag-target", player.roomId, player.x + 5, player.y);
   core.enemies.clear();
   core.enemies.set(target.id, target);
 
@@ -449,6 +453,12 @@ test("general and class augments affect authoritative attacks and skills", () =>
   for (const target of targets) core.enemies.set(target.id, target);
   core.performAutoAttack(archer.userId);
   assert.ok(targets.slice(0, 4).every((target) => target.hp < target.maxHp), "multishot and piercing must damage additional targets");
+  // Reset the combat fixtures after authoritative knockback; the next
+  // assertion verifies skill augments, not persistence of target positions.
+  targets.forEach((target, index) => {
+    target.x = [150, 190, 230, 270][index]!;
+    target.y = 100;
+  });
   archer.autoAttackCooldown = 0;
   assert.equal(core.castSkill(archer.userId, "q", 0), true);
   assert.ok(archer.qCooldown > 0 && archer.qCooldown < 5, "skill haste must reduce authoritative cooldown");

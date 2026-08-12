@@ -78,12 +78,12 @@ test("gates deployments on verification and repairs required production settings
   assert.match(workflow, /RELEASE_SHA:.*github\.event\.workflow_run\.head_sha/);
   assert.match(workflow, /ref: \$\{\{ env\.RELEASE_SHA \}\}/);
   assert.match(workflow, /five-days-game-server:\$\{\{ env\.RELEASE_SHA \}\}/);
-  assert.match(workflow, /upsert_env \.env\.web GUESTBOOK_ADMIN_DELETE_KEY/);
+  assert.match(workflow, /upsert_env \.env\.web GUESTBOOK_MASTER_KEY/);
   assert.match(workflow, /upsert_env \.env\.web PUBLIC_PLAYTEST_ENABLED true/);
   assert.match(workflow, /upsert_env \.env\.web PROTOCOL_VERSION 9/);
   assert.match(workflow, /upsert_env \.env\.game PROTOCOL_VERSION 9/);
-  assert.match(configure, /GUESTBOOK_ADMIN_DELETE_KEY/);
-  assert.match(instrumentation, /required\("GUESTBOOK_ADMIN_DELETE_KEY"\)/);
+  assert.match(configure, /GUESTBOOK_MASTER_KEY/);
+  assert.match(instrumentation, /GUESTBOOK_MASTER_KEY is required in production/);
 });
 
 test("retains the Phaser game while adding the Colyseus transport", async () => {

@@ -20,6 +20,11 @@ import {
   type HeroFacingDirection,
 } from "../../client/render/heroSprites";
 import {
+  resolveEnemyFacingAngle,
+  SKELETON_FRAME_COUNT,
+  SKELETON_ROW_BY_ANGLE,
+} from "../../client/render/enemySprites";
+import {
   BUILD_BOUNDS,
   ROOM_VIEW,
   wallEnvelopeRects,
@@ -64,6 +69,7 @@ const MIDBOSS_DISPLAY_SIZE = 192 * UNIT_RENDER_SCALE;
 const GATE_DISPLAY_WIDTH = 112 * UNIT_RENDER_SCALE;
 const GATE_DISPLAY_HEIGHT = 130 * UNIT_RENDER_SCALE;
 const BOSS_DISPLAY_SIZE = 250 * UNIT_RENDER_SCALE;
+const SKELETON_DISPLAY_SIZE = 100;
 
 const CRITICAL_ATTACK_COLORS: Record<HeroClassId, number> = {
   swordsman: 0xd8f6ff,
@@ -137,11 +143,29 @@ export class RoomRenderer {
   create(): void {
     createGameTextures(this.scene);
     this.createBasicAttackAnimations();
+    this.createSkeletonAnimations();
     this.createVegetationFrames();
     this.createEnvironmentFrames();
     this.createCrosshairTexture();
     this.crosshair = this.scene.add.image(640, 360, "medieval-crosshair").setDepth(200).setScrollFactor(0);
     this.scene.game.canvas.style.cursor = "none";
+  }
+
+  private createSkeletonAnimations(): void {
+    if (!this.scene.textures.exists("enemy-skeleton-unarmed")) return;
+    for (const [angleText, row] of Object.entries(SKELETON_ROW_BY_ANGLE)) {
+      const key = `enemy-skeleton-walk-${angleText}`;
+      if (this.scene.anims.exists(key)) continue;
+      this.scene.anims.create({
+        key,
+        frames: this.scene.anims.generateFrameNumbers("enemy-skeleton-unarmed", {
+          start: row * SKELETON_FRAME_COUNT,
+          end: (row + 1) * SKELETON_FRAME_COUNT - 1,
+        }),
+        frameRate: 10,
+        repeat: -1,
+      });
+    }
   }
 
   private createBasicAttackAnimations(): void {
@@ -1136,11 +1160,12 @@ export class RoomRenderer {
         ? midbossKey
         : kind === "boss"
           ? (hasBossBullAsset ? "enemy-boss-bull-asset" : "boss")
-          : "enemy-skeleton-0";
+          : this.scene.textures.exists("enemy-skeleton-unarmed") ? "enemy-skeleton-unarmed" : "enemy-skeleton-0";
 
     const enemy = this.scene.physics.add.sprite(x, y, textureKey).setDepth(look.depth).setScale(UNIT_RENDER_SCALE);
     if (hasMidbossAsset) enemy.setDisplaySize(MIDBOSS_DISPLAY_SIZE, MIDBOSS_DISPLAY_SIZE);
     if (hasGateAsset) enemy.setDisplaySize(GATE_DISPLAY_WIDTH, GATE_DISPLAY_HEIGHT);
+    if ((kind === "static" || kind === "invader") && this.scene.textures.exists("enemy-skeleton-unarmed")) enemy.setDisplaySize(SKELETON_DISPLAY_SIZE, SKELETON_DISPLAY_SIZE);
     if (kind === "boss") {
       enemy.setDisplaySize(BOSS_DISPLAY_SIZE, BOSS_DISPLAY_SIZE);
       if (hasBossBullAsset) this.applyBullChargeMotion(enemy);
@@ -1166,7 +1191,7 @@ export class RoomRenderer {
         ? midbossKey
         : kind === "boss"
           ? (hasBossBullAsset ? "enemy-boss-bull-asset" : "boss")
-          : "enemy-skeleton-0";
+          : this.scene.textures.exists("enemy-skeleton-unarmed") ? "enemy-skeleton-unarmed" : "enemy-skeleton-0";
 
     enemy
       .setTexture(textureKey)
@@ -1178,6 +1203,7 @@ export class RoomRenderer {
       .setActive(true);
     if (hasMidbossAsset) enemy.setDisplaySize(MIDBOSS_DISPLAY_SIZE, MIDBOSS_DISPLAY_SIZE);
     if (hasGateAsset) enemy.setDisplaySize(GATE_DISPLAY_WIDTH, GATE_DISPLAY_HEIGHT);
+    if ((kind === "static" || kind === "invader") && this.scene.textures.exists("enemy-skeleton-unarmed")) enemy.setDisplaySize(SKELETON_DISPLAY_SIZE, SKELETON_DISPLAY_SIZE);
     if (kind === "boss") {
       enemy.setDisplaySize(BOSS_DISPLAY_SIZE, BOSS_DISPLAY_SIZE);
       if (hasBossBullAsset) this.applyBullChargeMotion(enemy);
@@ -1188,10 +1214,12 @@ export class RoomRenderer {
 
   releaseNetworkEnemy(kind: EnemyKind, enemy: Phaser.GameObjects.Sprite): void {
     this.scene.tweens.killTweensOf(enemy);
+    enemy.stop();
     enemy.setData("hasHoverMotion", false);
     enemy.setData("isEmerging", false);
     enemy.setData("hasBullMotion", false);
     enemy.setData("hasDragonMotion", false);
+    enemy.setData("enemyFacingAngle", 90);
     enemy.setAngle(0);
     enemy.setCrop().clearTint().setScale(1).setAlpha(1).setVisible(false).setActive(false).setPosition(-10_000, -10_000);
     const pool = this.networkEnemyPool.get(kind) ?? [];
@@ -1217,18 +1245,16 @@ export class RoomRenderer {
     const vx = movementX ?? body?.velocity.x ?? 0;
     const vy = movementY ?? body?.velocity.y ?? 0;
     const speedSq = vx * vx + vy * vy;
-
-    let angle = 90;
-    if (typeof aim === "number" && Number.isFinite(aim)) {
-      angle = Phaser.Math.RadToDeg(aim);
-    } else if (typeof targetX === "number" && typeof targetY === "number") {
-      angle = Phaser.Math.RadToDeg(Math.atan2(targetY - sprite.y, targetX - sprite.x));
-    } else if (speedSq > 4) {
-      angle = Phaser.Math.RadToDeg(Math.atan2(vy, vx));
-    }
-
-    const normalized = (angle + 360) % 360;
-    const snapAngle = (Math.round(normalized / 45) * 45) % 360;
+    const storedFacing = sprite.getData("enemyFacingAngle");
+    const snapAngle = resolveEnemyFacingAngle({
+      movementX: vx,
+      movementY: vy,
+      targetDeltaX: typeof targetX === "number" ? targetX - sprite.x : undefined,
+      targetDeltaY: typeof targetY === "number" ? targetY - sprite.y : undefined,
+      aimRadians: aim,
+      previousAngle: typeof storedFacing === "number" ? storedFacing : undefined,
+    });
+    sprite.setData("enemyFacingAngle", snapAngle);
     if (kind === "hidden") {
       const midbossKey = this.resolveMidbossTextureKey();
       if (midbossKey !== "enemy-demon-midboss-0") {
@@ -1252,9 +1278,19 @@ export class RoomRenderer {
         sprite.setDisplaySize(BOSS_DISPLAY_SIZE, BOSS_DISPLAY_SIZE);
       }
     } else if (kind === "static" || kind === "invader") {
-      sprite.setTexture(`enemy-skeleton-${snapAngle}`);
+      if (this.scene.textures.exists("enemy-skeleton-unarmed")) {
+        const row = SKELETON_ROW_BY_ANGLE[snapAngle] ?? 0;
+        if (speedSq > 4) sprite.play(`enemy-skeleton-walk-${snapAngle}`, true);
+        else {
+          sprite.stop();
+          sprite.setTexture("enemy-skeleton-unarmed", row * SKELETON_FRAME_COUNT);
+        }
+        sprite.setDisplaySize(SKELETON_DISPLAY_SIZE, SKELETON_DISPLAY_SIZE);
+      } else {
+        sprite.setTexture(`enemy-skeleton-${snapAngle}`);
+      }
     } else {
-      sprite.setAngle(angle);
+      sprite.setAngle(snapAngle);
     }
   }
 
