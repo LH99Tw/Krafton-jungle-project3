@@ -135,3 +135,16 @@ test("network basic attacks render from reliable event coordinates after target 
     /snapshot\.enemies|networkEnemies\.get\(action\.targetId\)/,
   );
 });
+
+test("player basic attack visuals travel to the authoritative enemy position", () => {
+  const renderer = readFileSync(new URL("../src/game/runtime/room/RoomRenderer.ts", import.meta.url), "utf8");
+  const showClassAttack = renderer.slice(
+    renderer.indexOf("  showClassAttack("),
+    renderer.indexOf("  showAutoSkill("),
+  );
+  assert.match(showClassAttack, /const angle = targetAngle/);
+  assert.match(showClassAttack, /const effectTargetX = targetX/);
+  assert.match(showClassAttack, /const effectTargetY = targetY/);
+  assert.doesNotMatch(showClassAttack, /Math\.cos\(angle\) \* travelDistance/);
+  assert.doesNotMatch(showClassAttack, /Math\.sin\(angle\) \* travelDistance/);
+});

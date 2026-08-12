@@ -147,6 +147,22 @@ test("composes the in-game relic HUD from focused components", async () => {
   assert.match(commandBar, /images\/ui\/hud\/skills\/\$\{heroClass\}-\$\{keyName\.toLowerCase\(\)\}\.png/);
 });
 
+test("renders expedition results as a compact landscape ledger", async () => {
+  const overlay = await readFile(new URL("src/features/game/ResultOverlay.tsx", root), "utf8");
+  const styles = await readFile(new URL("app/globals.css", root), "utf8");
+  assert.match(overlay, /result-panel-wide-v2\.png/);
+  assert.match(overlay, /button-victory-v2\.png/);
+  assert.match(overlay, /button-defeat-v2\.png/);
+  assert.match(overlay, /className="result-main"[\s\S]*?className="result-hero"[\s\S]*?className="result-summary"/);
+  assert.match(styles, /\.result-modal \{[^}]*aspect-ratio:1468\/856/s);
+  assert.match(styles, /\.result-hero \{[^}]*left:3\.27%; top:15\.42%; width:46\.46%; height:69\.63%/s);
+  assert.match(styles, /\.result-summary \{[^}]*left:53\.54%; top:18\.34%; width:40\.19%; height:62\.62%/s);
+  assert.match(styles, /\.result-actions \{[^}]*left:3\.27%; top:85\.05%; width:93\.46%; height:12\.15%/s);
+  for (const asset of ["result-panel-wide-v2.png", "button-victory-v2.png", "button-defeat-v2.png"]) {
+    await access(new URL(`public/images/ui/result-screen/${asset}`, root));
+  }
+});
+
 test("renders the dedicated access sidebar with the clean decorative asset", async () => {
   const sidebar = await readFile(new URL("src/features/lobby/AccessSidebar.tsx", root), "utf8");
   const accessScreen = await readFile(new URL("src/features/lobby/AccessScreen.tsx", root), "utf8");

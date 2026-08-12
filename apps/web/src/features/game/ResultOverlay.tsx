@@ -38,38 +38,39 @@ export function ResultOverlay({
   return (
     <div className="modal-backdrop result-backdrop" role="alertdialog" aria-modal="true" aria-labelledby="result-title" aria-describedby="result-reason">
       <section className={`result-modal ${victory ? "is-victory" : "is-defeat"}`}>
-        <Image className="result-panel-art" src={`${RESULT_ASSET_ROOT}/result-panel.png`} width={1024} height={1536} alt="" aria-hidden="true" priority />
+        <Image className="result-panel-art" src={`${RESULT_ASSET_ROOT}/result-panel-wide-v2.png`} width={1468} height={856} alt="" aria-hidden="true" priority />
         <div className="result-content">
-          <span className="result-kicker">원정 보고 · {result.day}일차</span>
-          <Image
-            className="result-emblem"
-            src={`${RESULT_ASSET_ROOT}/${victory ? "victory-emblem.png" : "defeat-emblem.png"}`}
-            width={1254}
-            height={1254}
-            alt=""
-            aria-hidden="true"
-          />
-          <h2 id="result-title">{victory ? "토벌 성공" : "토벌 실패"}</h2>
-          <p id="result-reason">{result.reason}</p>
-          <div className="result-section-heading">
-            <Image src={`${RESULT_ASSET_ROOT}/section-divider.png`} width={1774} height={887} alt="" aria-hidden="true" />
-            <span>파티 성과 요약</span>
-          </div>
-          <dl className="result-stats">
-            {stats.map((stat) => (
-              <div key={stat.label}>
-                <Image src={`${RESULT_ASSET_ROOT}/${stat.icon}`} width={1254} height={1254} alt="" aria-hidden="true" />
-                <dt>{stat.label}</dt>
-                <dd>{stat.value}</dd>
-              </div>
-            ))}
-          </dl>
-          <div className="result-actions">
+          <main className="result-main">
+            <section className="result-hero">
+              <Image
+                className="result-emblem"
+                src={`${RESULT_ASSET_ROOT}/${victory ? "victory-emblem.png" : "defeat-emblem.png"}`}
+                width={1254}
+                height={1254}
+                alt=""
+                aria-hidden="true"
+              />
+              <h2 id="result-title">{victory ? "토벌 성공" : "토벌 실패"}</h2>
+              <p id="result-reason">{result.reason}</p>
+            </section>
+            <section className="result-summary" aria-label="파티 성과">
+              <dl className="result-stats">
+                {stats.map((stat) => (
+                  <div key={stat.label}>
+                    <Image src={`${RESULT_ASSET_ROOT}/${stat.icon}`} width={1254} height={1254} alt="" aria-hidden="true" />
+                    <dt>{stat.label}</dt>
+                    <dd>{stat.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          </main>
+          <footer className="result-actions">
             <button ref={actionRef} type="button" className="result-exit-action" onClick={onLobby}>
-              <Image src={`${RESULT_ASSET_ROOT}/${victory ? "button-victory.png" : "button-defeat.png"}`} width={1774} height={887} alt="" aria-hidden="true" />
+              <Image src={`${RESULT_ASSET_ROOT}/${victory ? "button-victory-v2.png" : "button-defeat-v2.png"}`} width={victory ? 1680 : 1586} height={victory ? 340 : 241} alt="" aria-hidden="true" />
               <span>{returnLabel}</span>
             </button>
-          </div>
+          </footer>
         </div>
       </section>
     </div>

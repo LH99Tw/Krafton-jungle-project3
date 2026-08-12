@@ -82,6 +82,32 @@ test("hidden-enemy navigation caches a leash-local slice of the official map", (
   assert.ok(localWalkable.length < OFFICIAL_WORLD.walkable.length / 2, "hidden A* must not span the full official map");
 });
 
+test("hidden encounters spawn and remain at the exact center of their room", () => {
+  const core = new GameCore({
+    mode: "prototype",
+    difficulty: "normal",
+    seed: "hidden-room-center",
+    minimumPlayers: 1,
+    world: OFFICIAL_WORLD,
+  });
+  const player = core.addPlayer({ userId: "p1", displayName: "탐험가", heroClass: "swordsman" });
+  core.setReady(player.userId, true);
+  const hidden = [...core.enemies.values()].find((enemy) => enemy.kind === "hidden");
+  assert.ok(hidden);
+  const room = core.rooms.get(hidden.roomId);
+  assert.ok(room?.rect);
+  const center = {
+    x: room.rect.x + room.rect.width / 2,
+    y: room.rect.y + room.rect.height / 2,
+  };
+  assert.deepEqual({ x: hidden.x, y: hidden.y }, center, "initial spawn must use the room center");
+
+  const adjacentRoomId = room.connections[0] ?? room.id;
+  core.movePlayerToRoom(player.userId, adjacentRoomId);
+  core.update(1 / 60);
+  assert.deepEqual({ x: hidden.x, y: hidden.y }, center, "proximity activation must not relocate the hidden encounter");
+});
+
 test("entering a room beside a hidden encounter does not stall the shared simulation", () => {
   const core = new GameCore({
     mode: "prototype",

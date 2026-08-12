@@ -40,9 +40,13 @@ export function PartyVitalsHud({
         })}
       </div>
       <div className={`party-gate-progress ${gateProgress.destroyed >= gateProgress.goal ? "is-complete" : ""}`}>
-        <span aria-hidden="true" />
-        <small>라운드 {gateProgress.round} 게이트 파괴</small>
+        <span className="party-gate-emblem" aria-hidden="true" />
+        <div>
+          <small>ZONE {gateProgress.round} · 게이트 파괴</small>
+          <b>{gateProgress.destroyed >= gateProgress.goal ? "구역 개방 완료" : "균열 관문을 파괴하세요"}</b>
+        </div>
         <strong>{gateProgress.destroyed}<i>/</i>{gateProgress.goal}</strong>
+        <span className="party-gate-meter" style={{ "--gate-progress": `${Math.min(100, gateProgress.destroyed / Math.max(1, gateProgress.goal) * 100)}%` } as CSSProperties} aria-hidden="true" />
       </div>
     </section>
   );

@@ -5,6 +5,7 @@ import "./globals.css";
 const title = "5일 뒤 마왕 — 협동 로그라이트 디펜스";
 const description =
   "낮에는 원정하고 밤에는 지켜라. 신참 용사 셋이 5일 안에 마왕을 쓰러뜨리는 웹 게임 프로토타입.";
+const faviconUrl = "/images/brand/archer-favicon-v1.png";
 
 export async function generateMetadata(): Promise<Metadata> {
   const requestHeaders = await headers();
@@ -15,7 +16,11 @@ export async function generateMetadata(): Promise<Metadata> {
   return {
     title,
     description,
-    icons: { icon: "/og.png" },
+    icons: {
+      icon: [{ url: faviconUrl, type: "image/png", sizes: "256x256" }],
+      shortcut: faviconUrl,
+      apple: [{ url: faviconUrl, type: "image/png", sizes: "256x256" }],
+    },
     openGraph: {
       title,
       description,

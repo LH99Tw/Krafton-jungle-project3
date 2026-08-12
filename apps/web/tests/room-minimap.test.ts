@@ -33,6 +33,14 @@ test("minimap scale stays positive while the HUD temporarily collapses during a 
   }
 });
 
+test("player-following minimap defaults to a wider tactical view", () => {
+  const snapshot = minimap();
+  const fullScale = fullMapScale(320, 240, snapshot);
+  const transform = mapTransform(320, 240, snapshot, { x: 4_000, y: 6_000 });
+  assert.ok(transform.scale <= fullScale * 2.75 + Number.EPSILON);
+  assert.ok(transform.scale < fullScale * 4, "the previous close follow zoom is no longer used");
+});
+
 test("minimap transform falls back safely for malformed transient geometry", () => {
   const snapshot = minimap(0, Number.NaN);
   const transform = mapTransform(0, 0, snapshot, { x: 0, y: 0 }, { zoom: -2, centerX: null, centerY: null });

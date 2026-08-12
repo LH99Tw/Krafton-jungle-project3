@@ -16,7 +16,11 @@ import type {
 
 export type CorePhase = "lobby" | "day" | "night" | "standby" | "boss" | "ended";
 export type CoreResult = "victory" | "defeat" | "abandoned";
-export type CoreNotice = Readonly<{ userId: string; code: "ZONE_GATE_LOCKED"; message: string }>;
+export type CoreNotice = Readonly<{
+  userId: string | null;
+  code: "ZONE_GATE_LOCKED" | "GATE_DESTROYED";
+  message: string;
+}>;
 
 export type CoreCombatStats = Readonly<{
   attackDamage: number;

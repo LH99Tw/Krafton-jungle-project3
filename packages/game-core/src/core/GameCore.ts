@@ -1222,7 +1222,11 @@ export class GameCore {
       enemy.alive && enemy.roomId === roomId && (enemy.kind === "static" || enemy.kind === "hidden")
     ));
     for (const [index, enemy] of enemies.entries()) {
-      const position = positions[index % positions.length]!;
+      // Hidden encounters are authored as a room centerpiece. Do not let the
+      // proximity activation pass relocate them to a corner like normal mobs.
+      const position = enemy.kind === "hidden"
+        ? { x: centerX, y: centerY }
+        : positions[index % positions.length]!;
       if (enemy.x === position.x && enemy.y === position.y) continue;
       enemy.x = position.x;
       enemy.y = position.y;
@@ -1487,6 +1491,21 @@ export class GameCore {
     if (enemy.kind === "gate") {
       killer.gatesDestroyed += 1;
       this.travelDirector.unlockGate(enemy.spawnRoomId);
+      const gateRoom = this.rooms.get(enemy.spawnRoomId);
+      const zone = gateRoom?.zone ?? this.currentZone;
+      const zoneGates = [...this.enemies.values()].filter((candidate) => (
+        candidate.kind === "gate" && this.rooms.get(candidate.spawnRoomId)?.zone === zone
+      ));
+      const destroyed = zoneGates.filter((candidate) => !candidate.alive).length;
+      const goal = zoneGates.length;
+      const allDestroyed = goal > 0 && destroyed >= goal;
+      this.notices.push({
+        userId: null,
+        code: "GATE_DESTROYED",
+        message: allDestroyed
+          ? `구역 ${zone}의 모든 게이트가 파괴되었습니다. 다음 구역이 개방됩니다!`
+          : `구역 ${zone} 게이트 파괴! (${destroyed}/${goal})`,
+      });
     } else if (enemy.kind === "hidden") {
       this.rewardHiddenRoom(enemy.spawnRoomId);
     } else if (enemy.kind === "boss") {

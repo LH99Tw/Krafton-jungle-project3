@@ -372,6 +372,10 @@ class ColyseusTransport {
       if (!isCurrentRoom()) return;
       this.emitEvent({ type: "message", message: message.message });
     });
+    room.onMessage("world-notice", (message: { code?: string; message?: string }) => {
+      if (!isCurrentRoom()) return;
+      this.emitEvent({ type: "message", code: message.code, message: message.message });
+    });
     room.onMessage("protocol-error", (message: { code?: string }) => {
       if (!isCurrentRoom()) return;
       this.emitEvent({ type: "protocol-error", code: message.code });

@@ -8,7 +8,10 @@ export function createGame(parent: HTMLElement, options: GameStartOptions): Phas
     parent,
     width: 1280,
     height: 720,
-    backgroundColor: "#11171a",
+    // Keep the hand-off from the launch curtain fully black until the first
+    // world frame is rendered; the previous blue-green clear color flashed
+    // while Phaser initialized.
+    backgroundColor: "#000000",
     pixelArt: true,
     antialias: false,
     physics: {

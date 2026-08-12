@@ -543,6 +543,11 @@ test("destroyed gates unlock a three-second requester travel hold", () => {
   const gate = [...core.enemies.values()].find((candidate) => candidate.kind === "gate" && candidate.roomId.startsWith("zone-1:"))!;
   for (const player of core.players.values()) core.movePlayerToRoom(player.userId, gate.roomId, ROOM_WIDTH / 2, ROOM_HEIGHT / 2);
   assert.equal(core.damageEnemy("p1", gate.id, gate.hp), true);
+  assert.deepEqual(core.takeNotices(), [{
+    userId: null,
+    code: "GATE_DESTROYED",
+    message: "구역 1의 모든 게이트가 파괴되었습니다. 다음 구역이 개방됩니다!",
+  }]);
 
   const sourceId = waypointId(gate.roomId as `zone-1:${number},${number}`, "gate");
   const source = core.waypoints.get(sourceId)!;
@@ -1006,7 +1011,12 @@ test("a hidden enemy drops distant aggro and returns to its spawn", () => {
   const hidden = [...core.enemies.values()].find((candidate) => candidate.kind === "hidden")!;
   core.movePlayerToRoom(player.userId, hidden.roomId);
   core.setConnected(player.userId, false);
-  hidden.x = hidden.spawnX + 910;
+  const spawnRoom = core.rooms.get(hidden.spawnRoomId)!;
+  const connectedRoom = core.rooms.get(spawnRoom.connections[0]!)!;
+  const displaced = roomWorldCenter({ x: connectedRoom.gridX, y: connectedRoom.gridY });
+  hidden.x = displaced.x;
+  hidden.y = displaced.y;
+  hidden.roomId = connectedRoom.id;
   player.x = hidden.x + 30;
   player.y = hidden.y;
   hidden.aggroed = true;

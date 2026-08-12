@@ -13,6 +13,9 @@ import type { MiniMapSnapshot, PartyMemberSnapshot, WaypointSnapshot } from "@/s
 
 const PLAYER_COLORS = ["#72e6bd", "#ff7f9f", "#85baff", "#f1ce70", "#c79cff", "#ff9f66"];
 const DYNAMIC_FRAME_MS = 1_000 / 30;
+const FOLLOW_VIEW_MIN_FULL_MAP_ZOOM = 1.75;
+const FOLLOW_VIEW_MAX_FULL_MAP_ZOOM = 2.75;
+const FOLLOW_VIEW_VISION_DIAMETER = 3.2;
 const DEFAULT_VIEW: MiniMapView = { zoom: 1, centerX: null, centerY: null };
 
 type RoomMiniMapProps = {
@@ -326,9 +329,15 @@ function viewCenter(minimap: MiniMapSnapshot, focus: { x: number; y: number } | 
 
 export function mapTransform(width: number, height: number, minimap: MiniMapSnapshot, focus: { x: number; y: number } | null = null, view: MiniMapView = DEFAULT_VIEW): Transform {
   const fullScale = fullMapScale(width, height, minimap);
-  const visionDiameter = positiveFiniteOr(minimap.geometry.visionRadius * 2.4, 1);
+  const visionDiameter = positiveFiniteOr(minimap.geometry.visionRadius * FOLLOW_VIEW_VISION_DIAMETER, 1);
   const baseScale = focus
-    ? Math.min(fullScale * 4, Math.max(fullScale * 2.35, Math.max(1, Math.min(width, height)) / visionDiameter))
+    ? Math.min(
+      fullScale * FOLLOW_VIEW_MAX_FULL_MAP_ZOOM,
+      Math.max(
+        fullScale * FOLLOW_VIEW_MIN_FULL_MAP_ZOOM,
+        Math.max(1, Math.min(width, height)) / visionDiameter,
+      ),
+    )
     : fullScale;
   const scale = positiveFiniteOr(baseScale * positiveFiniteOr(view.zoom, 1), fullScale);
   const { x: centerX, y: centerY } = viewCenter(minimap, focus, view);

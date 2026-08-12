@@ -25,7 +25,6 @@ import {
   SKELETON_ROW_BY_ANGLE,
 } from "../../client/render/enemySprites";
 import {
-  BUILD_BOUNDS,
   ROOM_VIEW,
   wallEnvelopeRects,
   type RenderableRoom,
@@ -114,6 +113,7 @@ export class RoomRenderer {
   private roomObjects: Phaser.GameObjects.GameObject[] = [];
   private readonly resourcePickups = new Map<string, Phaser.GameObjects.Image>();
   private waypointObjects: Phaser.GameObjects.GameObject[] = [];
+  private baseHealthBar: Phaser.GameObjects.Graphics | null = null;
   private roomMasks: Phaser.Display.Masks.GeometryMask[] = [];
   private readonly enemyPatternObjects = new Map<string, {
     key: string;
@@ -219,7 +219,6 @@ export class RoomRenderer {
    */
   renderWorld(world: RenderZoneWorld, options: {
     decorSeed: string;
-    showBuildGrid: boolean;
     waypointRooms: ReadonlySet<string>;
     revealedTrapRooms?: ReadonlySet<string>;
   }): void {
@@ -766,7 +765,7 @@ export class RoomRenderer {
     graphics: Phaser.GameObjects.Graphics,
     entry: RenderWorldRoom,
     palette: { floor: number; tile: number; wall: number; accent: number },
-    options: { showBuildGrid: boolean; waypointRooms: ReadonlySet<string>; revealedTrapRooms?: ReadonlySet<string> },
+    options: { waypointRooms: ReadonlySet<string>; revealedTrapRooms?: ReadonlySet<string> },
     decorSeed: string,
   ): void {
     const { room, rect, center } = entry;
@@ -806,8 +805,18 @@ export class RoomRenderer {
     }).setOrigin(0.5).setDepth(3));
 
     if (room.type === "start" && room.zone === 1) {
-      this.track(this.scene.add.image(center.x, center.y + 40, "core").setDepth(2));
-      if (options.showBuildGrid) this.drawBuildGridWorld(graphics, rect);
+      if (this.scene.textures.exists("expedition-base-house")) {
+        this.track(this.scene.add.image(center.x - 150, center.y + 120, "expedition-base-house")
+          .setDisplaySize(280, 210)
+          .setDepth(2));
+      } else {
+        this.track(this.scene.add.image(center.x - 150, center.y + 120, "core").setDepth(2));
+      }
+      const baseHealthBar = this.track(this.scene.add.graphics()
+        .setPosition(center.x - 150, center.y + 2)
+        .setDepth(5));
+      this.baseHealthBar = baseHealthBar;
+      this.updateBaseHealth(1, 1);
     }
   }
 
@@ -850,27 +859,18 @@ export class RoomRenderer {
     }
   }
 
-  private drawBuildGridWorld(graphics: Phaser.GameObjects.Graphics, rect: { x: number; y: number; width: number; height: number }): void {
-    const bounds = BUILD_BOUNDS;
-    graphics.fillStyle(0x77d8b2, 0.04).fillRect(
-      rect.x + bounds.minX,
-      rect.y + bounds.minY,
-      bounds.maxX - bounds.minX,
-      bounds.maxY - bounds.minY,
-    );
-    graphics.lineStyle(1, 0x9adcc1, 0.22);
-    for (let x = rect.x + bounds.minX; x <= rect.x + bounds.maxX; x += BUILD_BOUNDS.gridSize) {
-      graphics.lineBetween(x, rect.y + bounds.minY, x, rect.y + bounds.maxY);
-    }
-    for (let y = rect.y + bounds.minY; y <= rect.y + bounds.maxY; y += BUILD_BOUNDS.gridSize) {
-      graphics.lineBetween(rect.x + bounds.minX, y, rect.x + bounds.maxX, y);
-    }
-    graphics.lineStyle(2, 0xb1eed6, 0.54).strokeRect(
-      rect.x + bounds.minX,
-      rect.y + bounds.minY,
-      bounds.maxX - bounds.minX,
-      bounds.maxY - bounds.minY,
-    );
+  updateBaseHealth(hp: number, maxHp: number): void {
+    const bar = this.baseHealthBar;
+    if (!bar) return;
+    const ratio = Math.max(0, Math.min(1, hp / Math.max(1, maxHp)));
+    const width = 92;
+    const height = 7;
+    const fillColor = ratio > 0.5 ? 0x63c987 : ratio > 0.25 ? 0xe2ad4d : 0xd84b45;
+    bar.clear();
+    bar.fillStyle(0x050706, 0.92).fillRoundedRect(-width / 2 - 2, -2, width + 4, height + 4, 3);
+    bar.fillStyle(0x321918, 0.96).fillRect(-width / 2, 0, width, height);
+    if (ratio > 0) bar.fillStyle(fillColor, 1).fillRect(-width / 2, 0, Math.max(1, width * ratio), height);
+    bar.lineStyle(1, 0xd7c78f, 0.72).strokeRect(-width / 2, 0, width, height);
   }
 
   updateCrosshair(pointer: Phaser.Input.Pointer): void {
@@ -1379,7 +1379,7 @@ export class RoomRenderer {
     attacker: Phaser.Physics.Arcade.Sprite,
     targetX: number,
     targetY: number,
-    aimAngle?: number,
+    _aimAngle?: number,
     critical = false,
     level = 1,
   ): void {
@@ -1387,11 +1387,13 @@ export class RoomRenderer {
     const color = classColor(classId);
     const effectColor = critical ? CRITICAL_ATTACK_COLORS[classId] : color;
     const targetAngle = Phaser.Math.Angle.Between(attacker.x, attacker.y, targetX, targetY);
-    const aim = Number.isFinite(aimAngle) ? Phaser.Math.Angle.Wrap(aimAngle as number) : targetAngle;
-    const angle = classId === "swordsman" ? targetAngle : aim;
+    // The cursor aim chooses which in-range enemy the server targets. Once an
+    // attack has a target, every class must render toward that authoritative
+    // unit position instead of replaying the cursor direction.
+    const angle = targetAngle;
     const travelDistance = Phaser.Math.Distance.Between(attacker.x, attacker.y, targetX, targetY);
-    const effectTargetX = classId === "swordsman" ? targetX : attacker.x + Math.cos(angle) * travelDistance;
-    const effectTargetY = classId === "swordsman" ? targetY : attacker.y + Math.sin(angle) * travelDistance;
+    const effectTargetX = targetX;
+    const effectTargetY = targetY;
     this.holdHeroAttackFacing(attacker, angle);
     this.scene.tweens.add({ targets: attacker, scaleX: attacker.scaleX * 1.16, scaleY: attacker.scaleY * 0.9, duration: 55, yoyo: true });
     if (classId === "swordsman") {
@@ -1826,6 +1828,7 @@ export class RoomRenderer {
   }
 
   private clearRoom(): void {
+    this.baseHealthBar = null;
     this.resourcePickups.clear();
     this.revealedTrapObjects.clear();
     for (const pattern of this.enemyPatternObjects.values()) pattern.graphics.destroy();

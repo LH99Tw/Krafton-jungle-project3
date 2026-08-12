@@ -215,6 +215,7 @@ jobs:
                curl --fail --silent "https://$WEB_HOST/Asset/waypoints/waypoint-circle-zone-1.png" >/dev/null && \
                curl --fail --silent "https://$WEB_HOST/Asset/waypoints/waypoint-circle-zone-2.png" >/dev/null && \
                curl --fail --silent "https://$WEB_HOST/Asset/waypoints/waypoint-circle-zone-3.png" >/dev/null && \
+               curl --fail --silent "https://$WEB_HOST/Asset/environment/expedition-base-house-v1.png" >/dev/null && \
                curl --fail --silent "https://$WEB_HOST/Asset/sprites/skeleton-unarmed-8dir-walk-v1.png" >/dev/null && \
                curl --fail --silent "https://$GAME_HOST/health/ready" >/dev/null && \
                printf '%s' "$game_live" | grep -q '"fastLane":{"state":"ready"'; then

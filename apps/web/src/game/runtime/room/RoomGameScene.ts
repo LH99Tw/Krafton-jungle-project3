@@ -251,6 +251,7 @@ export class RoomGameScene extends Phaser.Scene {
     this.load.image("enemy-boss-bull-asset", "/images/boss_bull.png");
     this.load.image("enemy-boss-dragon-asset", "/images/boss_dragon.png");
     this.load.image("resource-gold-pickup", "/Asset/pickups/gold-pile.png");
+    this.load.image("expedition-base-house", "/Asset/environment/expedition-base-house-v1.png");
     this.load.image("special-room-shop", "/Asset/special-rooms/merchant-wagon.webp");
     this.load.image("special-room-shrine", "/Asset/special-rooms/echo-shrine.webp");
     this.load.image("special-room-shrine-used", "/Asset/special-rooms/echo-shrine-used.webp");
@@ -279,7 +280,6 @@ export class RoomGameScene extends Phaser.Scene {
     gameBridge.emit("loading", { progress: 0.87, label: "월드 구성 중" });
     this.roomRenderer.renderWorld(this.zoneWorld, {
       decorSeed: this.runSeed,
-      showBuildGrid: this.currentZone === 1,
       waypointRooms: initialWaypointRooms,
       revealedTrapRooms: initialSnapshot ? this.revealedTrapRooms(initialSnapshot) : undefined,
     });
@@ -386,7 +386,6 @@ export class RoomGameScene extends Phaser.Scene {
     this.cameras.main?.setBounds(this.zoneWorld.bounds.x, this.zoneWorld.bounds.y, this.zoneWorld.bounds.width, this.zoneWorld.bounds.height);
     this.roomRenderer?.renderWorld(this.zoneWorld, {
       decorSeed: `${this.runSeed}:authored:${zone}`,
-      showBuildGrid: true,
       waypointRooms: waypointRoomId ? new Set([waypointRoomId]) : new Set(),
       revealedTrapRooms: this.latestNetwork ? this.revealedTrapRooms(this.latestNetwork) : undefined,
     });
@@ -519,6 +518,7 @@ export class RoomGameScene extends Phaser.Scene {
       this.renderNetworkRoom(snapshot);
     }
     this.roomRenderer.updateSpecialRoomStates(snapshot, local);
+    this.roomRenderer.updateBaseHealth(snapshot.baseHp, snapshot.baseMaxHp);
     this.syncNetworkPlayers(snapshot, local);
     this.roomRenderer.updateResourcePickups(new Set(snapshot.rooms.filter((room) => room.type === "resource" && room.cleared).map((room) => room.id)));
     this.roomRenderer.updateProgressionBarriers(this.lockedProgressionBarriers(snapshot));

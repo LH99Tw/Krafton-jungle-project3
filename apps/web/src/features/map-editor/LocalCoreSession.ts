@@ -107,7 +107,7 @@ export class LocalCoreSession {
       this.minimapAccumulatorMs %= 100;
       this.revealPartyExploration();
     }
-    const message = core.takeNotices().find((notice) => notice.userId === this.localUserId)?.message;
+    const message = core.takeNotices().find((notice) => notice.userId === null || notice.userId === this.localUserId)?.message;
     return { snapshot: this.snapshot(), frame: this.worldFrame(inputFrame.seq), inputFrame, ...(message ? { message } : {}) };
   }
 

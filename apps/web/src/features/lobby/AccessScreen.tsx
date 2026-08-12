@@ -34,11 +34,9 @@ export function AccessScreen({
         <div className="access-main-art" aria-hidden="true" />
         <Guestbook viewer={viewer} />
         <div className="access-launch">
-          <p>{viewer
-            ? "함께 탐험할 원정대를 찾으세요."
-            : LOCAL_DEVELOPMENT_TOOLS_ENABLED
-              ? "로그인 후 개발 도구와 원정대 로비를 이용해 보세요."
-              : "로그인 후 함께 탐험할 원정대를 찾아보세요."}</p>
+          {!viewer && <p>{LOCAL_DEVELOPMENT_TOOLS_ENABLED
+            ? "로그인 후 개발 도구와 원정대 로비를 이용해 보세요."
+            : "로그인 후 함께 탐험할 원정대를 찾아보세요."}</p>}
           <div className="access-launch-actions">
             {LOCAL_DEVELOPMENT_TOOLS_ENABLED && editorEnabled && (
               <FantasyButton variant="quiet" size="large" type="button" onClick={onOpenEditor}>

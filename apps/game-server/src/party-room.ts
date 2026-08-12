@@ -639,6 +639,10 @@ export class PartyRoom extends Room<PartyRoomState> {
     }
     this.simulationAccumulatorMs = Math.max(0, this.simulationAccumulatorMs);
     for (const notice of this.core.takeNotices()) {
+      if (notice.userId === null) {
+        this.broadcast("world-notice", { code: notice.code, message: notice.message });
+        continue;
+      }
       for (const client of this.clients) {
         if (client.userData?.userId === notice.userId) client.send("message", { code: notice.code, message: notice.message });
       }

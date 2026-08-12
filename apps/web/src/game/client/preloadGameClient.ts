@@ -15,6 +15,7 @@ const GAMEPLAY_IMAGE_ASSETS = [
   "/Asset/waypoints/waypoint-circle-zone-1.png",
   "/Asset/waypoints/waypoint-circle-zone-2.png",
   "/Asset/waypoints/waypoint-circle-zone-3.png",
+  "/Asset/environment/expedition-base-house-v1.png",
   "/Asset/sprites/skeleton-unarmed-8dir-walk-v1.png",
   ...BASIC_ATTACK_SPRITE_PATHS,
   "/Asset/ui/augment-cards/augment-card-normal.webp",

@@ -636,8 +636,12 @@ export function createSeededRoomEnemy(
   const difficultyRule = DIFFICULTY_MULTIPLIER[difficulty];
   const zoneScale = 1 + (zone - 1) * 0.28;
   const hp = Math.round(base.hp * zoneScale * difficultyRule.hp);
-  const x = originX + (kind === "gate" ? roomWidth * 0.76 : roomWidth * (0.35 + random.next() * 0.3));
-  const y = originY + (kind === "gate" ? roomHeight * 0.24 : roomHeight * (0.3 + random.next() * 0.4));
+  const x = originX + (kind === "gate"
+    ? roomWidth * 0.76
+    : kind === "hidden" ? roomWidth / 2 : roomWidth * (0.35 + random.next() * 0.3));
+  const y = originY + (kind === "gate"
+    ? roomHeight * 0.24
+    : kind === "hidden" ? roomHeight / 2 : roomHeight * (0.3 + random.next() * 0.4));
   return {
     id: `enemy:${kind}:${roomId}:${hashSeed(`${seed}:${roomId}`).toString(16)}`,
     kind,
