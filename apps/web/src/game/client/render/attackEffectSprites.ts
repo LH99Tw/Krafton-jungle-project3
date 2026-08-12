@@ -46,8 +46,7 @@ export const BASIC_ATTACK_SPRITES: Record<HeroClassId, BasicAttackSpriteSpec> = 
   },
 };
 
-export const BASIC_ATTACK_UPGRADE_LEVELS = [10, 20, 30] as const;
-export type BasicAttackUpgradeLevel = (typeof BASIC_ATTACK_UPGRADE_LEVELS)[number];
+export type BasicAttackUpgradeLevel = 10 | 20 | 30;
 
 function upgradedSprite(
   base: BasicAttackSpriteSpec,

@@ -54,6 +54,14 @@ test("official map supports deterministic candidate gates or authored static gat
   }
 });
 
+test("official static map keeps the authored 2/3/3 gate layout", () => {
+  assert.equal(OFFICIAL_WORLD.gateCandidateRoomIds?.length ?? 0, 0);
+  const gateCounts = ([1, 2, 3] as const).map((zone) => OFFICIAL_WORLD.gateRoomIds.filter((roomId) => (
+    OFFICIAL_WORLD.rooms.find((room) => room.id === roomId)?.zone === zone
+  )).length);
+  assert.deepEqual(gateCounts, [2, 3, 3]);
+});
+
 test("official authored zones contain playable rooms and remain connected", () => {
   const counts = new Map<number, number>();
   for (const room of OFFICIAL_WORLD.rooms) {

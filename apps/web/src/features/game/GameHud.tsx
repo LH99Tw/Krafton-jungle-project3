@@ -45,6 +45,7 @@ export function GameHud({
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [bgmVolume, setBgmVolume] = useState(storedBgmVolume);
+  const initialBgmVolumeRef = useRef(bgmVolume);
   const bgmRef = useRef<HTMLAudioElement | null>(null);
   const gateProgress = resolveRoundGateProgress(snapshot.currentZone, snapshot.roomMap);
   const party = snapshot.party.length > 0
@@ -85,9 +86,9 @@ export function GameHud({
     const music = new Audio("/audio/music/zombie-rave.mp3");
     music.loop = true;
     music.preload = "auto";
-    music.volume = bgmVolume;
+    music.volume = initialBgmVolumeRef.current;
     bgmRef.current = music;
-    const play = () => { if (bgmVolume > 0) void music.play().catch(() => {}); };
+    const play = () => { if (initialBgmVolumeRef.current > 0) void music.play().catch(() => {}); };
     play();
     window.addEventListener("pointerdown", play, { once: true });
     window.addEventListener("keydown", play, { once: true });

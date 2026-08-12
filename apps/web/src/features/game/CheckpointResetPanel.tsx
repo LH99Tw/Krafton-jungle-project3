@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 type CheckpointResetPanelProps = {
   currentRoomId: string;
@@ -17,14 +17,14 @@ function checkpointLabel(roomId: string): string {
 }
 
 export function CheckpointResetPanel({ currentRoomId, respawnRoomId, onConfirm }: CheckpointResetPanelProps) {
-  const [confirming, setConfirming] = useState(false);
+  const checkpointKey = `${currentRoomId}\0${respawnRoomId}`;
+  const [confirmingCheckpoint, setConfirmingCheckpoint] = useState<string | null>(null);
+  const confirming = confirmingCheckpoint === checkpointKey;
   const unchanged = Boolean(respawnRoomId) && respawnRoomId === currentRoomId;
-
-  useEffect(() => setConfirming(false), [currentRoomId, respawnRoomId]);
 
   const confirm = () => {
     onConfirm();
-    setConfirming(false);
+    setConfirmingCheckpoint(null);
   };
 
   return (
@@ -47,10 +47,10 @@ export function CheckpointResetPanel({ currentRoomId, respawnRoomId, onConfirm }
       {confirming ? (
         <div className="checkpoint-confirm" role="group" aria-label="부활 지점 변경 확인">
           <p>이 마법진에 영혼을 연결할까요?</p>
-          <div><button type="button" onClick={() => setConfirming(false)}>취소</button><button type="button" onClick={confirm}>연결 확정</button></div>
+          <div><button type="button" onClick={() => setConfirmingCheckpoint(null)}>취소</button><button type="button" onClick={confirm}>연결 확정</button></div>
         </div>
       ) : (
-        <button type="button" className="checkpoint-reset-action" disabled={unchanged} onClick={() => setConfirming(true)}>
+        <button type="button" className="checkpoint-reset-action" disabled={unchanged} onClick={() => setConfirmingCheckpoint(checkpointKey)}>
           {unchanged ? "현재 마법진에 연결됨" : "부활 지점 재설정"}
         </button>
       )}

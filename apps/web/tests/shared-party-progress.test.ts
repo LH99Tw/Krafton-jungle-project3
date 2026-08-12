@@ -36,7 +36,7 @@ test("derives map, gates, economy, experience, and base health only from shared 
 });
 
 test("derives the gate objective from the actual current-round gate state", () => {
-  assert.deepEqual(resolveRoundGateProgress(1, rooms), { round: 1, destroyed: 1, goal: 1 });
-  assert.deepEqual(resolveRoundGateProgress(2, rooms), { round: 2, destroyed: 0, goal: 1 });
-  assert.deepEqual(resolveRoundGateProgress(3, rooms), { round: 3, destroyed: 0, goal: 1 });
+  assert.deepEqual(resolveRoundGateProgress(1, rooms), { round: 1, destroyed: 1, goal: 2 });
+  assert.deepEqual(resolveRoundGateProgress(2, rooms), { round: 2, destroyed: 0, goal: 3 });
+  assert.deepEqual(resolveRoundGateProgress(3, rooms), { round: 3, destroyed: 0, goal: 3 });
 });

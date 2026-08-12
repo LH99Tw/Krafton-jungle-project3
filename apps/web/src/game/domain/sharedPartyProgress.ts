@@ -12,11 +12,12 @@ export type SharedPartyProgressInput = {
 };
 
 export function resolveRoundGateProgress(currentZone: number, rooms: readonly RoomMapCell[]) {
-  const currentGate = rooms.find((room) => room.zone === currentZone && room.type === "gate");
+  const gateGoals: Record<number, number> = { 1: 2, 2: 3, 3: 3 };
+  const currentGates = rooms.filter((room) => room.zone === currentZone && room.type === "gate");
   return {
     round: currentZone,
-    destroyed: currentGate?.cleared ? 1 : 0,
-    goal: 1,
+    destroyed: currentGates.filter((room) => room.cleared).length,
+    goal: gateGoals[currentZone] ?? currentGates.length,
   };
 }
 

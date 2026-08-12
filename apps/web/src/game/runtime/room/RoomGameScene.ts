@@ -52,7 +52,7 @@ import { HERO_SPRITE_FRAME_SIZE, HERO_SPRITE_PATHS, HERO_TOTAL_FRAME_COUNT } fro
 import { BASIC_ATTACK_ALL_SPRITES } from "../../client/render/attackEffectSprites";
 import { COMBAT_SOUND_PATHS } from "../../client/audio/combatSounds";
 import { colyseusTransport } from "../../transport/ColyseusTransport";
-import { areAuthoredBossGatesCleared, predictPlayerTransform, RealtimeTransformBuffer, runtimeGateRoomIds, shouldRenderPartyMember } from "../../netcode/RealtimeBuffer";
+import { areAuthoredBossGatesCleared, predictPlayerTransform, RealtimeTransformBuffer, shouldRenderPartyMember } from "../../netcode/RealtimeBuffer";
 import { aimAngleBetween } from "../../netcode/aim";
 import { gameBridge, type GameCommand } from "../GameBridge";
 import {
@@ -798,13 +798,18 @@ export class RoomGameScene extends Phaser.Scene {
 
   private networkPredictionWorld(snapshot: NetworkWorldSnapshot): PredictionWorld {
     if (this.predictionWorldCache?.snapshot === snapshot) return this.predictionWorldCache.world;
-    const gateRoomIds = runtimeGateRoomIds(snapshot.rooms);
+    // The server only publishes discovered rooms. Progression gates must come
+    // from the authored manifest or an undiscovered gate makes the client
+    // believe the next zone is already open.
+    const gateRoomIds = [...OFFICIAL_MAP_MANIFEST.world.gateRoomIds];
     const bossAccessible = areAuthoredBossGatesCleared(
       snapshot.day,
       gateRoomIds,
       snapshot.rooms,
     );
-    const currentZoneGateIds = runtimeGateRoomIds(snapshot.rooms, snapshot.currentZone);
+    const currentZoneGateIds = gateRoomIds.filter((gateRoomId) => (
+      OFFICIAL_MAP_MANIFEST.world.rooms.find((room) => room.id === gateRoomId)?.zone === snapshot.currentZone
+    ));
     const currentZoneCleared = currentZoneGateIds.length === 0 || currentZoneGateIds.every((gateRoomId) => (
       snapshot.rooms.some((room) => room.id === gateRoomId && room.cleared)
     ));
@@ -1992,7 +1997,7 @@ export class RoomGameScene extends Phaser.Scene {
     const progressionRooms = new Map<string, (typeof progressionWorld.rooms)[number]>(
       progressionWorld.rooms.map((room) => [room.id, room]),
     );
-    const gateRoomIds = runtimeGateRoomIds(snapshot.rooms);
+    const gateRoomIds = progressionWorld.gateRoomIds;
     const bossAccessible = areAuthoredBossGatesCleared(snapshot.day, gateRoomIds, snapshot.rooms);
     const lockedConnections = progressionWorld.connections.filter((connection) => {
       const from = progressionRooms.get(connection.from);
@@ -2004,7 +2009,7 @@ export class RoomGameScene extends Phaser.Scene {
       if (from.id === progressionWorld.bossRoomId || to.id === progressionWorld.bossRoomId) return !bossAccessible;
       if (from.zone === to.zone) return false;
       const lowerZone = Math.min(from.zone, to.zone);
-      const gateIds = runtimeGateRoomIds(snapshot.rooms, lowerZone);
+      const gateIds = gateRoomIds.filter((gateRoomId) => progressionRooms.get(gateRoomId)?.zone === lowerZone);
       return gateIds.length > 0 && gateIds.some((gateId) => !roomState.get(gateId)?.cleared);
     });
     const renderedAnchor = this.zoneWorld.rooms[0];
