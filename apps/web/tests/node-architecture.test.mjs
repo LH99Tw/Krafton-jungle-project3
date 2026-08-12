@@ -165,15 +165,14 @@ test("renders the dedicated access sidebar with the clean decorative asset", asy
   await Promise.all(profileBadges.map((file) => access(new URL(`public/images/ui/profile-badges/${file}`, root))));
 });
 
-test("keeps augment lab and quick mage launch shortcuts development-only", async () => {
+test("keeps only the map builder and default map launch actions", async () => {
   const accessScreen = await readFile(new URL("src/features/lobby/AccessScreen.tsx", root), "utf8");
   const shell = await readFile(new URL("src/features/game/GameShell.tsx", root), "utf8");
 
-  assert.match(accessScreen, /LOCAL_DEVELOPMENT_TOOLS_ENABLED && onOpenLab/);
-  assert.match(accessScreen, /LOCAL_DEVELOPMENT_TOOLS_ENABLED && \(\s*<FantasyButton[\s\S]*마법사로 바로 시작하기/);
-  assert.match(shell, /LOCAL_DEVELOPMENT_TOOLS_ENABLED && screen === "lab"/);
-  assert.match(shell, /onOpenLab=\{LOCAL_DEVELOPMENT_TOOLS_ENABLED \?/);
-  assert.match(shell, /const quickPlayMage = LOCAL_DEVELOPMENT_TOOLS_ENABLED/);
+  assert.match(accessScreen, />\s*맵 빌더\s*</);
+  assert.match(accessScreen, />\s*기본 맵\s*</);
+  assert.doesNotMatch(accessScreen, /증강 밸런스 실험실|마법사로 바로 시작하기|onOpenLab|onQuickPlayMage/);
+  assert.doesNotMatch(shell, /AugmentLabScreen|screen === "lab"|quickPlayMage|onOpenLab|onQuickPlayMage/);
 });
 
 test("keeps the lobby room list scrollable without shifting the join controls", async () => {
@@ -215,7 +214,7 @@ test("reuses the fantasy controls across access and lobby screens", async () => 
   assert.match(accessSidebar, /<FantasyButton[^>]+guest-enter/);
   assert.match(accessSidebar, /minLength=\{2\} maxLength=\{6\} required placeholder="2~6자 이름"/);
   assert.match(await readFile(new URL("app/api/auth/guest/route.ts", root), "utf8"), /displayName\.length > 6/);
-  assert.match(accessScreen, /<FantasyButton[\s\S]*원정대 찾기/);
+  assert.match(accessScreen, /<FantasyButton[\s\S]*기본 맵/);
   assert.match(lobby, /FantasySectionHeading/);
   assert.match(lobby, /FantasyFrame/);
 

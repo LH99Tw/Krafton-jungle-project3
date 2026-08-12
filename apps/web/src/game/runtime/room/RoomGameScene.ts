@@ -469,14 +469,6 @@ export class RoomGameScene extends Phaser.Scene {
       else this.renderNetworkPlaceholder();
     } else {
       this.enterLocalRoom(this.currentRoomId, null, true);
-      if (this.options.targetRoomType === "boss") {
-        this.time.delayedCall(80, () => this.enterBossRoom());
-      } else if (this.options.targetRoomType === "hidden") {
-        const hiddenRoom = this.allLocalRooms().find((r) => r.type === "hidden-monster");
-        if (hiddenRoom) {
-          this.time.delayedCall(80, () => this.enterLocalRoom(hiddenRoom.id, null));
-        }
-      }
     }
 
     this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.cleanup());

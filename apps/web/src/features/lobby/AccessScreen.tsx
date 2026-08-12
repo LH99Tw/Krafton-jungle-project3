@@ -5,8 +5,6 @@ import { AccessSidebar } from "./AccessSidebar";
 import { FantasyButton } from "@/src/components/ui/FantasyButton";
 import { Guestbook } from "../guestbook/Guestbook";
 
-const LOCAL_DEVELOPMENT_TOOLS_ENABLED = process.env.NODE_ENV !== "production";
-
 export function AccessScreen({
   viewer,
   busy,
@@ -14,9 +12,7 @@ export function AccessScreen({
   onGuest,
   onLogout,
   onStart,
-  onQuickPlayMage,
   onOpenEditor,
-  onOpenLab,
   editorEnabled,
 }: {
   viewer: Viewer;
@@ -25,9 +21,7 @@ export function AccessScreen({
   onGuest: (displayName: string) => Promise<void>;
   onLogout: () => Promise<void>;
   onStart: () => void;
-  onQuickPlayMage?: () => void;
   onOpenEditor: () => void;
-  onOpenLab?: () => void;
   editorEnabled: boolean;
 }) {
   return (
@@ -40,39 +34,21 @@ export function AccessScreen({
         <div className="access-launch">
           <p>{viewer
             ? "함께 탐험할 원정대를 찾으세요."
-            : LOCAL_DEVELOPMENT_TOOLS_ENABLED
-              ? "마법사로 바로 시작하거나 증강 실험실을 이용해 보세요."
-              : "로그인 후 함께 탐험할 원정대를 찾아보세요."}</p>
+            : "로그인 후 기본 맵 원정대를 찾거나 맵 빌더를 이용해 보세요."}</p>
           <div className="access-launch-actions">
-            {LOCAL_DEVELOPMENT_TOOLS_ENABLED && editorEnabled && (
+            {editorEnabled && (
               <FantasyButton variant="quiet" size="large" type="button" onClick={onOpenEditor}>
-                로컬 맵 빌더
-              </FantasyButton>
-            )}
-            {LOCAL_DEVELOPMENT_TOOLS_ENABLED && onOpenLab && (
-              <FantasyButton variant="quiet" size="large" type="button" onClick={onOpenLab}>
-                🧪 증강 밸런스 실험실
-              </FantasyButton>
-            )}
-            {LOCAL_DEVELOPMENT_TOOLS_ENABLED && (
-              <FantasyButton
-                variant="primary"
-                size="large"
-                type="button"
-                onClick={onQuickPlayMage || onStart}
-                disabled={busy}
-              >
-                🧙 마법사로 바로 시작하기
+                맵 빌더
               </FantasyButton>
             )}
             <FantasyButton
-              variant={LOCAL_DEVELOPMENT_TOOLS_ENABLED ? "secondary" : "primary"}
+              variant="primary"
               size="large"
               type="button"
               onClick={onStart}
               disabled={!viewer || busy}
             >
-              🛡️ 원정대 찾기 (로비)
+              기본 맵
             </FantasyButton>
           </div>
         </div>

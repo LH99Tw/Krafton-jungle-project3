@@ -21,7 +21,6 @@ import { AccessScreen } from "../lobby/AccessScreen";
 import { CharacterSelectScreen } from "../lobby/CharacterSelectScreen";
 import { LobbyScreen } from "../lobby/LobbyScreen";
 import { MapEditorScreen } from "../map-editor/MapEditorScreen";
-import { AugmentLabScreen } from "../lab/AugmentLabScreen";
 import type { EditorMapDefinition } from "@/src/game/domain/mapEditor";
 import { GameHud } from "./GameHud";
 import { ResultOverlay } from "./ResultOverlay";
@@ -40,22 +39,18 @@ export type Viewer = {
   csrfToken: string;
 } | null;
 
-type Screen = "access" | "lobby" | "selecting" | "editor" | "lab" | "playing";
-const LOCAL_DEVELOPMENT_TOOLS_ENABLED = process.env.NODE_ENV !== "production";
+type Screen = "access" | "lobby" | "selecting" | "editor" | "playing";
 const RUN_RECOVERY_KEY = "five-days:active-run:v1";
 const RUN_RECOVERY_TTL_MS = 35 * 60 * 1000;
 
-export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytestEnabled, localMapEditorEnabled, autoStartOptions, sessionUnavailable = false, initialScreen = null }: {
+export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytestEnabled, localMapEditorEnabled, sessionUnavailable = false }: {
   viewer: Viewer;
   gameServerUrl: string;
   publicPlaytestEnabled: boolean;
   localMapEditorEnabled: boolean;
-  autoStartOptions: GameStartOptions | null;
   sessionUnavailable?: boolean;
-  initialScreen?: Screen | null;
 }) {
   const router = useRouter();
-  const autoStartAttempted = useRef(false);
   const recoveryAttempted = useRef(false);
   const snapshotRef = useRef<GameSnapshot>(EMPTY_SNAPSHOT);
   const runGenerationRef = useRef(0);
@@ -68,7 +63,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   const terminalFallbackTimerRef = useRef<number | null>(null);
   const [viewer, setViewer] = useState<Viewer>(initialViewer);
   const [authUnavailable, setAuthUnavailable] = useState(sessionUnavailable);
-  const [screen, setScreen] = useState<Screen>(initialScreen ?? "access");
+  const [screen, setScreen] = useState<Screen>("access");
   const [activeOptions, setActiveOptions] = useState<GameStartOptions | null>(null);
   const [runKey, setRunKey] = useState(0);
   const [snapshot, setSnapshot] = useState<GameSnapshot>(EMPTY_SNAPSHOT);
@@ -207,7 +202,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     setSurfaceError("");
     try {
       let isNetworkActive = false;
-      if (gameServerUrl && !options.targetRoomType) {
+      if (gameServerUrl) {
         try {
           await colyseusTransport.connect({ serverUrl: gameServerUrl, csrfToken: viewer!.csrfToken, options, roomId, userId: viewer!.userId });
           const activeRoomId = colyseusTransport.activeRoomId;
@@ -272,7 +267,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   }, [launchSelectedRun, screen]);
 
   useEffect(() => {
-    if (!viewer || !gameServerUrl || recoveryAttempted.current || autoStartOptions) return;
+    if (!viewer || !gameServerUrl || recoveryAttempted.current) return;
     const recovery = readRunRecovery(viewer.userId);
     if (!recovery) return;
     const timer = window.setTimeout(() => {
@@ -281,7 +276,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       void beginRun(recovery.options, recovery.roomId);
     }, 0);
     return () => window.clearTimeout(timer);
-  }, [autoStartOptions, beginRun, gameServerUrl, viewer]);
+  }, [beginRun, gameServerUrl, viewer]);
 
   useEffect(() => {
     const offSnapshot = lobbyTransport.on("snapshot", (value) => {
@@ -334,16 +329,6 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     const timer = window.setInterval(refresh, 3000);
     return () => { active = false; window.clearInterval(timer); };
   }, [gameServerUrl, screen]);
-
-  useEffect(() => {
-    if (!viewer || !autoStartOptions || autoStartAttempted.current) return;
-    const timer = window.setTimeout(() => {
-      if (autoStartAttempted.current) return;
-      autoStartAttempted.current = true;
-      void beginRun(autoStartOptions);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, [autoStartOptions, beginRun, viewer]);
 
   const createLobby = useCallback(async (options: { roomName: string; sessionMode: "prototype" | "full"; difficulty: "easy" | "normal" | "hard" }) => {
     if (!viewer) return;
@@ -472,13 +457,9 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
 
   if (screen === "lobby" && viewer) return <LobbyScreen viewer={viewer} rooms={rooms} snapshot={lobby} messages={messages} busy={busy} error={surfaceError} onCreate={createLobby} onJoin={joinLobby} onLeave={leaveLobby} onReady={(ready) => lobbyTransport.ready(ready)} onStart={() => lobbyTransport.startSelection()} onSoloStart={startSoloExpedition} onChat={(message) => globalChatTransport.chat(message)} onAddAi={() => lobbyTransport.addAi()} onRemoveAi={(userId) => lobbyTransport.removeAi(userId)} onBack={() => setScreen("access")} />;
 
-  if (LOCAL_DEVELOPMENT_TOOLS_ENABLED && screen === "lab") return <AugmentLabScreen onBack={() => setScreen("access")} />;
   if (screen === "editor" && localMapEditorEnabled) return <MapEditorScreen onBack={() => setScreen("access")} onPlay={playEditorMap} />;
 
-  const quickPlayMage = LOCAL_DEVELOPMENT_TOOLS_ENABLED
-    ? () => void beginRun({ heroClass: "mage", sessionMode: "prototype", difficulty: "normal", partyMode: "solo" })
-    : undefined;
-  return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onLogout={logout} editorEnabled={localMapEditorEnabled} onOpenEditor={() => { if (localMapEditorEnabled) setScreen("editor"); }} onOpenLab={LOCAL_DEVELOPMENT_TOOLS_ENABLED ? () => setScreen("lab") : undefined} onStart={() => { setSurfaceError(""); if (gameServerUrl) setScreen("lobby"); else void beginRun({ heroClass: "swordsman", sessionMode: "prototype", difficulty: "normal", partyMode: "solo" }); }} onQuickPlayMage={quickPlayMage} />;
+  return <AccessScreen viewer={viewer} busy={busy} error={surfaceError} onGuest={guestLogin} onLogout={logout} editorEnabled={localMapEditorEnabled} onOpenEditor={() => { if (localMapEditorEnabled) setScreen("editor"); }} onStart={() => { setSurfaceError(""); if (gameServerUrl) setScreen("lobby"); else void beginRun({ heroClass: "swordsman", sessionMode: "prototype", difficulty: "normal", partyMode: "solo" }); }} />;
 }
 
 function saveRunRecovery(userId: string, roomId: string, options: GameStartOptions): void {

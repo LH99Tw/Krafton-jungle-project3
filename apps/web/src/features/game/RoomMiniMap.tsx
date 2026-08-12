@@ -267,9 +267,6 @@ function RoomMiniMapContent({ minimap, party, waypoint, currentRoomId, expanded 
       <span className="minimap-marker-heading"><i /> <b>{selectedMarker.label}</b></span>
       {selectedMarker.kind === "waypoint" && <>
         <small>{waypointStateMessage(selectedWaypointState)}</small>
-        {selectedWaypointState === "traveling" && <span className="minimap-travel-progress" aria-label={`${Math.round((waypoint?.holdProgress ?? 0) * 100)}%`}>
-          <i style={{ width: `${Math.max(2, (waypoint?.holdProgress ?? 0) * 100)}%` }} />
-        </span>}
       </>}
       <button type="button" className="minimap-marker-close" aria-label="마커 정보 닫기" onClick={() => setSelectedMarkerId(null)}>×</button>
     </div>}

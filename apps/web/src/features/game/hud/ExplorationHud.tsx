@@ -47,7 +47,6 @@ export function ExplorationHud({ snapshot }: { snapshot: GameSnapshot }) {
           {snapshot.bossAvailable && snapshot.waypoint.nearby && (
             <button className="waypoint-rally" type="button" onClick={() => requestTravel(snapshot.waypoint.id ?? "", snapshot.waypoint.destinationId)}>
               <span>마왕방 이동</span>
-              {snapshot.waypoint.holdProgress > 0 && <i style={{ width: `${snapshot.waypoint.holdProgress * 100}%` }} />}
             </button>
           )}
         </div>
