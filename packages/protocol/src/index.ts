@@ -1,7 +1,9 @@
 import { z } from "zod";
 
-export const PROTOCOL_VERSION = 7;
+export const PROTOCOL_VERSION = 8;
 export const PLAYER_VISION_RADIUS = 800;
+export const NIGHT_PLAYER_VISION_RADIUS = 420;
+export const NIGHT_ATTACK_RANGE_MULTIPLIER = 0.65;
 export const PARTY_ROOM = "party_room";
 export const LOBBY_ROOM = "lobby_room";
 export const GLOBAL_CHAT_ROOM = "global_chat";
@@ -104,16 +106,21 @@ export const worldFrameSchema = z.object({
   enemies: z.array(transformSampleSchema).max(512),
 }).strict();
 
-export const combatAttackEventSchema = z.object({
+export const combatActionEventSchema = z.object({
   v: z.literal(PROTOCOL_VERSION),
   sequence: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
   attackerId: networkIdSchema,
-  heroClass: heroClassSchema,
-  targetId: networkIdSchema,
+  attackerType: z.enum(["player", "enemy"]),
+  actionKind: z.enum(["basic", "melee", "pattern-telegraph", "pattern-resolve"]),
+  heroClass: heroClassSchema.nullable(),
+  targetId: networkIdSchema.nullable(),
   targetX: z.number().finite(),
   targetY: z.number().finite(),
+  startX: z.number().finite(),
+  startY: z.number().finite(),
   aim: z.number().finite().min(-Math.PI * 2).max(Math.PI * 2),
   critical: z.boolean(),
+  patternKind: z.enum(["fan", "floor"]).nullable(),
   firedAt: z.number().finite().nonnegative(),
 }).strict();
 
@@ -273,7 +280,7 @@ export type PlayerInputCommand = z.infer<typeof playerInputSchema>;
 export type InputFrame = z.infer<typeof inputFrameSchema>;
 export type TransformSample = z.infer<typeof transformSampleSchema>;
 export type WorldFrame = z.infer<typeof worldFrameSchema>;
-export type CombatAttackEvent = z.infer<typeof combatAttackEventSchema>;
+export type CombatActionEvent = z.infer<typeof combatActionEventSchema>;
 export type FastLaneOffer = z.infer<typeof fastLaneOfferSchema>;
 export type TransportMode = z.infer<typeof transportModeSchema>;
 export type MiniMapPoint = z.infer<typeof minimapPointSchema>;

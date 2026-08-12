@@ -80,8 +80,8 @@ test("gates deployments on verification and repairs required production settings
   assert.match(workflow, /five-days-game-server:\$\{\{ env\.RELEASE_SHA \}\}/);
   assert.match(workflow, /upsert_env \.env\.web GUESTBOOK_ADMIN_DELETE_KEY/);
   assert.match(workflow, /upsert_env \.env\.web PUBLIC_PLAYTEST_ENABLED true/);
-  assert.match(workflow, /upsert_env \.env\.web PROTOCOL_VERSION 7/);
-  assert.match(workflow, /upsert_env \.env\.game PROTOCOL_VERSION 7/);
+  assert.match(workflow, /upsert_env \.env\.web PROTOCOL_VERSION 8/);
+  assert.match(workflow, /upsert_env \.env\.game PROTOCOL_VERSION 8/);
   assert.match(configure, /GUESTBOOK_ADMIN_DELETE_KEY/);
   assert.match(instrumentation, /required\("GUESTBOOK_ADMIN_DELETE_KEY"\)/);
 });
@@ -236,6 +236,7 @@ test("keeps the party creation dialog centered above the lobby", async () => {
 test("reuses generated navigation chrome across lobby and character selection", async () => {
   const characterSelect = await readFile(new URL("src/features/lobby/CharacterSelectScreen.tsx", root), "utf8");
   const gameShell = await readFile(new URL("src/features/game/GameShell.tsx", root), "utf8");
+  const lobbyRoom = await readFile(new URL("../game-server/src/lobby-room.ts", root), "utf8");
   const gamePreloader = await readFile(new URL("src/game/client/preloadGameClient.ts", root), "utf8");
   const styles = await readFile(new URL("app/globals.css", root), "utf8");
   const navigationAssets = ["top-bar.webp", "bottom-floor.webp", "team-status-strip-v2.png"];
@@ -253,9 +254,12 @@ test("reuses generated navigation chrome across lobby and character selection", 
   assert.match(styles, /\.class-slashes \{[^}]*width:calc\(100% - 40px\)[^}]*gap:12px/s);
   assert.doesNotMatch(characterSelect, /select-loading|FIELD ASSETS|전장 자원 준비 중/);
   assert.doesNotMatch(characterSelect, /출전 직업을 선택하세요|select-ready-count/);
-  assert.match(gameShell, /SELECTION_LAUNCH_DELAY_MS = 2_000/);
+  assert.doesNotMatch(characterSelect, /selection-ready-stage/);
+  assert.doesNotMatch(characterSelect, /className="launch-curtain"/);
+  assert.match(lobbyRoom, /CHARACTER_SELECTION_LAUNCH_DELAY_MS = 2_000/);
+  assert.match(lobbyRoom, /SELECTION_LOCKED/);
   assert.match(gameShell, /selectionPreloadReadyRef\.current\) launchSelectedRun\(event\)/);
-  assert.match(gameShell, /window\.setTimeout\([\s\S]*SELECTION_LAUNCH_DELAY_MS/);
+  assert.doesNotMatch(gameShell, /SELECTION_LAUNCH_DELAY_MS/);
   assert.match(gamePreloader, /GAMEPLAY_IMAGE_ASSETS\.map\(loadImage\)/);
   assert.match(gamePreloader, /image\.decode\(\)/);
 

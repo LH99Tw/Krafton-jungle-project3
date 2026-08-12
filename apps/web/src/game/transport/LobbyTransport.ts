@@ -27,6 +27,7 @@ export type LobbySnapshot = {
   phase: LobbyPhase;
   sessionMode: "prototype" | "full";
   difficulty: "easy" | "normal" | "hard";
+  launchAt: number;
   players: LobbyPlayer[];
 };
 
@@ -201,6 +202,7 @@ function toSnapshot(roomId: string, state: RawLobbyState): LobbySnapshot {
     phase: state.phase,
     sessionMode: state.sessionMode,
     difficulty: state.difficulty,
+    launchAt: state.launchAt ?? 0,
     players: [...state.players.values()].map((player) => ({
       userId: player.userId,
       displayName: player.displayName,

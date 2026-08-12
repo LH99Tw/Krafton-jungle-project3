@@ -54,7 +54,7 @@ export class RealtimeTransformBuffer {
   }
 
   get interpolationDelayMs(): number {
-    return clamp(66.7 + this.jitterMs * 2, 50, 100);
+    return clamp(66.7 + this.jitterMs * 2.5, 50, 150);
   }
 
   sample(id: string, now = Date.now()): TransformSample | null {
@@ -68,21 +68,24 @@ export class RealtimeTransformBuffer {
       const left = history[index - 1];
       const span = Math.max(1, right.serverTime - left.serverTime);
       const alpha = clamp((targetTime - left.serverTime) / span, 0, 1);
+      const spanSeconds = span / 1000;
       return {
         ...right,
-        x: lerp(left.x, right.x, alpha),
-        y: lerp(left.y, right.y, alpha),
+        x: hermite(left.x, right.x, left.vx * spanSeconds, right.vx * spanSeconds, alpha),
+        y: hermite(left.y, right.y, left.vy * spanSeconds, right.vy * spanSeconds, alpha),
         vx: lerp(left.vx, right.vx, alpha),
         vy: lerp(left.vy, right.vy, alpha),
         aim: lerpAngle(left.aim, right.aim, alpha),
       };
     }
     const latest = history.at(-1) as TimedTransform;
-    const extrapolationMs = clamp(targetTime - latest.serverTime, 0, 100);
+    const extrapolationMs = clamp(targetTime - latest.serverTime, 0, 150);
+    const extrapolationSeconds = extrapolationMs / 1000;
+    const deceleration = 1 - clamp(extrapolationMs / 150, 0, 1) * 0.8;
     return {
       ...stripTime(latest),
-      x: latest.x + latest.vx * extrapolationMs / 1000,
-      y: latest.y + latest.vy * extrapolationMs / 1000,
+      x: latest.x + latest.vx * extrapolationSeconds * deceleration,
+      y: latest.y + latest.vy * extrapolationSeconds * deceleration,
     };
   }
 
@@ -108,6 +111,15 @@ export class RealtimeTransformBuffer {
   }
 }
 
+function hermite(start: number, end: number, startTangent: number, endTangent: number, t: number): number {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  return (2 * t3 - 3 * t2 + 1) * start
+    + (t3 - 2 * t2 + t) * startTangent
+    + (-2 * t3 + 3 * t2) * end
+    + (t3 - t2) * endTangent;
+}
+
 export function predictPlayerTransform(input: {
   x: number;
   y: number;
@@ -120,6 +132,7 @@ export function predictPlayerTransform(input: {
     walkable: readonly WorldRect[];
     rooms: readonly Readonly<{ id: string; rect: WorldRect; zone?: number }>[];
     maxAccessibleZone?: number;
+    blockedRects?: readonly WorldRect[];
   }>;
 }): { x: number; y: number; roomId: string } {
   const magnitude = Math.hypot(input.frame.x, input.frame.y);
@@ -128,6 +141,20 @@ export function predictPlayerTransform(input: {
   const deltaX = input.frame.x * scale * speed * input.deltaSeconds;
   const deltaY = input.frame.y * scale * speed * input.deltaSeconds;
   if (input.movementWorld) {
+    const attemptedX = input.x + deltaX;
+    const attemptedY = input.y + deltaY;
+    if (input.movementWorld.blockedRects?.some((rect) => segmentIntersectsRect(
+      input.x,
+      input.y,
+      attemptedX,
+      attemptedY,
+      {
+        x: rect.x - ACTOR_COLLISION_RADIUS,
+        y: rect.y - ACTOR_COLLISION_RADIUS,
+        width: rect.width + ACTOR_COLLISION_RADIUS * 2,
+        height: rect.height + ACTOR_COLLISION_RADIUS * 2,
+      },
+    ))) return { x: input.x, y: input.y, roomId: input.roomId };
     const resolved = resolveWalkableDiscPoint(
       input.movementWorld.walkable,
       input.x + deltaX,
@@ -178,6 +205,23 @@ export function predictPlayerTransform(input: {
     y: resolved.y,
     roomId: roomContainingPoint(world.grid, resolved.x, resolved.y) ?? input.roomId,
   };
+}
+
+function segmentIntersectsRect(x1: number, y1: number, x2: number, y2: number, rect: WorldRect): boolean {
+  let near = 0;
+  let far = 1;
+  for (const [origin, delta, min, max] of [[x1, x2 - x1, rect.x, rect.x + rect.width], [y1, y2 - y1, rect.y, rect.y + rect.height]] as const) {
+    if (Math.abs(delta) < 1e-9) {
+      if (origin < min || origin > max) return false;
+      continue;
+    }
+    const first = (min - origin) / delta;
+    const second = (max - origin) / delta;
+    near = Math.max(near, Math.min(first, second));
+    far = Math.min(far, Math.max(first, second));
+    if (near > far) return false;
+  }
+  return true;
 }
 
 function stripTime(sample: TimedTransform): TransformSample {

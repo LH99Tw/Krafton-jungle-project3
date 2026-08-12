@@ -43,6 +43,11 @@ export class InvaderDirector {
   readonly maxLiveInvaders: number;
   private readonly warmInvaderDivisor: number;
   private readonly coldInvaderDivisor: number;
+  private readonly warmDecisionDivisor: number;
+  private readonly coldDecisionDivisor: number;
+  private readonly simulationWheel = Array.from({ length: 60 }, () => new Set<string>());
+  private readonly nextSimulationTick = new Map<string, number>();
+  private readonly invaderTiers = new Map<string, "hot" | "warm" | "cold">();
   private readonly invaderNavigation = new Map<string, InvaderNavigation>();
   private readonly invaderWaveQueue: InvaderWaveBatch[] = [];
   private readonly routeCache = new Map<string, readonly CoreRoomId[]>();
@@ -60,9 +65,16 @@ export class InvaderDirector {
   private liveInvaders = 0;
   private pendingInvaders = 0;
   private invaderSimulationTick = 0;
+  private simulationElapsed = 0;
   private invaderTierCounts: InvaderSimulationTiers = { hot: 0, warm: 0, cold: 0 };
   private warmRoomCache: { key: string; rooms: ReadonlySet<CoreRoomId> } | null = null;
   private readonly pendingInvaderReplans = new Map<string, boolean>();
+  private readonly pendingReplanQueuedAt = new Map<string, number>();
+  private hotExecutions = 0;
+  private warmExecutions = 0;
+  private coldExecutions = 0;
+  private scheduleDelayTicks = 0;
+  private schedulerEnabled = true;
 
   constructor(
     private readonly core: GameCore,
@@ -72,10 +84,12 @@ export class InvaderDirector {
     this.maxLiveInvaders = Number.isFinite(requestedInvaderLimit)
       ? Math.max(1, Math.min(ABSOLUTE_MAX_LIVE_INVADERS, Math.floor(requestedInvaderLimit)))
       : DEFAULT_MAX_LIVE_INVADERS;
-    const warmHz = clampUpdateRate(options.invaderUpdateRates?.warmHz ?? 60);
-    const coldHz = clampUpdateRate(options.invaderUpdateRates?.coldHz ?? 60);
+    const warmHz = clampUpdateRate(options.invaderUpdateRates?.warmMovementHz ?? options.invaderUpdateRates?.warmHz ?? 60);
+    const coldHz = clampUpdateRate(options.invaderUpdateRates?.coldMovementHz ?? options.invaderUpdateRates?.coldHz ?? 60);
     this.warmInvaderDivisor = Math.max(1, Math.round(60 / warmHz));
     this.coldInvaderDivisor = Math.max(this.warmInvaderDivisor, Math.round(60 / coldHz));
+    this.warmDecisionDivisor = Math.max(1, Math.round(60 / clampUpdateRate(options.invaderUpdateRates?.warmHz ?? 60)));
+    this.coldDecisionDivisor = Math.max(this.warmDecisionDivisor, Math.round(60 / clampUpdateRate(options.invaderUpdateRates?.coldHz ?? 60)));
   }
 
   get liveCount(): number {
@@ -98,6 +112,14 @@ export class InvaderDirector {
     return { ...this.invaderTierCounts };
   }
 
+  setSchedulerEnabled(enabled: boolean): void {
+    if (this.schedulerEnabled === enabled) return;
+    this.schedulerEnabled = enabled;
+    if (!enabled) {
+      for (const enemyId of this.invaderNavigation.keys()) this.scheduleSimulation(enemyId, this.invaderSimulationTick + 1);
+    }
+  }
+
   /** @internal current spawn serial, used by the core for deterministic gate selection. */
   get currentSpawnSerial(): number {
     return this.invaderSerial;
@@ -109,12 +131,26 @@ export class InvaderDirector {
     pendingReplans: number;
     completedReplans: number;
     oldestPendingWaveSeconds: number;
+    hotExecutions: number;
+    warmExecutions: number;
+    coldExecutions: number;
+    scheduleDelayTicks: number;
+    movementBacklogSeconds: number;
+    oldestPendingReplanSeconds: number;
   }> {
     return {
       microSpawned: this.microSpawnedInvaders,
       pendingReplans: this.pendingInvaderReplans.size,
       completedReplans: this.completedInvaderReplans,
       oldestPendingWaveSeconds: Math.max(0, this.core.elapsed - (this.invaderWaveQueue[0]?.queuedAt ?? this.core.elapsed)),
+      hotExecutions: this.hotExecutions,
+      warmExecutions: this.warmExecutions,
+      coldExecutions: this.coldExecutions,
+      scheduleDelayTicks: this.scheduleDelayTicks,
+      movementBacklogSeconds: [...this.invaderNavigation.values()].reduce((sum, navigation) => sum + navigation.accumulatedDelta, 0),
+      oldestPendingReplanSeconds: [...this.pendingInvaderReplans.keys()].reduce((oldest, enemyId) => (
+        Math.max(oldest, this.core.elapsed - (this.pendingReplanQueuedAt.get(enemyId) ?? this.core.elapsed))
+      ), 0),
     };
   }
 
@@ -159,13 +195,61 @@ export class InvaderDirector {
     this.liveInvaders += 1;
     this.core.enemies.set(invader.id, invader);
     this.invaderNavigation.set(invader.id, this.createInvaderNavigation(invader));
+    this.invaderTiers.set(invader.id, "cold");
+    this.scheduleSimulation(invader.id, this.invaderSimulationTick + 1);
     this.replanInvader(invader, this.invaderNavigation.get(invader.id) as InvaderNavigation, true);
     return invader;
   }
 
   update(delta: number): void {
+    this.simulationElapsed += Math.max(0, Math.min(0.1, delta));
     this.invaderSimulationTick += 1;
-    this.assignInvaderPlayerTargets(this.playerTargetScratch);
+    if (this.invaderSimulationTick % 3 === 0) this.assignInvaderPlayerTargets(this.playerTargetScratch);
+    if (this.invaderSimulationTick === 1 || this.invaderSimulationTick % 6 === 0 || delta >= 0.1 - SIMULATION_EPSILON) {
+      this.refreshSimulationTiers(this.invaderSimulationTick % 3 !== 0);
+    }
+    const due = this.simulationWheel[this.invaderSimulationTick % this.simulationWheel.length]!;
+    const dueIds = [...due];
+    due.clear();
+    const playerTargets = this.playerTargetScratch;
+    const playerRooms = this.playerRoomsScratch;
+    for (const enemyId of dueIds) {
+      const scheduledTick = this.nextSimulationTick.get(enemyId);
+      if (scheduledTick !== this.invaderSimulationTick) continue;
+      this.nextSimulationTick.delete(enemyId);
+      const enemy = this.core.enemies.get(enemyId);
+      if (!enemy?.alive || enemy.behavior !== "invader") continue;
+      const navigation = this.invaderNavigation.get(enemy.id) ?? this.createInvaderNavigation(enemy);
+      this.invaderNavigation.set(enemy.id, navigation);
+      this.scheduleDelayTicks += Math.max(0, this.invaderSimulationTick - scheduledTick);
+      navigation.accumulatedDelta = Math.min(0.5, navigation.accumulatedDelta + Math.max(0, this.simulationElapsed - navigation.lastUpdateAt));
+      navigation.lastUpdateAt = this.simulationElapsed;
+      const stepDelta = Math.min(0.1, navigation.accumulatedDelta);
+      navigation.accumulatedDelta = Math.max(0, navigation.accumulatedDelta - stepDelta);
+      const playerTarget = playerTargets.get(enemy.id) ?? null;
+      this.promoteToHotIfNeeded(enemy, playerTarget);
+      const tier = this.invaderTiers.get(enemy.id) ?? "cold";
+      const decisionDivisor = !this.schedulerEnabled || tier === "hot"
+        ? 1 : tier === "warm" ? this.warmDecisionDivisor : this.coldDecisionDivisor;
+      const decisionDue = tier === "hot" || this.invaderSimulationTick >= navigation.nextDecisionTick;
+      if (decisionDue) navigation.nextDecisionTick = this.invaderSimulationTick + decisionDivisor;
+      const activeTarget = decisionDue
+        ? playerTarget
+        : enemy.targetId && enemy.targetId !== "base" ? this.core.players.get(enemy.targetId) ?? null : null;
+      if (tier === "hot") this.hotExecutions += 1;
+      else if (tier === "warm") this.warmExecutions += 1;
+      else this.coldExecutions += 1;
+      this.processInvader(enemy, navigation, stepDelta, activeTarget, decisionDue);
+      if (enemy.alive) {
+        const divisor = !this.schedulerEnabled || tier === "hot" ? 1 : tier === "warm" ? this.warmInvaderDivisor : this.coldInvaderDivisor;
+        this.scheduleSimulation(enemy.id, this.invaderSimulationTick + (navigation.accumulatedDelta > SIMULATION_EPSILON ? 1 : divisor));
+      }
+    }
+    this.releasePendingInvaderReplans(playerTargets, playerRooms);
+  }
+
+  private refreshSimulationTiers(refreshTargets = true): void {
+    if (refreshTargets) this.assignInvaderPlayerTargets(this.playerTargetScratch);
     this.collectPlayerRooms(this.playerRoomsScratch);
     const playerTargets = this.playerTargetScratch;
     const playerRooms = this.playerRoomsScratch;
@@ -175,10 +259,6 @@ export class InvaderDirector {
     let coldCount = 0;
     for (const enemy of this.core.enemies.values()) {
       if (!enemy.alive || enemy.behavior !== "invader") continue;
-      const navigation = this.invaderNavigation.get(enemy.id) ?? this.createInvaderNavigation(enemy);
-      this.invaderNavigation.set(enemy.id, navigation);
-      navigation.accumulatedDelta = Math.min(0.1, navigation.accumulatedDelta + delta);
-
       const playerTarget = playerTargets.get(enemy.id) ?? null;
       const playerDistance = playerTarget && playerTarget.roomId === enemy.roomId
         ? Math.hypot(playerTarget.x - enemy.x, playerTarget.y - enemy.y)
@@ -192,15 +272,49 @@ export class InvaderDirector {
       if (hot) hotCount += 1;
       else if (warm) warmCount += 1;
       else coldCount += 1;
-      const divisor = hot ? 1 : warm ? this.warmInvaderDivisor : this.coldInvaderDivisor;
-      if (divisor > 1 && (this.invaderSimulationTick + navigation.cohort) % divisor !== 0) continue;
-      const stepDelta = navigation.accumulatedDelta;
-      navigation.accumulatedDelta = 0;
+      const tier = hot ? "hot" : warm ? "warm" : "cold";
+      if (this.invaderTiers.get(enemy.id) !== tier) {
+        this.invaderTiers.set(enemy.id, tier);
+        const divisor = !this.schedulerEnabled || tier === "hot" ? 1 : tier === "warm" ? this.warmInvaderDivisor : this.coldInvaderDivisor;
+        const navigation = this.invaderNavigation.get(enemy.id) ?? this.createInvaderNavigation(enemy);
+        this.invaderNavigation.set(enemy.id, navigation);
+        this.scheduleSimulation(enemy.id, this.invaderSimulationTick + Math.max(1, Math.abs(navigation.cohort) % divisor));
+      }
+    }
+    this.invaderTierCounts = { hot: hotCount, warm: warmCount, cold: coldCount };
+  }
+
+  private promoteToHotIfNeeded(enemy: CoreEnemy, playerTarget: CorePlayer | null): void {
+    const currentTier = this.invaderTiers.get(enemy.id) ?? "cold";
+    if (currentTier === "hot") return;
+    const playerDistance = playerTarget?.roomId === enemy.roomId
+      ? Math.hypot(playerTarget.x - enemy.x, playerTarget.y - enemy.y)
+      : Number.POSITIVE_INFINITY;
+    const baseDestination = this.invaderBaseDestination(enemy);
+    const baseCenter = enemy.roomId === baseDestination ? this.core.roomWorldCenterOf(baseDestination) : null;
+    const baseDistance = baseCenter ? Math.hypot(baseCenter.x - enemy.x, baseCenter.y - enemy.y) : Number.POSITIVE_INFINITY;
+    if (playerDistance > Math.max(INVADER_COMBAT_RADIUS, enemy.attackRange + enemy.speed * 0.1)
+      && baseDistance > Math.max(INVADER_COMBAT_RADIUS, INVADER_BASE_RADIUS + enemy.speed * 0.1)) return;
+    this.invaderTiers.set(enemy.id, "hot");
+    this.invaderTierCounts = {
+      hot: this.invaderTierCounts.hot + 1,
+      warm: this.invaderTierCounts.warm - (currentTier === "warm" ? 1 : 0),
+      cold: this.invaderTierCounts.cold - (currentTier === "cold" ? 1 : 0),
+    };
+  }
+
+  private processInvader(
+    enemy: CoreEnemy,
+    navigation: InvaderNavigation,
+    stepDelta: number,
+    playerTarget: CorePlayer | null,
+    decisionDue: boolean,
+  ): void {
       enemy.attackCooldown = Math.max(0, enemy.attackCooldown - stepDelta);
       navigation.retryRemaining = Math.max(0, navigation.retryRemaining - stepDelta);
       const targetId = playerTarget?.userId ?? "base";
       const targetRoomId = playerTarget?.roomId ?? this.invaderBaseDestination(enemy);
-      if (enemy.targetId !== targetId || navigation.targetRoomId !== targetRoomId) {
+      if (decisionDue && (enemy.targetId !== targetId || navigation.targetRoomId !== targetRoomId)) {
         enemy.targetId = targetId;
         navigation.targetRoomId = targetRoomId;
         if (playerTarget?.roomId === enemy.roomId) {
@@ -214,13 +328,13 @@ export class InvaderDirector {
           this.resetInvaderStall(enemy, navigation);
         } else {
           this.scheduleInvaderReplan(enemy.id, true);
-          continue;
+          return;
         }
       }
 
       if (enemy.path[enemy.pathIndex] !== enemy.roomId && navigation.retryRemaining <= 0) {
-        this.scheduleInvaderReplan(enemy.id, false);
-        continue;
+        if (decisionDue) this.scheduleInvaderReplan(enemy.id, false);
+        return;
       }
 
       if (playerTarget && playerTarget.roomId === enemy.roomId) {
@@ -230,22 +344,23 @@ export class InvaderDirector {
           if (enemy.attackCooldown <= 0) {
             enemy.attackSequence += 1;
             enemy.attackCooldown = 1;
+            this.core.recordEnemyCombatAction(enemy, playerTarget, "melee");
             this.core.damagePlayer(playerTarget, enemy.damage);
           }
         } else {
           this.moveInvaderWorld(enemy, navigation, playerTarget.x, playerTarget.y, stepDelta, null);
         }
-        continue;
+        return;
       }
 
       if (enemy.pathIndex + 1 < enemy.path.length) {
         const nextRoomId = enemy.path[enemy.pathIndex + 1] as CoreRoomId;
         if (!this.isInvaderEdgeTraversable(enemy.roomId, nextRoomId, navigation)) {
           this.scheduleInvaderReplan(enemy.id, false);
-          continue;
+          return;
         }
         this.moveInvaderThroughConnection(enemy, navigation, nextRoomId, stepDelta);
-        continue;
+        return;
       }
 
       if (enemy.targetId === "base") {
@@ -261,12 +376,16 @@ export class InvaderDirector {
         } else {
           this.transferInvaderToPreviousZone(enemy, navigation);
         }
-      } else if (navigation.retryRemaining <= 0) {
+      } else if (decisionDue && navigation.retryRemaining <= 0) {
         this.scheduleInvaderReplan(enemy.id, false);
       }
-    }
-    this.releasePendingInvaderReplans(playerTargets, playerRooms);
-    this.invaderTierCounts = { hot: hotCount, warm: warmCount, cold: coldCount };
+  }
+
+  private scheduleSimulation(enemyId: string, absoluteTick: number): void {
+    const current = this.nextSimulationTick.get(enemyId);
+    if (current !== undefined && current <= absoluteTick) return;
+    this.nextSimulationTick.set(enemyId, absoluteTick);
+    this.simulationWheel[absoluteTick % this.simulationWheel.length]!.add(enemyId);
   }
 
   updateSpawning(delta: number): void {
@@ -337,6 +456,8 @@ export class InvaderDirector {
       if (enemy.behavior !== "invader" || enemy.alive) continue;
       this.core.enemies.delete(id);
       this.invaderNavigation.delete(id);
+      this.invaderTiers.delete(id);
+      this.nextSimulationTick.delete(id);
       this.pendingInvaderReplans.delete(id);
       this.core.forgetEnemyMarks(id);
       this.liveInvaders = Math.max(0, this.liveInvaders - 1);
@@ -424,6 +545,8 @@ export class InvaderDirector {
       blockedUntil: 0,
       accumulatedDelta: 0,
       cohort: hashSeed(enemy.id),
+      lastUpdateAt: this.simulationElapsed,
+      nextDecisionTick: this.invaderSimulationTick,
     };
   }
 
@@ -494,6 +617,7 @@ export class InvaderDirector {
   }
 
   private scheduleInvaderReplan(enemyId: string, allowRandom: boolean): void {
+    if (!this.pendingInvaderReplans.has(enemyId)) this.pendingReplanQueuedAt.set(enemyId, this.core.elapsed);
     const previous = this.pendingInvaderReplans.get(enemyId) ?? false;
     this.pendingInvaderReplans.set(enemyId, previous || allowRandom);
   }

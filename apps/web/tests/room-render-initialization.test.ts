@@ -80,12 +80,12 @@ test("the server ready signal waits for Phaser renderer readiness", () => {
 test("network basic attacks render from reliable event coordinates after target removal", () => {
   const scene = readFileSync(new URL("../src/game/runtime/room/RoomGameScene.ts", import.meta.url), "utf8");
   const transport = readFileSync(new URL("../src/game/transport/ColyseusTransport.ts", import.meta.url), "utf8");
-  assert.match(transport, /room\.onMessage\("combat\.attack"/);
-  assert.match(transport, /combatAttackEventSchema\.safeParse\(message\)/);
-  assert.match(scene, /gameBridge\.on\("combatAttack", \(attack\) => this\.renderNetworkCombatAttack\(attack\)\)/);
-  assert.match(scene, /attack\.targetX,[\s\S]*?attack\.targetY/);
+  assert.match(transport, /room\.onMessage\("combat\.action"/);
+  assert.match(transport, /combatActionEventSchema\.safeParse\(message\)/);
+  assert.match(scene, /gameBridge\.on\("combatAction", \(action\) => this\.receiveNetworkCombatAction\(action\)\)/);
+  assert.match(scene, /action\.targetX,[\s\S]*?action\.targetY/);
   assert.doesNotMatch(
-    scene.slice(scene.indexOf("  private renderNetworkCombatAttack("), scene.indexOf("  private syncNetworkEnemies(")),
-    /snapshot\.enemies|networkEnemies\.get\(attack\.targetId\)/,
+    scene.slice(scene.indexOf("  private renderNetworkCombatAction("), scene.indexOf("  private flushPendingCombatActions(")),
+    /snapshot\.enemies|networkEnemies\.get\(action\.targetId\)/,
   );
 });

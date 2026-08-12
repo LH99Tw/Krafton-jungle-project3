@@ -17,9 +17,28 @@ import { findWalkableDiscPath, isWalkableDiscLine, isWalkableDiscLineIndexed } f
  */
 export class AiPlayersDirector {
   private readonly aiFollowNavigation = new Map<string, AiFollowNavigation>();
+  private readonly respawnRecovery = new Map<string, { path: readonly Readonly<{ x: number; y: number }>[]; waypointIndex: number }>();
   private readonly partyNavigation = new Map<string, { from: CoreRoomId; to: CoreRoomId; waypointIndex: number }>();
 
   constructor(private readonly core: GameCore) {}
+
+  onRespawn(player: CorePlayer): void {
+    this.aiFollowNavigation.delete(player.userId);
+    this.partyNavigation.delete(player.userId);
+    this.respawnRecovery.delete(player.userId);
+    if (!player.aiRole) return;
+    const leader = this.aiLeader(player);
+    if (!leader) return;
+    const rects = this.recoveryWalkable(player, leader);
+    if (!rects) return;
+    const path = findWalkableDiscPath(
+      rects,
+      { x: player.x, y: player.y },
+      { x: leader.x, y: leader.y },
+      ACTOR_COLLISION_RADIUS,
+    );
+    if (path?.length) this.respawnRecovery.set(player.userId, { path, waypointIndex: 0 });
+  }
 
   update(): void {
     for (const player of this.core.players.values()) {
@@ -37,6 +56,11 @@ export class AiPlayersDirector {
         continue;
       }
       const leader = this.aiLeader(player);
+      const respawnAnchor = leader ? this.respawnRecoveryAnchor(player, leader) : null;
+      if (respawnAnchor) {
+        this.aiApproach(player, respawnAnchor.x, respawnAnchor.y, 12);
+        continue;
+      }
       const targetRoom = player.aiRole === "defender"
         ? this.core.rooms.get(this.core.startRoomId())
         : leader ? this.core.rooms.get(leader.roomId) : null;
@@ -82,6 +106,31 @@ export class AiPlayersDirector {
       }
     }
     return best ?? [...this.core.players.values()].find((candidate) => candidate.userId !== ai.userId && candidate.alive) ?? null;
+  }
+
+  private respawnRecoveryAnchor(player: CorePlayer, leader: CorePlayer): Readonly<{ x: number; y: number }> | null {
+    const recovery = this.respawnRecovery.get(player.userId);
+    if (!recovery) return null;
+    if (Math.hypot(leader.x - player.x, leader.y - player.y) <= AI_FOLLOWER_GAP) {
+      this.respawnRecovery.delete(player.userId);
+      return null;
+    }
+    while (recovery.waypointIndex < recovery.path.length) {
+      const waypoint = recovery.path[recovery.waypointIndex]!;
+      if (Math.hypot(waypoint.x - player.x, waypoint.y - player.y) > AI_PATH_WAYPOINT_RADIUS) return waypoint;
+      recovery.waypointIndex += 1;
+    }
+    this.respawnRecovery.delete(player.userId);
+    return null;
+  }
+
+  private recoveryWalkable(player: CorePlayer, leader: CorePlayer) {
+    if (this.core.authoredWorld) return this.core.authoredWalkable();
+    const playerRoom = this.core.rooms.get(player.roomId);
+    const leaderRoom = this.core.rooms.get(leader.roomId);
+    return playerRoom?.zone === leaderRoom?.zone
+      ? this.core.zoneWorlds.get(playerRoom?.zone ?? 1)?.rects ?? null
+      : null;
   }
 
   private distantAiFollowAnchor(player: CorePlayer, leader: CorePlayer): Readonly<{ x: number; y: number }> | null {

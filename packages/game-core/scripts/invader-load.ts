@@ -31,6 +31,10 @@ if (!passed) process.exitCode = 1;
 function runScenario(scenario: Scenario) {
   const rooms = Array.from({ length: roomCount }, (_, roomIndex) => createRoom(scenario, roomIndex));
   const tickSamples: number[] = [];
+  // One warmup tick per room absorbs V8 JIT compilation so the measured
+  // distribution reflects steady-state 60Hz simulation cost, not first-call
+  // codegen. The production room likewise warms up during the lobby phase.
+  for (const room of rooms) room.core.update(1 / 60);
   const beforeHeap = process.memoryUsage().heapUsed;
   const startedAt = performance.now();
   for (let tick = 0; tick < durationSeconds * 60; tick += 1) {

@@ -2,7 +2,8 @@ import { Client, type Room } from "colyseus.js";
 import {
   PARTY_ROOM,
   PROTOCOL_VERSION,
-  combatAttackEventSchema,
+  NIGHT_PLAYER_VISION_RADIUS,
+  combatActionEventSchema,
   fastLaneOfferSchema,
   minimapDeltaSchema,
   minimapInitSchema,
@@ -86,6 +87,7 @@ type PlayerStateLike = {
   ready?: boolean;
   connected?: boolean;
   alive?: boolean;
+  respawnRemaining?: number;
   roomId?: string;
   aim?: number;
   attackSequence?: number;
@@ -383,10 +385,10 @@ class ColyseusTransport {
       if (!isCurrentRoom()) return;
       this.handleWorldFrame(message);
     });
-    room.onMessage("combat.attack", (message: unknown) => {
+    room.onMessage("combat.action", (message: unknown) => {
       if (!isCurrentRoom()) return;
-      const parsed = combatAttackEventSchema.safeParse(message);
-      if (parsed.success) gameBridge.emit("combatAttack", parsed.data);
+      const parsed = combatActionEventSchema.safeParse(message);
+      if (parsed.success) gameBridge.emit("combatAction", parsed.data);
     });
     room.onMessage("minimap.init", (message: unknown) => {
       if (!isCurrentRoom()) return;
@@ -408,7 +410,7 @@ class ColyseusTransport {
           y: player.y,
           connected: player.connected,
           alive: player.alive,
-        })));
+        })), this.latestState.phase === "night" ? NIGHT_PLAYER_VISION_RADIUS : geometry.visionRadius);
         this.publishMinimap();
       } catch {
         // Invalid masks never reach the renderer.
@@ -588,12 +590,13 @@ class ColyseusTransport {
     const parsed = worldFrameSchema.safeParse(raw);
     if (!parsed.success) return;
     const frame = parsed.data;
+    const currentRadius = this.latestState?.phase === "night" ? NIGHT_PLAYER_VISION_RADIUS : undefined;
     const revealed = this.revealClientParty(frame.players.map((player) => ({
       id: player.id,
       roomId: player.roomId,
       x: player.x,
       y: player.y,
-    })));
+    })), currentRadius);
     if (revealed > 0 && performance.now() - this.lastExplorationPublishAt >= 120) {
       this.lastExplorationPublishAt = performance.now();
       this.publishMinimap();
@@ -673,6 +676,7 @@ class ColyseusTransport {
       ready: player.ready ?? false,
       connected: player.connected ?? true,
       alive: player.alive ?? (player.hp ?? 0) > 0,
+      respawnRemaining: player.respawnRemaining ?? 0,
       roomId: player.roomId ?? "zone-1:0,4",
       x: player.x ?? 0,
       y: player.y ?? 0,
@@ -703,6 +707,7 @@ class ColyseusTransport {
       },
     }));
     const localRoomId = players.find((player) => player.isLocal)?.roomId ?? "";
+    const phase = isNetworkPhase(state.phase) ? state.phase : "lobby";
     this.revealClientParty(players.map((player) => ({
       id: player.userId,
       roomId: player.roomId,
@@ -710,7 +715,7 @@ class ColyseusTransport {
       y: player.y,
       connected: player.connected,
       alive: player.alive,
-    })));
+    })), phase === "night" ? NIGHT_PLAYER_VISION_RADIUS : undefined);
     const localPlayerState = collectionValues(state.players).find((player) => player.userId === this.localUserId);
     const draft = localPlayerState?.upgradeDraft;
     const localUpgradeDraft = draft?.active && draft.draftId
@@ -808,7 +813,7 @@ class ColyseusTransport {
     const snapshot: NetworkWorldSnapshot = {
       matchId: state.matchId ?? "",
       seed: state.seed ?? "",
-      phase: isNetworkPhase(state.phase) ? state.phase : "lobby",
+      phase,
       resultState: isNetworkResult(state.resultState) ? state.resultState : null,
       resultReason: state.resultReason ?? "",
       day: state.day ?? 1,
@@ -842,12 +847,12 @@ class ColyseusTransport {
     return areaId ? this.minimaps.get(areaId) ?? null : null;
   }
 
-  private revealClientParty(actors: readonly ExplorationActor[]): number {
+  private revealClientParty(actors: readonly ExplorationActor[], radius?: number): number {
     let revealed = 0;
     for (const [areaId, minimap] of this.minimaps) {
       const areaActors = actors.filter((actor) => minimapAreaIdForRoom(actor.roomId) === areaId);
       if (areaActors.length === 0) continue;
-      const areaRevealed = this.clientExploration.reveal(minimap, areaActors);
+      const areaRevealed = this.clientExploration.reveal(minimap, areaActors, radius ?? minimap.geometry.visionRadius);
       if (areaRevealed === 0) continue;
       revealed += areaRevealed;
       // Replace the wrapper so React/canvas consumers observe the mutated mask.

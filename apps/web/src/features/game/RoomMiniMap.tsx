@@ -8,15 +8,18 @@ import {
   explorationPercent,
   isExplored,
 } from "@five-days/game-core";
-import type { MiniMapSnapshot, PartyMemberSnapshot } from "@/src/game/domain/types";
+import { NIGHT_PLAYER_VISION_RADIUS } from "@five-days/protocol";
+import type { MiniMapSnapshot, PartyMemberSnapshot, Phase } from "@/src/game/domain/types";
 
 const PLAYER_COLORS = ["#72e6bd", "#ff7f9f", "#85baff", "#f1ce70", "#c79cff", "#ff9f66"];
 const DYNAMIC_FRAME_MS = 1_000 / 30;
+const VISION_RADIUS_CHANGE_PER_SECOND = 220;
 const DEFAULT_VIEW: MiniMapView = { zoom: 1, centerX: null, centerY: null };
 
 type RoomMiniMapProps = {
   minimap: MiniMapSnapshot | null;
   party: PartyMemberSnapshot[];
+  phase: Phase;
   embed?: boolean;
 };
 
@@ -24,9 +27,10 @@ export function RoomMiniMap(props: RoomMiniMapProps) {
   return <RoomMiniMapContent key={props.minimap?.geometry.areaId ?? "loading"} {...props} />;
 }
 
-function RoomMiniMapContent({ minimap, party, embed = false }: RoomMiniMapProps) {
+function RoomMiniMapContent({ minimap, party, phase, embed = false }: RoomMiniMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const positionsRef = useRef(new Map<string, { x: number; y: number }>());
+  const visionRadiusRef = useRef<number | null>(null);
   const partyRef = useRef(party);
   const viewRef = useRef<MiniMapView>({ ...DEFAULT_VIEW });
   const panRef = useRef<MiniMapPan | null>(null);
@@ -53,6 +57,7 @@ function RoomMiniMapContent({ minimap, party, embed = false }: RoomMiniMapProps)
     let lastPartySignature = "";
     let lastFocusSignature = "";
     let lastViewSignature = "";
+    let previousDrawAt = 0;
 
     const draw = (time: number) => {
       if (stopped) return;
@@ -60,12 +65,20 @@ function RoomMiniMapContent({ minimap, party, embed = false }: RoomMiniMapProps)
         frame = requestAnimationFrame(draw);
         return;
       }
+      const elapsedSeconds = previousDrawAt === 0 ? 0 : Math.min(0.1, Math.max(0, (time - previousDrawAt) / 1_000));
+      previousDrawAt = time;
       lastFrameAt = time;
       const rect = canvas.getBoundingClientRect();
       const dpr = Math.min(2, window.devicePixelRatio || 1);
       const width = Math.max(1, Math.round(rect.width * dpr));
       const height = Math.max(1, Math.round(rect.height * dpr));
       const currentParty = partyRef.current;
+      const targetVisionRadius = phase === "night" ? NIGHT_PLAYER_VISION_RADIUS : minimap.geometry.visionRadius;
+      visionRadiusRef.current ??= targetVisionRadius;
+      const visionStep = VISION_RADIUS_CHANGE_PER_SECOND * elapsedSeconds;
+      if (visionRadiusRef.current < targetVisionRadius) visionRadiusRef.current = Math.min(targetVisionRadius, visionRadiusRef.current + visionStep);
+      else if (visionRadiusRef.current > targetVisionRadius) visionRadiusRef.current = Math.max(targetVisionRadius, visionRadiusRef.current - visionStep);
+      const visionSettled = visionRadiusRef.current === targetVisionRadius;
       const focus = minimapFocus(minimap, currentParty);
       const view = viewRef.current;
       const followsPlayer = view.centerX === null || view.centerY === null;
@@ -76,7 +89,7 @@ function RoomMiniMapContent({ minimap, party, embed = false }: RoomMiniMapProps)
         const position = positionsRef.current.get(member.userId);
         return !position || Math.hypot(member.x - position.x, member.y - position.y) < 0.25;
       });
-      if (partySignature === lastPartySignature && settled && width === lastWidth && height === lastHeight && focusSignature === lastFocusSignature && viewSignature === lastViewSignature) {
+      if (partySignature === lastPartySignature && settled && visionSettled && width === lastWidth && height === lastHeight && focusSignature === lastFocusSignature && viewSignature === lastViewSignature) {
         frame = requestAnimationFrame(draw);
         return;
       }
@@ -98,12 +111,12 @@ function RoomMiniMapContent({ minimap, party, embed = false }: RoomMiniMapProps)
       context.clearRect(0, 0, width, height);
       context.drawImage(staticCanvas, 0, 0);
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
-      renderDynamicMap(context, rect.width, rect.height, minimap, currentParty, positionsRef.current, reducedMotion, wallIndex, focus, view);
+      renderDynamicMap(context, rect.width, rect.height, minimap, currentParty, positionsRef.current, reducedMotion, wallIndex, focus, view, visionRadiusRef.current);
       frame = requestAnimationFrame(draw);
     };
     frame = requestAnimationFrame(draw);
     return () => { stopped = true; cancelAnimationFrame(frame); };
-  }, [minimap]);
+  }, [minimap, phase]);
 
   const handleWheel = (event: WheelEvent<HTMLDivElement>) => {
     if (!minimap) return;
@@ -324,6 +337,7 @@ function renderDynamicMap(
   wallIndex: ReturnType<typeof createWallSpatialIndex>,
   focus: { x: number; y: number } | null,
   view: MiniMapView,
+  visionRadius: number,
 ): void {
   const { geometry } = minimap;
   const transform = mapTransform(width, height, minimap, focus, view);
@@ -333,7 +347,7 @@ function renderDynamicMap(
   context.save();
   context.clip(surfacePath(minimap, transform));
   for (const member of visibleParty) {
-    const polygon = computeVisibilityPolygon(member, geometry.visionRadius, wallIndex);
+    const polygon = computeVisibilityPolygon(member, visionRadius, wallIndex);
     if (polygon.length < 3) continue;
     const path = new Path2D();
     polygon.forEach((point, index) => {
@@ -344,7 +358,7 @@ function renderDynamicMap(
     context.save();
     context.clip(path);
     const center = transform.toCanvas(member.x, member.y);
-    const radius = geometry.visionRadius * transform.scale;
+    const radius = visionRadius * transform.scale;
     const glow = context.createRadialGradient(center.x, center.y, 0, center.x, center.y, radius);
     glow.addColorStop(0, "rgba(176, 248, 220, .9)");
     glow.addColorStop(.88, "rgba(113, 218, 179, .58)");

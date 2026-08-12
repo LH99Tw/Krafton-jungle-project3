@@ -68,12 +68,13 @@ export class PlayerVisionFog {
   update(
     playerX: number,
     playerY: number,
+    radius: number = PLAYER_VISION_RADIUS,
   ): void {
     const sources = selectVisionRevealSources({
       id: PLAYER_SOURCE_ID,
       x: playerX,
       y: playerY,
-      radius: PLAYER_VISION_RADIUS,
+      radius,
     }, this.installedSources.values());
 
     const signature = sources.map((source) => `${source.id}:${Math.round(source.x / 4)}:${Math.round(source.y / 4)}:${source.radius}`).join("|");

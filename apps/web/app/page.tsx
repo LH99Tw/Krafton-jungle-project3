@@ -30,11 +30,11 @@ export default async function Home({ searchParams }: {
     sessionUnavailable = true;
   }
 
-  const viewer = user
+  // A development-only session fallback must not pretend to be authenticated:
+  // without a matching CSRF cookie, subsequent mutation requests are rejected.
+  const viewer = user && csrfToken
     ? { userId: user.id, displayName: user.displayName, accountType: user.accountType, csrfToken }
-    : (process.env.NODE_ENV !== "production"
-      ? { userId: "00000000-0000-0000-0000-000000000001", displayName: "마법사", accountType: "guest" as const, csrfToken: "dev-token" }
-      : null);
+    : null;
 
   const initialScreen = (query.lab === "1" || query.screen === "lab") ? "lab" : null;
 

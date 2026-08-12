@@ -24,7 +24,7 @@ export class ClientPartyExploration {
   private readonly wallIndexes = new Map<string, WallSpatialIndex>();
   private readonly lastPositions = new Map<string, { mapRevision: string; x: number; y: number }>();
 
-  reveal(minimap: MiniMapSnapshot, actors: readonly ExplorationActor[]): number {
+  reveal(minimap: MiniMapSnapshot, actors: readonly ExplorationActor[], radius: number = minimap.geometry.visionRadius): number {
     const { geometry } = minimap;
     let wallIndex = this.wallIndexes.get(geometry.mapRevision);
     if (!wallIndex) {
@@ -44,7 +44,7 @@ export class ClientPartyExploration {
         minimap.explorationMask,
         actor.x,
         actor.y,
-        geometry.visionRadius,
+        radius,
         wallIndex,
       ).length;
     }

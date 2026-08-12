@@ -14,7 +14,7 @@ import {
   type CoreWorldDefinition,
   type WallSpatialIndex,
 } from "@five-days/game-core";
-import { PROTOCOL_VERSION, type InputFrame, type WorldFrame } from "@five-days/protocol";
+import { NIGHT_PLAYER_VISION_RADIUS, PROTOCOL_VERSION, type InputFrame, type WorldFrame } from "@five-days/protocol";
 import type {
   EquipmentSummary,
   MiniMapSnapshot,
@@ -261,14 +261,16 @@ export class LocalCoreSession {
 
   private revealPartyExploration(): void {
     if (!this.minimap) return;
+    const core = this.requireCore();
+    const visionRadius = core.phase === "night" ? NIGHT_PLAYER_VISION_RADIUS : MINIMAP_VISION_RADIUS;
     const wallIndex = this.minimapWallIndex ?? createWallSpatialIndex(this.minimap.geometry.wallSegments);
     let changed = false;
-    for (const player of this.requireCore().players.values()) {
+    for (const player of core.players.values()) {
       if (!player.alive) continue;
       const previous = this.lastRevealPositions.get(player.userId);
       if (previous && Math.hypot(player.x - previous.x, player.y - previous.y) < 4) continue;
       this.lastRevealPositions.set(player.userId, { x: player.x, y: player.y });
-      if (revealAround(this.minimap.geometry, this.minimap.explorationMask, player.x, player.y, MINIMAP_VISION_RADIUS, wallIndex).length > 0) changed = true;
+      if (revealAround(this.minimap.geometry, this.minimap.explorationMask, player.x, player.y, visionRadius, wallIndex).length > 0) changed = true;
     }
     if (changed) this.minimap.revision += 1;
   }
@@ -294,6 +296,7 @@ function playerSnapshot(core: GameCore, player: CorePlayer, isLocal: boolean): P
     ready: player.ready,
     connected: player.connected,
     alive: player.alive,
+    respawnRemaining: player.respawnRemaining,
     roomId: player.roomId,
     x: player.x,
     y: player.y,

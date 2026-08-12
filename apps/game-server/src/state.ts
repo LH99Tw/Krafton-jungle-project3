@@ -77,6 +77,7 @@ export class PlayerState extends Schema {
   @type("string") attackTargetId = "";
   @type("boolean") attackCritical = false;
   @type("boolean") alive = true;
+  @type("number") respawnRemaining = 0;
   @type("boolean") ready = false;
   @type("boolean") connected = true;
   @type(EquipmentSummaryState) equipment = new EquipmentSummaryState();
@@ -206,5 +207,6 @@ export class LobbyRoomState extends Schema {
   @type("string") phase = "waiting";
   @type("string") sessionMode = "prototype";
   @type("string") difficulty = "normal";
+  @type("number") launchAt = 0;
   @type({ map: LobbyPlayerState }) players = new MapSchema<LobbyPlayerState>();
 }

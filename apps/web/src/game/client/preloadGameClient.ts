@@ -13,6 +13,9 @@ const GAMEPLAY_IMAGE_ASSETS = [
   "/Asset/zone-3-room-corridor-atlas.png",
   "/Asset/zone-3-blocked-wastes.png",
   ...BASIC_ATTACK_SPRITE_PATHS,
+  "/Asset/ui/augment-cards/augment-card-normal.webp",
+  "/Asset/ui/augment-cards/augment-card-rare.webp",
+  "/Asset/ui/augment-cards/augment-card-epic.webp",
 ] as const;
 
 export async function preloadGameClient(): Promise<void> {

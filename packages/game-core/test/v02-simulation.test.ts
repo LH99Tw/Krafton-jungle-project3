@@ -273,6 +273,24 @@ test("static enemies chase, animate an attack sequence, and stay in their spawn 
   assert.equal(staticEnemy.patternPhase, "idle");
 });
 
+test("enemy attacks use the same globally sequenced reliable combat action stream", () => {
+  const core = startedCore("enemy-combat-action");
+  const player = core.players.get("p1")!;
+  player.autoAttackCooldown = 999;
+  const attacker = enemy("reliable-static", player.roomId, player.x + 20, player.y);
+  core.enemies.clear();
+  core.enemies.set(attacker.id, attacker);
+
+  core.update(0.1);
+  const [action] = core.takeCombatActionEvents();
+  assert.ok(action);
+  assert.equal(action.attackerType, "enemy");
+  assert.equal(action.actionKind, "melee");
+  assert.equal(action.attackerId, attacker.id);
+  assert.equal(action.targetId, player.userId);
+  assert.deepEqual({ x: action.startX, y: action.startY }, { x: attacker.x, y: attacker.y });
+});
+
 test("general and class augments affect authoritative attacks and skills", () => {
   const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "augment-runtime", minimumPlayers: 1 });
   const archer = core.addPlayer({ userId: "p1", displayName: "archer", heroClass: "archer" });
@@ -412,13 +430,14 @@ test("defender AI does not block travel while follower AI travels with the playe
   assert.equal(defender.roomId, core.maps.zones[0].startRoomId);
 });
 
-test("a defeated player immediately respawns at the base with full health and no stale movement", () => {
+test("a defeated player waits three seconds at the death position before respawning at the base", () => {
   const core = startedCore("player-respawn");
   const player = core.players.get("p1")!;
   core.movePlayerToRoom(player.userId, core.maps.zones[0].gateRoomId);
   player.inputX = 1;
   player.inputY = -1;
   player.lastButtons = 7;
+  const deathPosition = { roomId: player.roomId, x: player.x, y: player.y };
 
   const damagePlayer = (core as unknown as {
     damagePlayer(target: typeof player, damage: number): void;
@@ -427,14 +446,25 @@ test("a defeated player immediately respawns at the base with full health and no
 
   const baseRoom = core.rooms.get(core.maps.zones[0].startRoomId)!;
   const baseCenter = roomWorldCenter({ x: baseRoom.gridX, y: baseRoom.gridY });
-  assert.equal(player.hp, player.maxHp);
-  assert.equal(player.alive, true);
-  assert.equal(player.roomId, baseRoom.id);
-  assert.deepEqual({ x: player.x, y: player.y }, baseCenter);
+  assert.equal(player.hp, 0);
+  assert.equal(player.alive, false);
+  assert.equal(player.respawnRemaining, 3);
+  assert.deepEqual({ roomId: player.roomId, x: player.x, y: player.y }, deathPosition);
   assert.equal(player.inputX, 0);
   assert.equal(player.inputY, 0);
   assert.equal(player.lastButtons, 0);
   assert.equal(player.deaths, 1);
+
+  for (let index = 0; index < 29; index += 1) core.update(0.1);
+  assert.equal(player.alive, false);
+  assert.deepEqual({ roomId: player.roomId, x: player.x, y: player.y }, deathPosition);
+
+  core.update(0.1);
+  assert.equal(player.hp, player.maxHp);
+  assert.equal(player.alive, true);
+  assert.equal(player.respawnRemaining, 0);
+  assert.equal(player.roomId, baseRoom.id);
+  assert.deepEqual({ x: player.x, y: player.y }, baseCenter);
   assert.notEqual(core.phase, "ended");
 });
 
@@ -929,6 +959,30 @@ test("a full 256-invader room remains bounded through a simulation tick", () => 
   core.update(1 / 60);
   assert.ok(core.liveInvaderCount <= 256);
   assert.throws(() => core.spawnInvader(1), /Live invader limit/);
+});
+
+test("a deterministic 256-invader three-player room keeps cold work bounded for 60 simulated seconds", () => {
+  const core = new GameCore({
+    mode: "prototype",
+    difficulty: "normal",
+    seed: "invader-60-second-load",
+    minimumPlayers: 3,
+    maxLiveInvaders: 256,
+    invaderUpdateRates: { warmHz: 20, coldHz: 5, warmMovementHz: 30, coldMovementHz: 10 },
+  });
+  for (const [userId, heroClass] of [["load-1", "swordsman"], ["load-2", "archer"], ["load-3", "mage"]] as const) {
+    core.addPlayer({ userId, displayName: userId, heroClass });
+    core.setReady(userId, true);
+  }
+  for (let index = 0; index < 256; index += 1) {
+    const invader = core.spawnInvader(1);
+    invader.speed = 0;
+  }
+  for (let tick = 0; tick < 3_600; tick += 1) core.update(1 / 60);
+  const work = core.invaderWorkMetrics;
+  assert.equal(core.liveInvaderCount, 256);
+  assert.ok(work.coldExecutions < 256 * 3_600 / 2);
+  assert.ok(work.movementBacklogSeconds <= 256 * 0.5);
 });
 
 test("multirate invaders keep hot combat identical to the 60Hz reference", () => {

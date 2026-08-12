@@ -1,4 +1,4 @@
-import { buildEditorGeometry } from "./editorGeometry";
+import { buildEditorGeometry, type EditorMapGeometry } from "./editorGeometry";
 
 export const EDITOR_MAP_STORAGE_KEY = "five-days:local-map:v1";
 export const EDITOR_MIN_COORDINATE = -128;
@@ -65,7 +65,7 @@ export const DEFAULT_EDITOR_MAP: EditorMapDefinition = {
   ],
 };
 
-export function validateEditorMap(map: EditorMapDefinition): string[] {
+export function validateEditorMap(map: EditorMapDefinition, geometry?: EditorMapGeometry): string[] {
   const failures: string[] = [];
   if (!map.title.trim()) failures.push("맵 이름을 입력해 주세요.");
   if (map.rooms.length < 2) failures.push("방을 두 개 이상 배치해 주세요.");
@@ -131,7 +131,7 @@ export function validateEditorMap(map: EditorMapDefinition): string[] {
     || room.height < EDITOR_MIN_ROOM_HEIGHT
     || room.height > EDITOR_MAX_ROOM_HEIGHT
   ));
-  if (dimensionsValid) failures.push(...buildEditorGeometry(map, { cellWidth: 1, cellHeight: 1, corridorWidth: 0.5 }).errors);
+  if (dimensionsValid) failures.push(...(geometry ?? buildEditorGeometry(map, { cellWidth: 1, cellHeight: 1, corridorWidth: 0.5 })).errors);
   return failures;
 }
 

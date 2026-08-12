@@ -10,7 +10,7 @@ export function ExplorationHud({ snapshot }: { snapshot: GameSnapshot }) {
   return (
     <section className="exploration-reliquary" aria-label="탐색 지도 및 기지 내구도">
       <div className="exploration-reliquary-inner">
-        <RoomMiniMap minimap={snapshot.minimap} party={snapshot.party} embed />
+        <RoomMiniMap minimap={snapshot.minimap} party={snapshot.party} phase={snapshot.phase} embed />
         <div className="map-tactical-footer">
           <div className="base-health">
             <span><b>베이스 내구도</b><small>{Math.ceil(snapshot.baseHp)} / {snapshot.baseMaxHp}</small></span>
