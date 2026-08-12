@@ -27,12 +27,11 @@ import { GameHud } from "./GameHud";
 import { ResultOverlay } from "./ResultOverlay";
 import { mergeGameResults, normalizeGameResult, resultFallbackFromSnapshot, type GameResultSignal } from "./gameResult";
 
+const SELECTION_LAUNCH_DELAY_MS = 2_000;
 const RESULT_FALLBACK_DELAY_MS = 1_200;
 const RESULT_PRIORITY_FALLBACK = 1;
 const RESULT_PRIORITY_MESSAGE = 2;
 const RESULT_PRIORITY_AUTHORITATIVE = 3;
-const SELECTION_HOLD_DELAY_MS = 2_000;
-const SELECTION_CURTAIN_DURATION_MS = 1_100;
 
 export type Viewer = {
   userId: string;
@@ -42,7 +41,6 @@ export type Viewer = {
 } | null;
 
 type Screen = "access" | "lobby" | "selecting" | "editor" | "lab" | "playing";
-type GameTransitionPhase = "idle" | "covering" | "entering" | "exiting";
 const LOCAL_DEVELOPMENT_TOOLS_ENABLED = process.env.NODE_ENV !== "production";
 const RUN_RECOVERY_KEY = "five-days:active-run:v1";
 const RUN_RECOVERY_TTL_MS = 35 * 60 * 1000;
@@ -64,11 +62,10 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   const selectionPreloadReadyRef = useRef(false);
   const pendingLobbyStartRef = useRef<LobbyGameStart | null>(null);
   const lobbyLaunchStartedRef = useRef(false);
+  const lobbyLaunchTimerRef = useRef<number | null>(null);
   const resultRef = useRef<GameResult | null>(null);
   const resultPriorityRef = useRef(0);
   const terminalFallbackTimerRef = useRef<number | null>(null);
-  const selectionHoldTimerRef = useRef<number | null>(null);
-  const selectionCurtainTimerRef = useRef<number | null>(null);
   const [viewer, setViewer] = useState<Viewer>(initialViewer);
   const [authUnavailable, setAuthUnavailable] = useState(sessionUnavailable);
   const [screen, setScreen] = useState<Screen>(initialScreen ?? "access");
@@ -84,8 +81,6 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   const [busy, setBusy] = useState(false);
   const [surfaceError, setSurfaceError] = useState(sessionUnavailable ? "세션 저장소에 일시적으로 연결할 수 없습니다. 잠시 후 다시 시도해 주세요." : "");
   const [launching, setLaunching] = useState(false);
-  const [selectionCurtainVisible, setSelectionCurtainVisible] = useState(false);
-  const [gameTransitionPhase, setGameTransitionPhase] = useState<GameTransitionPhase>("idle");
 
   const cancelTerminalFallback = useCallback(() => {
     if (terminalFallbackTimerRef.current === null) return;
@@ -154,10 +149,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     const offResult = gameBridge.on("result", (nextResult) => {
       commitTerminalResult(nextResult, RESULT_PRIORITY_AUTHORITATIVE);
     });
-    const offReady = gameBridge.on("ready", () => {
-      colyseusTransport.markRendererReady();
-      setGameTransitionPhase((current) => current === "covering" ? "entering" : current);
-    });
+    const offReady = gameBridge.on("ready", () => colyseusTransport.markRendererReady());
     const offNetwork = colyseusTransport.subscribe((state) => {
       setNetworkStatus(state.phase === "lobby" ? "waiting" : "connected");
       if (state.phase === "ended") {
@@ -195,6 +187,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     return () => {
       runGenerationRef.current += 1;
       cancelTerminalFallback();
+      if (lobbyLaunchTimerRef.current !== null) window.clearTimeout(lobbyLaunchTimerRef.current);
       offSnapshot(); offUpgrade(); offResult(); offReady(); offNetwork(); offNetworkEvent();
       colyseusTransport.disconnect();
     };
@@ -229,7 +222,6 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       setNetworkStatus("connected");
       setActiveOptions(resolveRuntimeOptions(options, isNetworkActive ? gameServerUrl : null));
       setRunKey((value) => value + 1);
-      setGameTransitionPhase("covering");
       setScreen("playing");
     } catch (error) {
       if (runGeneration !== runGenerationRef.current) return;
@@ -250,20 +242,16 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     lobbyLaunchStartedRef.current = true;
     pendingLobbyStartRef.current = null;
     setLaunching(true);
-    setSelectionCurtainVisible(false);
-    selectionHoldTimerRef.current = window.setTimeout(() => {
-      selectionHoldTimerRef.current = null;
-      setSelectionCurtainVisible(true);
-      selectionCurtainTimerRef.current = window.setTimeout(() => {
-        selectionCurtainTimerRef.current = null;
-        void beginRun({
-          heroClass,
-          sessionMode: event.sessionMode,
-          difficulty: event.difficulty,
-          partyMode: "coop",
-        }, event.gameRoomId);
-      }, SELECTION_CURTAIN_DURATION_MS);
-    }, SELECTION_HOLD_DELAY_MS);
+    if (lobbyLaunchTimerRef.current !== null) window.clearTimeout(lobbyLaunchTimerRef.current);
+    lobbyLaunchTimerRef.current = window.setTimeout(() => {
+      lobbyLaunchTimerRef.current = null;
+      void beginRun({
+        heroClass,
+        sessionMode: event.sessionMode,
+        difficulty: event.difficulty,
+        partyMode: "coop",
+      }, event.gameRoomId);
+    }, SELECTION_LAUNCH_DELAY_MS);
   }, [beginRun, viewer]);
 
   useEffect(() => {
@@ -280,13 +268,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       if (!active) return;
       setSurfaceError(formatClientError(error, "게임 리소스를 불러오지 못했습니다."));
     });
-    return () => {
-      active = false;
-      if (selectionHoldTimerRef.current !== null) window.clearTimeout(selectionHoldTimerRef.current);
-      if (selectionCurtainTimerRef.current !== null) window.clearTimeout(selectionCurtainTimerRef.current);
-      selectionHoldTimerRef.current = null;
-      selectionCurtainTimerRef.current = null;
-    };
+    return () => { active = false; };
   }, [launchSelectedRun, screen]);
 
   useEffect(() => {
@@ -439,20 +421,15 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     }
   }, [router, viewer]);
 
-  const finishReturnToLobby = useCallback(() => {
+  const returnToLobby = useCallback(() => {
     const wasEditorPlaytest = Boolean(activeOptions?.editorMap);
     runGenerationRef.current += 1;
     clearRunRecovery();
     colyseusTransport.disconnect();
     lobbyTransport.returnFromGame();
-    setNetworkStatus("disconnected"); resetTerminalResult(); setUpgradeChoices([]); snapshotRef.current = EMPTY_SNAPSHOT; setSnapshot(EMPTY_SNAPSHOT); setActiveOptions(null); setLaunching(false); setSelectionCurtainVisible(false);
-    setGameTransitionPhase("idle");
+    setNetworkStatus("disconnected"); resetTerminalResult(); setUpgradeChoices([]); snapshotRef.current = EMPTY_SNAPSHOT; setSnapshot(EMPTY_SNAPSHOT); setActiveOptions(null); setLaunching(false);
     setScreen(wasEditorPlaytest ? "editor" : viewer && gameServerUrl ? "lobby" : "access");
   }, [activeOptions?.editorMap, gameServerUrl, resetTerminalResult, viewer]);
-
-  const returnToLobby = useCallback(() => {
-    setGameTransitionPhase((current) => current === "exiting" ? current : "exiting");
-  }, []);
 
   const chooseUpgrade = useCallback((upgradeId: UpgradeChoice["id"]) => {
     gameBridge.command({ type: "choose-upgrade", upgradeId });
@@ -478,7 +455,6 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       editorMap,
     });
     setRunKey((value) => value + 1);
-    setGameTransitionPhase("covering");
     setScreen("playing");
   }, [localMapEditorEnabled, resetTerminalResult, viewer?.userId]);
 
@@ -487,22 +463,13 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     <GameHud snapshot={snapshot} heroClass={activeOptions.heroClass} onExit={returnToLobby} upgradeChoices={result ? [] : upgradeChoices} onChoose={chooseUpgrade} terminal={Boolean(result)} />
     <ResultOverlay
       result={result}
+      heroClass={activeOptions.heroClass}
       onLobby={returnToLobby}
       returnLabel={activeOptions.editorMap ? "맵 에디터로 돌아가기" : "게임 로비로 나가기"}
     />
-    {gameTransitionPhase !== "idle" && (
-      <div
-        className={`game-screen-transition is-${gameTransitionPhase}`}
-        aria-hidden="true"
-        onAnimationEnd={() => {
-          if (gameTransitionPhase === "entering") setGameTransitionPhase("idle");
-          if (gameTransitionPhase === "exiting") finishReturnToLobby();
-        }}
-      />
-    )}
   </main>;
 
-  if (screen === "selecting" && lobby && viewer) return <CharacterSelectScreen snapshot={lobby} viewerId={viewer.userId} launching={launching} curtainVisible={selectionCurtainVisible} onSelect={(heroClass) => lobbyTransport.selectClass(heroClass)} />;
+  if (screen === "selecting" && lobby && viewer) return <CharacterSelectScreen snapshot={lobby} viewerId={viewer.userId} launching={launching} onSelect={(heroClass) => lobbyTransport.selectClass(heroClass)} />;
 
   if (screen === "lobby" && viewer) return <LobbyScreen viewer={viewer} rooms={rooms} snapshot={lobby} messages={messages} busy={busy} error={surfaceError} onCreate={createLobby} onJoin={joinLobby} onLeave={leaveLobby} onReady={(ready) => lobbyTransport.ready(ready)} onStart={() => lobbyTransport.startSelection()} onSoloStart={startSoloExpedition} onChat={(message) => globalChatTransport.chat(message)} onAddAi={() => lobbyTransport.addAi()} onRemoveAi={(userId) => lobbyTransport.removeAi(userId)} onBack={() => setScreen("access")} />;
 

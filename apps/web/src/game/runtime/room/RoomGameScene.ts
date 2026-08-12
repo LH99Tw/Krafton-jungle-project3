@@ -1136,12 +1136,18 @@ export class RoomGameScene extends Phaser.Scene {
   private useDash(aim: number): void {
     this.dashReadyAt = this.time.now + 5000;
     const start = this.lastWalkablePlayerPosition ?? { x: this.player.x, y: this.player.y };
-    // Dash toward the cursor aim on every mode, matching the authoritative
-    // server dash so local/editor/network behavior stays identical.
+    // Dash follows the held movement keys, matching the authoritative server
+    // dash; aim is the fallback while the player is standing still.
+    const direction = new Phaser.Math.Vector2(
+      Number(this.keys.D?.isDown) - Number(this.keys.A?.isDown),
+      Number(this.keys.S?.isDown) - Number(this.keys.W?.isDown),
+    );
+    if (direction.lengthSq() < 1) direction.setToPolar(aim, 1);
+    direction.normalize().scale(145);
     const point = clampToWalkable(
       this.zoneWorld.walkable,
-      start.x + Math.cos(aim) * 145,
-      start.y + Math.sin(aim) * 145,
+      start.x + direction.x,
+      start.y + direction.y,
       start.x,
       start.y,
       PLAYER_COLLISION_RADIUS,
@@ -2007,7 +2013,7 @@ export class RoomGameScene extends Phaser.Scene {
       }
       this.networkPlayerSkillSequence.set(member.userId, member.skillSequence ?? 0);
     }
-    this.updateDeathPresentation(local.alive, local.respawnRemaining);
+    this.updateDeathPresentation(local.alive, local.respawnRemaining ?? 0);
   }
 
   private receiveNetworkCombatAction(action: CombatActionEvent): void {

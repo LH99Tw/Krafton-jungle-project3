@@ -1,4 +1,4 @@
-import { ArraySchema, MapSchema, Schema, type, view } from "@colyseus/schema";
+﻿import { ArraySchema, MapSchema, Schema, type, view } from "@colyseus/schema";
 import { PROTOCOL_VERSION } from "@five-days/protocol";
 
 export const PLAYER_TRANSFORM_VIEW = 1;
@@ -207,6 +207,5 @@ export class LobbyRoomState extends Schema {
   @type("string") phase = "waiting";
   @type("string") sessionMode = "prototype";
   @type("string") difficulty = "normal";
-  @type("number") launchAt = 0;
   @type({ map: LobbyPlayerState }) players = new MapSchema<LobbyPlayerState>();
 }

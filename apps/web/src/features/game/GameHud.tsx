@@ -60,7 +60,6 @@ export function GameHud({
       ready: true,
       connected: true,
       alive: snapshot.hp > 0,
-      respawnRemaining: 0,
       roomId: snapshot.currentRoomId,
       x: 0,
       y: 0,
