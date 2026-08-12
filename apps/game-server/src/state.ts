@@ -1,5 +1,6 @@
 ﻿import { ArraySchema, MapSchema, Schema, type, view } from "@colyseus/schema";
 import { PROTOCOL_VERSION } from "@five-days/protocol";
+import { BASE_CRITICAL_CHANCE } from "@five-days/game-core";
 
 export const PLAYER_TRANSFORM_VIEW = 1;
 
@@ -69,7 +70,7 @@ export class PlayerState extends Schema {
   @type("number") teamPower = 0;
   @type("number") attackDamage = 0;
   @type("number") defense = 0;
-  @type("number") criticalChance = 0;
+  @type("number") criticalChance = BASE_CRITICAL_CHANCE * 100;
   @type("number") criticalDamage = 150;
   @type("number") attacksPerSecond = 0;
   @type("number") attackRange = 0;

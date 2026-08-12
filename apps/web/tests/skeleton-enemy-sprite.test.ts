@@ -89,10 +89,19 @@ test("hidden enemies use zone-specific transparent 8-direction sheets", async ()
     assert.equal(metadata.hasAlpha, true, `hidden zone ${index + 1} sheet alpha`);
     for (let row = 0; row < 8; row += 1) {
       for (let column = 0; column < 8; column += 1) {
-        const stats = await sharp(input)
+        const frame = sharp(input)
           .extract({ left: column * 160, top: row * 160, width: 160, height: 160 })
-          .stats();
+          .ensureAlpha();
+        const stats = await frame.clone().stats();
         assert.ok(stats.channels[3]!.max > 200, `hidden zone ${index + 1} frame ${row}:${column} visible`);
+        const alpha = await frame.raw().toBuffer({ resolveWithObject: true });
+        const touchesFrameEdge = Array.from({ length: 160 }, (_, offset) => (
+          alpha.data[(offset * 4) + 3]!
+          || alpha.data[((159 * 160 + offset) * 4) + 3]!
+          || alpha.data[((offset * 160) * 4) + 3]!
+          || alpha.data[((offset * 160 + 159) * 4) + 3]!
+        )).some(Boolean);
+        assert.equal(touchesFrameEdge, false, `hidden zone ${index + 1} frame ${row}:${column} must not bleed into a neighbor`);
       }
     }
   }

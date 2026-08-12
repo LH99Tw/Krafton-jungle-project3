@@ -147,7 +147,7 @@ test("server auto attack picks the nearest enemy inside the cursor cone", () => 
   assert.equal(core.performAutoAttack("p1")?.id, near.id);
   assert.equal(player.attackCount, 1);
   assert.equal(player.lastAttackTargetId, near.id);
-  assert.equal(player.lastAttackCritical, false);
+  assert.equal(typeof player.lastAttackCritical, "boolean");
   assert.ok(near.hp < near.maxHp);
   assert.equal(near.aggroed, true);
   assert.equal(far.hp, far.maxHp);

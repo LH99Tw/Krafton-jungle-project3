@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   BOSS_THREE_PLAYER_HP,
+  BASE_CRITICAL_CHANCE,
   DIFFICULTY_RULES,
   EQUIPMENT_BALANCE,
   INVADER_BALANCE,
@@ -181,19 +182,19 @@ test("one thousand deterministic builds stay inside the level 25 and level 30 DP
 
   const level25 = partyDps(25);
   const level30 = partyDps(30);
-  assert.ok(level25[499]! >= 290 && level25[499]! <= 315, `level 25 median DPS was ${level25[499]}`);
-  assert.ok(level30[899]! <= 390, `level 30 p90 DPS was ${level30[899]}`);
+  assert.ok(level25[499]! >= 315 && level25[499]! <= 330, `level 25 median DPS was ${level25[499]}`);
+  assert.ok(level30[899]! <= 405, `level 30 p90 DPS was ${level30[899]}`);
   const normalTtk = createBossEnemy("ttk-normal", "normal", 3).maxHp / level25[499]!;
   const hardTtk = createBossEnemy("ttk-hard", "hard", 3).maxHp / level25[499]!;
-  assert.ok(normalTtk >= 31 && normalTtk <= 35, `normal boss basic-attack TTK was ${normalTtk}`);
-  assert.ok(hardTtk >= 47 && hardTtk <= 52, `hard boss basic-attack TTK was ${hardTtk}`);
+  assert.ok(normalTtk >= 30 && normalTtk <= 33, `normal boss basic-attack TTK was ${normalTtk}`);
+  assert.ok(hardTtk >= 45 && hardTtk <= 49, `hard boss basic-attack TTK was ${hardTtk}`);
 });
 
 function expectedBossBasicDps(heroClass: "swordsman" | "archer" | "mage", stacks: AugmentStacks): number {
   const rules = CLASS_COMBAT_RULES[heroClass];
   const attack = rules.attackDamage + 8 + augmentEffectValue(stacks, "power", "amount");
   const attacksPerSecond = (1 + 0.17 + augmentEffectValue(stacks, "haste", "percent") / 100) / rules.attackInterval;
-  const criticalChance = augmentEffectValue(stacks, "precision", "points") / 100;
+  const criticalChance = BASE_CRITICAL_CHANCE + augmentEffectValue(stacks, "precision", "points") / 100;
   const criticalMultiplier = 1.5 + augmentEffectValue(stacks, "ferocity", "percent") / 100;
   const momentum = 1 + augmentEffectValue(stacks, "momentum", "maxPercent") / 100;
   const bossHunter = 1 + augmentEffectValue(stacks, "boss-hunter", "percent") / 100;

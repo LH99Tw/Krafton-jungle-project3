@@ -1245,6 +1245,9 @@ export class RoomRenderer {
     });
     sprite.setData("enemyFacingAngle", snapAngle);
     if (kind === "hidden") {
+      // Hidden units must never inherit an emergence/pool alpha or tint. Keep
+      // this invariant on every server transform update as a final safeguard.
+      sprite.setAlpha(1).clearTint();
       const midbossKey = sprite.getData("hiddenEnemyTexture") as string | undefined ?? "enemy-demon-midboss-0";
       if (midbossKey !== "enemy-demon-midboss-0") {
         const row = SKELETON_ROW_BY_ANGLE[snapAngle] ?? 0;

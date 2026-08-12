@@ -203,7 +203,12 @@ function SpecialRoomPanel({ snapshot }: { snapshot: GameSnapshot }) {
       <header>{copy.eyebrow && <small>{copy.eyebrow}</small>}<strong>{copy.title}</strong></header>
       {room.kind === "shrine" && <><p>{room.state?.shrineClaimedBy ? "성소의 힘이 이미 선택되었습니다." : `${room.state?.shrineKind || "알 수 없는"}의 힘 · 중앙에서 3초간 집중`}</p><progress max={3} value={room.state?.shrineClaimProgress ?? 0} /><button className="special-primary" disabled={Boolean(room.state?.shrineClaimedBy)} onClick={() => send("shrine.claim")}>성소 점유 시작</button></>}
       {room.kind === "trap" && <p className="trap-status">{room.state?.trapPhase === "cleared" ? "봉인이 해제되었습니다." : `${room.state?.trapPhase || "idle"} · ${room.state?.trapDebuff || "진입 시 저주 결정"}`}</p>}
-      {room.kind === "checkpoint" && <p>마법진 위에 서서 미니맵의 다른 웨이포인트를 눌러 이동하세요.</p>}
+      {room.kind === "checkpoint" && <>
+        <p>{snapshot.waypoint.nearby ? "활성화되었습니다. 미니맵에서 다른 웨이포인트를 선택할 수 있습니다." : "마법진 중앙에서 웨이포인트를 활성화하세요."}</p>
+        <button className="special-primary" disabled={snapshot.waypoint.nearby} onClick={() => send("checkpoint.set")}>
+          {snapshot.waypoint.nearby ? "웨이포인트 활성화 완료" : "웨이포인트 활성화"}
+        </button>
+      </>}
       {room.kind === "altar" && <><p>능력치 하나는 25% 강화되고 다른 하나는 15% 약화됩니다.</p><button className="special-primary" disabled={room.altarAttempts >= 3} onClick={() => send("altar.reroll")}>제단 리롤 · {room.altarAttempts}/3</button></>}
     </aside>
   );

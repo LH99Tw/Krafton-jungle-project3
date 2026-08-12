@@ -13,7 +13,7 @@ import {
   type TransportMode,
 } from "@five-days/protocol";
 import { normalizeAimAngle } from "../netcode/aim";
-import { applyCellRanges, decodeMask, OFFICIAL_MAP_MANIFEST } from "@five-days/game-core";
+import { applyCellRanges, BASE_CRITICAL_CHANCE, decodeMask, OFFICIAL_MAP_MANIFEST } from "@five-days/game-core";
 import type {
   HeroClassId,
   EquipmentSummary,
@@ -694,7 +694,7 @@ class ColyseusTransport {
       combatStats: {
         attackDamage: player.attackDamage ?? 0,
         defense: player.defense ?? 0,
-        criticalChance: player.criticalChance ?? 0,
+        criticalChance: player.criticalChance ?? BASE_CRITICAL_CHANCE * 100,
         criticalDamage: player.criticalDamage ?? 150,
         attacksPerSecond: player.attacksPerSecond ?? 0,
         attackRange: player.attackRange ?? 0,

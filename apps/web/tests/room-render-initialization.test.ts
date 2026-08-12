@@ -96,6 +96,7 @@ test("rare units skip every translucent emergence effect", () => {
   );
   assert.match(emergence, /if \(kind === "hidden"\) \{[\s\S]*?clearTint\(\)[\s\S]*?setAlpha\(1\)[\s\S]*?setData\("isEmerging", false\)[\s\S]*?applyDemonHoverMotion\(enemy\)[\s\S]*?return/);
   assert.ok(emergence.indexOf('if (kind === "hidden")') < emergence.indexOf("setAlpha(0.12)"));
+  assert.match(renderer, /if \(kind === "hidden"\) \{[\s\S]*?sprite\.setAlpha\(1\)\.clearTint\(\)/);
 });
 
 test("moving enemy telegraphs and hidden units do not leave detached visuals behind", () => {

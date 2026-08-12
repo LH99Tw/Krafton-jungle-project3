@@ -1,4 +1,4 @@
-import type { AugmentId } from "@five-days/game-core";
+import { BASE_CRITICAL_CHANCE, type AugmentId } from "@five-days/game-core";
 import type { MiniMapGeometry } from "@five-days/protocol";
 import type { EditorMapDefinition } from "./mapEditor";
 export type HeroClassId = "swordsman" | "archer" | "mage";
@@ -331,7 +331,7 @@ export const EMPTY_SNAPSHOT: GameSnapshot = {
   combatStats: {
     attackDamage: 0,
     defense: 0,
-    criticalChance: 0,
+    criticalChance: BASE_CRITICAL_CHANCE * 100,
     criticalDamage: 150,
     attacksPerSecond: 0,
     attackRange: 0,

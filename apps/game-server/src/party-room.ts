@@ -5,6 +5,7 @@ import { type GameTicketClaims } from "@five-days/auth";
 import { createMatch, finalizeMatch } from "@five-days/db/repositories";
 import {
   ABSOLUTE_MAX_LIVE_INVADERS,
+  BASE_CRITICAL_CHANCE,
   BOSS_ROOM_ID,
   DEFAULT_MAX_LIVE_INVADERS,
   GameCore,
@@ -740,7 +741,7 @@ export class PartyRoom extends Room<PartyRoomState> {
         teamPower: player.teamPower,
         attackDamage: combatStats?.attackDamage ?? 0,
         defense: combatStats?.defense ?? 0,
-        criticalChance: combatStats?.criticalChance ?? 10,
+        criticalChance: combatStats?.criticalChance ?? BASE_CRITICAL_CHANCE * 100,
         criticalDamage: combatStats?.criticalDamage ?? 150,
         attacksPerSecond: combatStats?.attacksPerSecond ?? 0,
         attackRange: combatStats?.attackRange ?? 0,

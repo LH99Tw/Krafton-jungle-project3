@@ -1,5 +1,6 @@
 import * as Phaser from "phaser";
 import {
+  BASE_CRITICAL_CHANCE,
   OFFICIAL_MAP_MANIFEST,
   explorationPercent as calculateExplorationPercent,
   type CoreWorldDefinition,
@@ -1344,7 +1345,7 @@ export class RoomGameScene extends Phaser.Scene {
       combatStats: local?.combatStats ?? {
         attackDamage: CLASS_DEFINITIONS[this.options.heroClass].stats.attack,
         defense: CLASS_DEFINITIONS[this.options.heroClass].stats.defense,
-        criticalChance: 0,
+        criticalChance: BASE_CRITICAL_CHANCE * 100,
         criticalDamage: 150,
         attacksPerSecond: 1_000 / CLASS_DEFINITIONS[this.options.heroClass].stats.attackIntervalMs,
         attackRange: CLASS_DEFINITIONS[this.options.heroClass].stats.attackRange,

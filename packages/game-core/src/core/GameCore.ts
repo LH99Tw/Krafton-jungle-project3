@@ -51,7 +51,7 @@ import {
   type WorldRect,
   type WalkableSpatialIndex,
 } from "../v02/world";
-import { ACTOR_COLLISION_RADIUS, PLAYER_RESPAWN_SECONDS, SIMULATION_EPSILON, STATIC_RESPAWN_SECONDS, durations } from "./constants";
+import { ACTOR_COLLISION_RADIUS, BASE_CRITICAL_CHANCE, PLAYER_RESPAWN_SECONDS, SIMULATION_EPSILON, STATIC_RESPAWN_SECONDS, durations } from "./constants";
 import { aiAugmentScore, clamp, deterministicCombatRoll, invaderEdgeKey, pointInWorldRect, shouldAiYieldEquipment } from "./helpers";
 import { createAuthoredRuntimeWorld } from "./world-build";
 import { AiPlayersDirector } from "./systems/AiPlayersDirector";
@@ -721,8 +721,16 @@ export class GameCore {
   }
 
   setCheckpoint(userId: string): boolean {
-    void userId;
-    return false;
+    const player = this.players.get(userId);
+    const state = player ? this.specialRooms.get(player.roomId) : null;
+    if (!player || !player.connected || !player.alive || !state || state.kind !== "checkpoint") return false;
+    if (!this.isNearRoomCenter(player, 115)) return false;
+    const waypoint = [...this.waypoints.values()].find((candidate) => (
+      candidate.roomId === player.roomId && candidate.kind === "checkpoint"
+    ));
+    if (!waypoint) return false;
+    waypoint.active = true;
+    return true;
   }
 
   rerollAltar(userId: string): Readonly<{ increased: CoreAltarStat; decreased: CoreAltarStat }> | null {
@@ -896,7 +904,7 @@ export class GameCore {
       attackDamage: (rules.attackDamage + equipment.attackBonus + augmentAttackBonus(player.upgrades))
         * player.altarMultipliers.attack * this.shrineAttackMultiplier(shrine),
       defense: equipment.defenseBonus,
-      criticalChance: 100 * Math.min(1, augmentEffectValue(player.upgrades, "precision", "points") / 100 + this.shrineCriticalChance(shrine)),
+      criticalChance: 100 * Math.min(1, BASE_CRITICAL_CHANCE + augmentEffectValue(player.upgrades, "precision", "points") / 100 + this.shrineCriticalChance(shrine)),
       criticalDamage: (150 + augmentEffectValue(player.upgrades, "ferocity", "percent")
         + (shrine === "assassin" ? SPECIAL_ROOM_BALANCE.shrineCriticalDamage * 100 : 0)) * player.altarMultipliers.criticalDamage,
       attacksPerSecond: (1 + haste) / rules.attackInterval,
@@ -1077,7 +1085,7 @@ export class GameCore {
     }
     if (roomId === this.bossRoomId()) return;
     for (const waypoint of this.waypoints.values()) {
-      if (waypoint.roomId === roomId && (waypoint.kind === "start" || waypoint.kind === "central" || waypoint.kind === "checkpoint")) {
+      if (waypoint.roomId === roomId && (waypoint.kind === "start" || waypoint.kind === "central")) {
         waypoint.active = true;
       }
     }
@@ -1335,7 +1343,7 @@ export class GameCore {
     let damage = (rules.attackDamage + equipmentBonuses(player.equipment).attackBonus + augmentAttackBonus(player.upgrades))
       * player.altarMultipliers.attack * this.shrineAttackMultiplier(shrine);
     if (this.trapDebuff(player) === "attack") damage *= 0.5;
-    const criticalChance = Math.min(1, augmentEffectValue(player.upgrades, "precision", "points") / 100 + this.shrineCriticalChance(shrine));
+    const criticalChance = Math.min(1, BASE_CRITICAL_CHANCE + augmentEffectValue(player.upgrades, "precision", "points") / 100 + this.shrineCriticalChance(shrine));
     const critical = deterministicCombatRoll(this.options.seed, player.userId, player.attackCount) < criticalChance;
     player.lastAttackCritical = critical;
     if (critical) {
