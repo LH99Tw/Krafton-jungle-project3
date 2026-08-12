@@ -17,9 +17,9 @@ export function pointInWorldRect(x: number, y: number, rect: { x: number; y: num
 
 function aiAugmentScore(heroClass: HeroClassId, id: string): number {
   const classPriority: Record<HeroClassId, readonly string[]> = {
-    swordsman: ["swordsman-execution", "swordsman-combo", "swordsman-whirlwind", "swordsman-blade", "power", "area-power", "haste", "multishot"],
-    archer: ["archer-volley", "archer-piercing", "archer-ricochet", "archer-sniper", "multishot", "precision", "haste", "power"],
-    mage: ["mage-overcharge", "mage-chain", "mage-nova", "mage-echo", "skill-power", "area-power", "haste", "power"],
+    swordsman: ["swordsman-execution", "swordsman-combo", "swordsman-whirlwind", "swordsman-blade", "power", "crit-loop", "combat-rhythm", "momentum", "area-power", "multishot", "skill-haste", "haste"],
+    archer: ["archer-volley", "archer-piercing", "archer-ricochet", "archer-sniper", "multishot", "precision", "crit-loop", "combat-rhythm", "power", "momentum", "boss-hunter", "haste"],
+    mage: ["mage-overcharge", "mage-chain", "mage-nova", "mage-echo", "skill-power", "area-power", "crit-loop", "combat-rhythm", "momentum", "skill-haste", "power", "haste"],
   };
   const index = classPriority[heroClass].indexOf(id);
   return index < 0 ? 10 : 100 - index;

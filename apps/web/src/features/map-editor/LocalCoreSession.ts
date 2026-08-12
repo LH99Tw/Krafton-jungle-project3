@@ -223,7 +223,7 @@ export class LocalCoreSession {
         choices: draft.choices.map((choice) => ({
           id: choice.id,
           name: choice.name,
-          description: choice.description,
+          description: choice.description ?? "",
           tag: choice.classId === "swordsman" ? "검사" : choice.classId === "archer" ? "궁수" : choice.classId === "mage" ? "마법사" : "공용",
           classId: choice.classId,
           maxStacks: choice.maxStacks,
