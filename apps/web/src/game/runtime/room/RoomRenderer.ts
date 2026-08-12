@@ -50,7 +50,7 @@ const NETWORK_ENEMY_POOL_LIMIT: Record<EnemyKind, number> = {
   gate: 8,
   boss: 2,
 };
-const UNIT_RENDER_SCALE = 2;
+const UNIT_RENDER_SCALE = 1.3;
 const MIDBOSS_DISPLAY_SIZE = 192 * UNIT_RENDER_SCALE;
 const GATE_DISPLAY_WIDTH = 112 * UNIT_RENDER_SCALE;
 const GATE_DISPLAY_HEIGHT = 130 * UNIT_RENDER_SCALE;
@@ -455,7 +455,6 @@ export class RoomRenderer {
       targets: enemy,
       scaleY: baseScaleY * 1.05,
       scaleX: baseScaleX * 0.96,
-      displayOriginY: enemy.displayOriginY + 9,
       duration: 850,
       yoyo: true,
       repeat: -1,
@@ -564,7 +563,7 @@ export class RoomRenderer {
       },
       onComplete: () => {
         if (!enemy.active) return;
-        enemy.setCrop().clearTint().setAlpha(1).setData("isEmerging", false);
+        enemy.setCrop().clearTint().setAlpha(1).setOrigin(0.5, 0.5).setData("isEmerging", false);
         if (kind === "hidden") this.applyDemonHoverMotion(enemy);
       },
     });
@@ -610,16 +609,28 @@ export class RoomRenderer {
     });
   }
 
+  private resolveMidbossTextureKey(): string {
+    const zone = (this.scene as unknown as { currentZone?: number }).currentZone ?? 1;
+    if (zone === 1 && this.scene.textures.exists("enemy-tree-midboss-asset")) {
+      return "enemy-tree-midboss-asset";
+    }
+    if (this.scene.textures.exists("enemy-demon-midboss-asset")) {
+      return "enemy-demon-midboss-asset";
+    }
+    return "enemy-demon-midboss-0";
+  }
+
   createEnemy(kind: EnemyKind, x: number, y: number): Phaser.Physics.Arcade.Sprite {
     const look = ENEMY_LOOK[kind];
-    const hasMidbossAsset = kind === "hidden" && this.scene.textures.exists("enemy-demon-midboss-asset");
+    const midbossKey = this.resolveMidbossTextureKey();
+    const hasMidbossAsset = kind === "hidden" && (this.scene.textures.exists("enemy-tree-midboss-asset") || this.scene.textures.exists("enemy-demon-midboss-asset"));
     const hasGateAsset = kind === "gate" && this.scene.textures.exists("enemy-gate-asset");
     const hasBossBullAsset = kind === "boss" && this.scene.textures.exists("enemy-boss-bull-asset");
 
     const textureKey = kind === "gate"
       ? (hasGateAsset ? "enemy-gate-asset" : "gate")
       : kind === "hidden"
-        ? (hasMidbossAsset ? "enemy-demon-midboss-asset" : "enemy-demon-midboss-0")
+        ? midbossKey
         : kind === "boss"
           ? (hasBossBullAsset ? "enemy-boss-bull-asset" : "boss")
           : "enemy-skeleton-0";
@@ -641,14 +652,15 @@ export class RoomRenderer {
   acquireNetworkEnemy(kind: EnemyKind, x: number, y: number): Phaser.GameObjects.Sprite {
     const pool = this.networkEnemyPool.get(kind);
     const enemy = pool?.pop() ?? this.scene.add.sprite(x, y, ENEMY_LOOK[kind].texture);
-    const hasMidbossAsset = kind === "hidden" && this.scene.textures.exists("enemy-demon-midboss-asset");
+    const midbossKey = this.resolveMidbossTextureKey();
+    const hasMidbossAsset = kind === "hidden" && (this.scene.textures.exists("enemy-tree-midboss-asset") || this.scene.textures.exists("enemy-demon-midboss-asset"));
     const hasGateAsset = kind === "gate" && this.scene.textures.exists("enemy-gate-asset");
     const hasBossBullAsset = kind === "boss" && this.scene.textures.exists("enemy-boss-bull-asset");
 
     const textureKey = kind === "gate"
       ? (hasGateAsset ? "enemy-gate-asset" : "gate")
       : kind === "hidden"
-        ? (hasMidbossAsset ? "enemy-demon-midboss-asset" : "enemy-demon-midboss-0")
+        ? midbossKey
         : kind === "boss"
           ? (hasBossBullAsset ? "enemy-boss-bull-asset" : "boss")
           : "enemy-skeleton-0";
@@ -705,8 +717,9 @@ export class RoomRenderer {
     const normalized = (angle + 360) % 360;
     const snapAngle = (Math.round(normalized / 45) * 45) % 360;
     if (kind === "hidden") {
-      if (this.scene.textures.exists("enemy-demon-midboss-asset")) {
-        sprite.setTexture("enemy-demon-midboss-asset").setDisplaySize(MIDBOSS_DISPLAY_SIZE, MIDBOSS_DISPLAY_SIZE);
+      const midbossKey = this.resolveMidbossTextureKey();
+      if (midbossKey !== "enemy-demon-midboss-0") {
+        sprite.setTexture(midbossKey).setDisplaySize(MIDBOSS_DISPLAY_SIZE, MIDBOSS_DISPLAY_SIZE);
       } else {
         sprite.setTexture(`enemy-demon-midboss-${snapAngle}`);
       }
