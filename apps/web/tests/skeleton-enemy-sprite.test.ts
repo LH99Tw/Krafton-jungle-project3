@@ -25,7 +25,7 @@ test("unarmed skeleton sheet is a transparent 8-direction by 8-frame grid", asyn
 });
 
 test("skeleton direction rows map to the runtime's east-zero angles", () => {
-  assert.deepEqual(SKELETON_ROW_BY_ANGLE, { 0: 2, 45: 1, 90: 0, 135: 7, 180: 6, 225: 5, 270: 4, 315: 3 });
+  assert.deepEqual(SKELETON_ROW_BY_ANGLE, { 0: 3, 45: 1, 90: 0, 135: 5, 180: 2, 225: 6, 270: 4, 315: 7 });
 });
 
 test("moving skeletons face their movement direction instead of stale server aim", () => {

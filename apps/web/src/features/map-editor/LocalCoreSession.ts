@@ -39,6 +39,7 @@ export class LocalCoreSession {
   private minimap: MiniMapSnapshot | null = null;
   private minimapAccumulatorMs = 0;
   private readonly revealedRoomIds = new Set<string>();
+  private readonly previousFrameTransforms = new Map<string, { x: number; y: number; at: number }>();
 
   start(world: CoreWorldDefinition, localUserId: string): NetworkWorldSnapshot {
     this.stop();
@@ -72,6 +73,7 @@ export class LocalCoreSession {
     this.minimap = null;
     this.minimapAccumulatorMs = 0;
     this.revealedRoomIds.clear();
+    this.previousFrameTransforms.clear();
   }
 
   tick(deltaMs: number, input: LocalCoreInput): { snapshot: NetworkWorldSnapshot; frame: WorldFrame; inputFrame: InputFrame; message?: string } {
@@ -262,20 +264,28 @@ export class LocalCoreSession {
 
   private worldFrame(ackInputSeq: number): WorldFrame {
     const core = this.requireCore();
-    const sample = (entity: { id: string; roomId: string; x: number; y: number; aim?: number }) => ({
-      id: entity.id,
-      roomId: entity.roomId,
-      x: entity.x,
-      y: entity.y,
-      vx: 0,
-      vy: 0,
-      aim: entity.aim ?? 0,
-      flags: 0,
-    });
+    const now = Date.now();
+    const sample = (entity: { id: string; roomId: string; x: number; y: number; aim?: number }) => {
+      const previous = this.previousFrameTransforms.get(entity.id);
+      const elapsedSeconds = previous ? Math.max(0.001, (now - previous.at) / 1_000) : 0;
+      const vx = previous ? (entity.x - previous.x) / elapsedSeconds : 0;
+      const vy = previous ? (entity.y - previous.y) / elapsedSeconds : 0;
+      this.previousFrameTransforms.set(entity.id, { x: entity.x, y: entity.y, at: now });
+      return {
+        id: entity.id,
+        roomId: entity.roomId,
+        x: entity.x,
+        y: entity.y,
+        vx,
+        vy,
+        aim: entity.aim ?? (vx !== 0 || vy !== 0 ? Math.atan2(vy, vx) : 0),
+        flags: 0,
+      };
+    };
     return {
       v: PROTOCOL_VERSION,
       serverTick: this.serverTick,
-      serverTime: Date.now(),
+      serverTime: now,
       ackInputSeq,
       players: [...core.players.values()].map((player) => sample({ id: player.userId, ...player })),
       enemies: [...core.enemies.values()].filter((enemy) => enemy.alive && core.discoveredRooms.has(enemy.roomId)).map((enemy) => sample(enemy)),

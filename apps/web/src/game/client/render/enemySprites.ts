@@ -51,12 +51,14 @@ function radiansToDegrees(radians: number): number {
 
 /** Phaser aim angles use east as 0° and increase clockwise in screen space. */
 export const SKELETON_ROW_BY_ANGLE: Readonly<Record<number, number>> = {
-  0: 2,
+  // The generated sheet's visual facings do not follow its requested row order.
+  // These rows are mapped from the direction each rendered skeleton actually faces.
+  0: 3,
   45: 1,
   90: 0,
-  135: 7,
-  180: 6,
-  225: 5,
+  135: 5,
+  180: 2,
+  225: 6,
   270: 4,
-  315: 3,
+  315: 7,
 };

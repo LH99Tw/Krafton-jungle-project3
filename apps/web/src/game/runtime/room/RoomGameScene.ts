@@ -664,8 +664,18 @@ export class RoomGameScene extends Phaser.Scene {
       const point = clampToWorld(this.zoneWorld.bounds, resolved.x, resolved.y);
       const visible = this.sharesNetworkVisionZone(localState.roomId, resolved.roomId)
         && shouldRenderPartyMember({ ...member, x: point.x, y: point.y });
+      if (!visible && sprite.visible) this.roomRenderer.releaseHeroVisuals(member.userId, sprite);
+      const renderedDeltaX = point.x - sprite.x;
+      const renderedDeltaY = point.y - sprite.y;
+      const renderedDistanceSq = renderedDeltaX * renderedDeltaX + renderedDeltaY * renderedDeltaY;
+      const followsRenderedMovement = renderedDistanceSq > 0.01 && renderedDistanceSq < 4_096;
       sprite.setPosition(point.x, point.y).setVisible(visible);
-      this.roomRenderer.updateHeroPose(sprite, transform?.vx ?? 0, transform?.vy ?? 0, poseTime);
+      this.roomRenderer.updateHeroPose(
+        sprite,
+        followsRenderedMovement ? renderedDeltaX * 60 : transform?.vx ?? 0,
+        followsRenderedMovement ? renderedDeltaY * 60 : transform?.vy ?? 0,
+        poseTime,
+      );
       this.roomRenderer.updateHeroStatusEffect(member.userId, sprite, heroStatusVisual(snapshot, member));
     }
     for (const enemy of snapshot.enemies) {
@@ -676,15 +686,33 @@ export class RoomGameScene extends Phaser.Scene {
       const point = clampToWorld(this.zoneWorld.bounds, resolved.x, resolved.y);
       const visible = enemy.alive
         && this.sharesNetworkVisionZone(localState.roomId, resolved.roomId);
+      if (!visible && sprite.visible) this.roomRenderer.hideNetworkEnemyVisuals(enemy.id, sprite);
+      const renderedDeltaX = point.x - sprite.x;
+      const renderedDeltaY = point.y - sprite.y;
+      const renderedDistanceSq = renderedDeltaX * renderedDeltaX + renderedDeltaY * renderedDeltaY;
+      // Face the direction the sprite visibly travels. Ignore teleports/room corrections;
+      // those must not briefly turn the walking animation in the opposite direction.
+      const followsRenderedMovement = renderedDistanceSq > 0.01 && renderedDistanceSq < 4_096;
       sprite.setPosition(point.x, point.y).setVisible(visible);
+      const kind = this.networkEnemyKinds.get(enemy.id) ?? "static";
       this.roomRenderer.updateEnemyPose(
         sprite,
-        this.networkEnemyKinds.get(enemy.id) ?? "static",
+        kind,
         undefined,
         undefined,
-        transform?.vx ?? 0,
-        transform?.vy ?? 0,
+        followsRenderedMovement ? renderedDeltaX * 60 : transform?.vx ?? 0,
+        followsRenderedMovement ? renderedDeltaY * 60 : transform?.vy ?? 0,
         transform?.aim,
+      );
+      this.roomRenderer.updateEnemyPattern(
+        enemy.id,
+        patternTier(kind),
+        enemy.patternKind,
+        enemy.patternPhase,
+        enemy.patternIndex,
+        point.x,
+        point.y,
+        visible,
       );
     }
     this.drawNetworkEnemyHpBars(snapshot, localState, now);
@@ -814,20 +842,35 @@ export class RoomGameScene extends Phaser.Scene {
     const players = snapshot.players;
     const activeIds = new Set(players.map((member) => member.userId));
     for (const [userId, sprite] of this.remotePlayers) {
-      if (!activeIds.has(userId)) {
-        this.roomRenderer.updateHeroStatusEffect(userId, sprite, null);
-        sprite.destroy();
-        this.remotePlayers.delete(userId);
-        this.networkPlayerAttackSequence.delete(userId);
-        this.networkPlayerSkillSequence.delete(userId);
+      // A reconnect can promote a formerly remote member to the local player.
+      // Keeping that old sprite produces a permanent, perfectly overlapping clone.
+      if (!activeIds.has(userId) || userId === local.userId || userId === this.options.userId) {
+        this.destroyRemotePlayer(userId, sprite);
       }
     }
     for (const member of players) {
       const isLocal = member.isLocal || member.userId === this.options.userId;
-      const sprite = isLocal
-        ? this.player
-        : this.remotePlayers.get(member.userId) ?? this.roomRenderer.createHero(member.heroClass, member.x, member.y, 0.82);
+      let sprite = isLocal ? this.player : this.remotePlayers.get(member.userId);
+      if (!isLocal && sprite && sprite.getData("heroClass") !== member.heroClass) {
+        this.destroyRemotePlayer(member.userId, sprite);
+        sprite = undefined;
+      }
+      sprite ??= this.roomRenderer.createHero(member.heroClass, member.x, member.y, 0.82);
       if (!isLocal && !this.remotePlayers.has(member.userId)) this.remotePlayers.set(member.userId, sprite);
+      const visible = isLocal
+        ? member.alive
+        : (
+        this.sharesNetworkVisionZone(local.roomId, member.roomId)
+        && shouldRenderPartyMember(member)
+      );
+      const previousRoomId = sprite.getData("renderRoomId") as string | undefined;
+      if ((previousRoomId && previousRoomId !== member.roomId)
+        || (!visible && sprite.visible)
+        || !member.alive
+        || !member.connected) {
+        this.roomRenderer.releaseHeroVisuals(member.userId, sprite);
+      }
+      sprite.setData("renderRoomId", member.roomId);
       if (isLocal && !this.localPrediction) {
         this.localPrediction = { x: member.x, y: member.y, roomId: member.roomId };
         sprite.setPosition(member.x, member.y);
@@ -839,15 +882,14 @@ export class RoomGameScene extends Phaser.Scene {
         this.localPrediction = { x: member.x, y: member.y, roomId: member.roomId };
         sprite.setPosition(member.x, member.y).setVelocity(0);
       }
-      const visible = isLocal
-        ? member.alive
-        : (
-        this.sharesNetworkVisionZone(local.roomId, member.roomId)
-        && shouldRenderPartyMember(member)
-      );
       sprite.setVisible(visible).setActive(member.connected && member.alive);
       sprite.setAlpha(isLocal ? 1 : 0.82);
       const previousAttackSequence = this.networkPlayerAttackSequence.get(member.userId);
+      if (previousAttackSequence !== undefined && member.attackSequence > previousAttackSequence && visible) {
+        // The authoritative sequence is also a recovery path for a delayed or
+        // dropped combat event. Attack facing wins over movement in updateHeroPose.
+        this.roomRenderer.holdHeroAttackFacing(sprite, member.aim);
+      }
       if (this.options.runtimeMode === "editor-core" && previousAttackSequence !== undefined && member.attackSequence > previousAttackSequence && visible) {
         const target = snapshot.enemies.find((enemy) => enemy.id === member.attackTargetId);
         if (target) this.roomRenderer.showClassAttack(member.heroClass, sprite, target.x, target.y, member.aim, member.attackCritical, member.level);
@@ -871,6 +913,14 @@ export class RoomGameScene extends Phaser.Scene {
       this.networkPlayerSkillSequence.set(member.userId, member.skillSequence ?? 0);
     }
     this.updateDeathPresentation(local.alive, local.respawnRemaining ?? 0);
+  }
+
+  private destroyRemotePlayer(userId: string, sprite: Phaser.Physics.Arcade.Sprite): void {
+    this.roomRenderer.releaseHeroVisuals(userId, sprite);
+    sprite.destroy();
+    this.remotePlayers.delete(userId);
+    this.networkPlayerAttackSequence.delete(userId);
+    this.networkPlayerSkillSequence.delete(userId);
   }
 
   private receiveNetworkCombatAction(action: CombatActionEvent): void {
@@ -1000,6 +1050,7 @@ export class RoomGameScene extends Phaser.Scene {
       if (!sprite) continue;
       const visible = enemy.alive
         && this.sharesNetworkVisionZone(local.roomId, enemy.roomId);
+      if (!visible && sprite.visible) this.roomRenderer.hideNetworkEnemyVisuals(enemy.id, sprite);
 
       const previousHp = this.networkEnemyHp.get(enemy.id);
       if (previousHp !== undefined && enemy.hp < previousHp && visible) {
@@ -1256,7 +1307,11 @@ export class RoomGameScene extends Phaser.Scene {
     this.combatActionDisconnect = undefined;
     this.transformBuffer.clear();
     this.input.removeAllListeners();
-    for (const sprite of this.remotePlayers.values()) sprite.destroy();
+    for (const [userId, sprite] of this.remotePlayers) this.destroyRemotePlayer(userId, sprite);
+    const localHeroId = this.latestNetwork?.players.find((member) => member.isLocal)?.userId
+      ?? this.options.userId
+      ?? "local-player";
+    if (this.player) this.roomRenderer?.releaseHeroVisuals(localHeroId, this.player);
     for (const sprite of this.networkEnemies.values()) sprite.destroy();
     this.networkEnemyHpLayer?.destroy();
     this.waypointHoldBar?.destroy();

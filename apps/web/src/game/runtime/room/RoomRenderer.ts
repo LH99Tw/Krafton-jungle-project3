@@ -115,8 +115,18 @@ export class RoomRenderer {
   private readonly resourcePickups = new Map<string, Phaser.GameObjects.Image>();
   private waypointObjects: Phaser.GameObjects.GameObject[] = [];
   private roomMasks: Phaser.Display.Masks.GeometryMask[] = [];
-  private readonly enemyPatternObjects = new Map<string, { key: string; graphics: Phaser.GameObjects.Graphics }>();
+  private readonly enemyPatternObjects = new Map<string, {
+    key: string;
+    graphics: Phaser.GameObjects.Graphics;
+    originX: number;
+    originY: number;
+  }>();
   private readonly networkEnemyPool = new Map<EnemyKind, Phaser.GameObjects.Sprite[]>();
+  /** Detached emergence visuals and plain tween targets owned by a network enemy. */
+  private readonly enemyTransientObjects = new Map<Phaser.GameObjects.Sprite, {
+    objects: Set<Phaser.GameObjects.GameObject>;
+    tweenTargets: Set<object>;
+  }>();
   private readonly specialRoomObjects = new Map<string, Phaser.GameObjects.Image>();
   private claimedShrineIds = new Set<string>();
   private specialRoomStateInitialized = false;
@@ -136,6 +146,8 @@ export class RoomRenderer {
     outlines: Phaser.GameObjects.Sprite[];
     label: Phaser.GameObjects.Text;
   }>();
+  /** Short-lived visuals that clone or visually attach to a hero (dash ghosts, etc.). */
+  private readonly heroTransientObjects = new Map<Phaser.GameObjects.Sprite, Set<Phaser.GameObjects.GameObject>>();
   private crosshair!: Phaser.GameObjects.Image;
 
   constructor(private readonly scene: Phaser.Scene) {}
@@ -891,6 +903,7 @@ export class RoomRenderer {
     hero.setData("facingDirection", DEFAULT_HERO_FACING);
     hero.setData("heroWasMoving", false);
     hero.setData("heroWalkStartedAt", 0);
+    hero.setData("heroClass", classId);
     hero.setDepth(20).setAlpha(alpha).setScale(HERO_SPRITE_SCALE);
     (hero.body as Phaser.Physics.Arcade.Body).setCircle(11, 3, 7);
     return hero;
@@ -919,6 +932,22 @@ export class RoomRenderer {
     hero.setData("heroWasMoving", moving);
     hero.setFrame(heroFrameForPose(facing, moving, animationElapsedMs)).setRotation(0);
     hero.setScale(HERO_SPRITE_SCALE);
+  }
+
+  /**
+   * Keeps a network hero facing its authoritative attack direction even when
+   * the matching combat visual arrives late or its target has already gone.
+   */
+  holdHeroAttackFacing(hero: Phaser.Physics.Arcade.Sprite, aim: number, durationMs = 130): void {
+    if (!Number.isFinite(aim)) return;
+    const attackFacing = heroFacingForAim(Phaser.Math.Angle.Wrap(aim));
+    hero.setData("facingDirection", attackFacing);
+    hero.setData("attackFacingDirection", attackFacing);
+    hero.setData("attackPoseUntil", Math.max(
+      Number(hero.getData("attackPoseUntil") ?? 0),
+      this.scene.time.now + durationMs,
+    ));
+    hero.setFrame(heroFrameForPose(attackFacing, false, 0)).setRotation(0);
   }
 
   updateHeroStatusEffect(
@@ -1000,20 +1029,21 @@ export class RoomRenderer {
   }
 
   private playEnemyEmergence(enemy: Phaser.GameObjects.Sprite, kind: EnemyKind): void {
+    this.clearEnemyTransientObjects(enemy);
     const frameWidth = Math.max(1, enemy.frame.realWidth);
     const frameHeight = Math.max(1, enemy.frame.realHeight);
     const duration = kind === "boss" ? 680 : kind === "gate" || kind === "hidden" ? 560 : 420;
     const shadowWidth = kind === "boss" ? 92 : kind === "gate" || kind === "hidden" ? 68 : 38;
     const shadowHeight = kind === "boss" ? 22 : kind === "gate" || kind === "hidden" ? 17 : 10;
-    const reveal = { width: 1, height: 1 };
-    const shadow = this.scene.add.ellipse(
+    const reveal = this.trackEnemyTweenTarget(enemy, { width: 1, height: 1 });
+    const shadow = this.trackEnemyTransient(enemy, this.scene.add.ellipse(
       enemy.x,
       enemy.y + (kind === "boss" ? 22 : 12),
       shadowWidth,
       shadowHeight,
       0x000000,
       0.88,
-    ).setDepth(enemy.depth - 1).setScale(0.22, 0.5);
+    ).setDepth(enemy.depth - 1).setScale(0.22, 0.5));
 
     enemy
       .setData("isEmerging", true)
@@ -1028,19 +1058,19 @@ export class RoomRenderer {
       );
 
     if (kind === "gate") {
-      const innerPulse = this.scene.add.circle(enemy.x, enemy.y, 8, 0x8f5dff, 0.28)
+      const innerPulse = this.trackEnemyTransient(enemy, this.scene.add.circle(enemy.x, enemy.y, 8, 0x8f5dff, 0.28)
         .setStrokeStyle(3, 0xd8c3ff, 0.84)
-        .setDepth(enemy.depth - 1);
-      const outerPulse = this.scene.add.circle(enemy.x, enemy.y, 10, 0x4d287c, 0.12)
+        .setDepth(enemy.depth - 1));
+      const outerPulse = this.trackEnemyTransient(enemy, this.scene.add.circle(enemy.x, enemy.y, 10, 0x4d287c, 0.12)
         .setStrokeStyle(2, 0x9e72e8, 0.58)
-        .setDepth(enemy.depth - 1);
+        .setDepth(enemy.depth - 1));
       this.scene.tweens.add({
         targets: innerPulse,
         radius: 72,
         alpha: 0,
         duration: duration + 80,
         ease: "Cubic.easeOut",
-        onComplete: () => innerPulse.destroy(),
+        onComplete: () => this.destroyEnemyTransient(enemy, innerPulse),
       });
       this.scene.tweens.add({
         targets: outerPulse,
@@ -1048,7 +1078,7 @@ export class RoomRenderer {
         alpha: 0,
         duration: duration + 180,
         ease: "Quart.easeOut",
-        onComplete: () => outerPulse.destroy(),
+        onComplete: () => this.destroyEnemyTransient(enemy, outerPulse),
       });
     }
 
@@ -1059,7 +1089,7 @@ export class RoomRenderer {
       alpha: 0,
       duration: duration + 110,
       ease: "Cubic.easeOut",
-      onComplete: () => shadow.destroy(),
+      onComplete: () => this.destroyEnemyTransient(enemy, shadow),
     });
     this.scene.tweens.add({
       targets: enemy,
@@ -1089,6 +1119,7 @@ export class RoomRenderer {
         }
       },
       onComplete: () => {
+        this.releaseEnemyTweenTarget(enemy, reveal);
         if (!enemy.active) return;
         enemy.setCrop().clearTint().setAlpha(1).setOrigin(0.5, 0.5).setData("isEmerging", false);
         if (kind === "hidden") this.applyDemonHoverMotion(enemy);
@@ -1213,6 +1244,7 @@ export class RoomRenderer {
   }
 
   releaseNetworkEnemy(kind: EnemyKind, enemy: Phaser.GameObjects.Sprite): void {
+    this.clearEnemyTransientObjects(enemy);
     this.scene.tweens.killTweensOf(enemy);
     enemy.stop();
     enemy.setData("hasHoverMotion", false);
@@ -1229,6 +1261,21 @@ export class RoomRenderer {
     } else {
       enemy.destroy();
     }
+  }
+
+  /** Removes visuals that are not children of the enemy sprite before it is hidden. */
+  hideNetworkEnemyVisuals(enemyId: string, enemy: Phaser.GameObjects.Sprite): void {
+    this.destroyEnemyPattern(enemyId);
+    this.clearEnemyTransientObjects(enemy);
+    this.scene.tweens.killTweensOf(enemy);
+    enemy
+      .setCrop()
+      .clearTint()
+      .setAlpha(1)
+      .setData("isEmerging", false)
+      .setData("hasHoverMotion", false)
+      .setData("hasBullMotion", false)
+      .setData("hasDragonMotion", false);
   }
 
   updateEnemyPose(
@@ -1259,6 +1306,7 @@ export class RoomRenderer {
       const midbossKey = this.resolveMidbossTextureKey();
       if (midbossKey !== "enemy-demon-midboss-0") {
         sprite.setTexture(midbossKey).setDisplaySize(MIDBOSS_DISPLAY_SIZE, MIDBOSS_DISPLAY_SIZE);
+        if (!sprite.getData("isEmerging")) this.applyDemonHoverMotion(sprite);
       } else {
         sprite.setTexture(`enemy-demon-midboss-${snapAngle}`);
       }
@@ -1344,11 +1392,7 @@ export class RoomRenderer {
     const travelDistance = Phaser.Math.Distance.Between(attacker.x, attacker.y, targetX, targetY);
     const effectTargetX = classId === "swordsman" ? targetX : attacker.x + Math.cos(angle) * travelDistance;
     const effectTargetY = classId === "swordsman" ? targetY : attacker.y + Math.sin(angle) * travelDistance;
-    const attackFacing = heroFacingForAim(angle);
-    attacker.setData("facingDirection", attackFacing);
-    attacker.setData("attackFacingDirection", attackFacing);
-    attacker.setFrame(heroFrameForPose(attackFacing, false, 0));
-    attacker.setData("attackPoseUntil", this.scene.time.now + 130);
+    this.holdHeroAttackFacing(attacker, angle);
     this.scene.tweens.add({ targets: attacker, scaleX: attacker.scaleX * 1.16, scaleY: attacker.scaleY * 0.9, duration: 55, yoyo: true });
     if (classId === "swordsman") {
       const sprite = basicAttackSpriteForLevel(classId, level);
@@ -1485,6 +1529,7 @@ export class RoomRenderer {
    * never spill outside the walkable area or the camera view.
    */
   showDodge(sprite: Phaser.GameObjects.Sprite, targetX: number, targetY: number, originX?: number, originY?: number): void {
+    if (!sprite.active) return;
     const startX = originX ?? sprite.x;
     const startY = originY ?? sprite.y;
     const dx = targetX - startX;
@@ -1494,7 +1539,7 @@ export class RoomRenderer {
       const ghostCount = 4;
       for (let index = 1; index <= ghostCount; index += 1) {
         const progress = index / (ghostCount + 1);
-        const ghost = this.scene.add.image(
+        const ghost = this.trackHeroTransient(sprite, this.scene.add.image(
           startX + dx * progress,
           startY + dy * progress,
           sprite.texture.key,
@@ -1502,27 +1547,39 @@ export class RoomRenderer {
         )
           .setDepth(26)
           .setAlpha(0.32)
-          .setScale(sprite.scaleX);
+          .setScale(sprite.scaleX));
         this.scene.tweens.add({
           targets: ghost,
           alpha: 0,
           scale: ghost.scaleX * 0.88,
           duration: 260,
           delay: index * 26,
-          onComplete: () => ghost.destroy(),
+          onComplete: () => this.destroyHeroTransient(sprite, ghost),
         });
       }
     }
-    const burst = this.scene.add.circle(startX, startY, 12, 0xbfffea, 0.3)
+    const burst = this.trackHeroTransient(sprite, this.scene.add.circle(startX, startY, 12, 0xbfffea, 0.3)
       .setStrokeStyle(3, 0xffffff, 0.9)
-      .setDepth(27);
+      .setDepth(27));
     this.scene.tweens.add({
       targets: burst,
       radius: 44,
       alpha: 0,
       duration: 280,
-      onComplete: () => burst.destroy(),
+      onComplete: () => this.destroyHeroTransient(sprite, burst),
     });
+  }
+
+  /**
+   * Ends every visual whose lifetime belongs to a hero. Call this before a
+   * network sprite is hidden, replaced or destroyed; tween completion alone
+   * is not reliable when a scene pauses or a reconnect swaps ownership.
+   */
+  releaseHeroVisuals(heroId: string, hero: Phaser.GameObjects.Sprite): void {
+    const effect = this.heroStatusEffects.get(heroId);
+    if (effect) this.destroyHeroStatusEffect(heroId, effect);
+    this.clearHeroTransientObjects(hero);
+    this.scene.tweens.killTweensOf(hero);
   }
 
   showImpact(x: number, y: number, radius: number, color: number): void {
@@ -1606,13 +1663,15 @@ export class RoomRenderer {
   ): void {
     const current = this.enemyPatternObjects.get(enemyId);
     if (!visible || patternPhase !== "telegraph") {
-      current?.graphics.destroy();
-      this.enemyPatternObjects.delete(enemyId);
+      this.destroyEnemyPattern(enemyId);
       return;
     }
     const key = `${patternKind}:${patternIndex}`;
-    if (current?.key === key) return;
-    current?.graphics.destroy();
+    if (current?.key === key) {
+      current.graphics.setPosition(x - current.originX, y - current.originY);
+      return;
+    }
+    this.destroyEnemyPattern(enemyId);
     const graphics = this.scene.add.graphics().setDepth(16);
     const config = enemyPatternConfig(tier);
     if (patternKind === "floor") {
@@ -1630,7 +1689,7 @@ export class RoomRenderer {
       }
     }
     this.scene.tweens.add({ targets: graphics, alpha: 0.35, duration: 180, yoyo: true, repeat: -1 });
-    this.enemyPatternObjects.set(enemyId, { key, graphics });
+    this.enemyPatternObjects.set(enemyId, { key, graphics, originX: x, originY: y });
   }
 
   showEnemyMeleeAttack(enemy: Phaser.GameObjects.Sprite, targetX: number, targetY: number): void {
@@ -1644,6 +1703,8 @@ export class RoomRenderer {
 
   destroy(): void {
     for (const [heroId, effect] of this.heroStatusEffects) this.destroyHeroStatusEffect(heroId, effect);
+    for (const hero of [...this.heroTransientObjects.keys()]) this.clearHeroTransientObjects(hero);
+    for (const enemy of [...this.enemyTransientObjects.keys()]) this.clearEnemyTransientObjects(enemy);
     this.clearRoom();
     for (const pool of this.networkEnemyPool.values()) {
       for (const enemy of pool) enemy.destroy();
@@ -1657,10 +1718,87 @@ export class RoomRenderer {
     heroId: string,
     effect: { outlines: Phaser.GameObjects.Sprite[]; label: Phaser.GameObjects.Text },
   ): void {
-    for (const outline of effect.outlines) outline.destroy();
+    for (const outline of effect.outlines) {
+      this.scene.tweens.killTweensOf(outline);
+      outline.destroy();
+    }
     this.scene.tweens.killTweensOf(effect.label);
     effect.label.destroy();
     this.heroStatusEffects.delete(heroId);
+  }
+
+  private trackHeroTransient<T extends Phaser.GameObjects.GameObject>(hero: Phaser.GameObjects.Sprite, object: T): T {
+    const objects = this.heroTransientObjects.get(hero) ?? new Set<Phaser.GameObjects.GameObject>();
+    objects.add(object);
+    this.heroTransientObjects.set(hero, objects);
+    return object;
+  }
+
+  private destroyHeroTransient(hero: Phaser.GameObjects.Sprite, object: Phaser.GameObjects.GameObject): void {
+    this.scene.tweens.killTweensOf(object);
+    if (object.active) object.destroy();
+    const objects = this.heroTransientObjects.get(hero);
+    objects?.delete(object);
+    if (objects?.size === 0) this.heroTransientObjects.delete(hero);
+  }
+
+  private clearHeroTransientObjects(hero: Phaser.GameObjects.Sprite): void {
+    const objects = this.heroTransientObjects.get(hero);
+    if (!objects) return;
+    for (const object of [...objects]) this.destroyHeroTransient(hero, object);
+    this.heroTransientObjects.delete(hero);
+  }
+
+  private enemyTransientState(enemy: Phaser.GameObjects.Sprite): {
+    objects: Set<Phaser.GameObjects.GameObject>;
+    tweenTargets: Set<object>;
+  } {
+    const state = this.enemyTransientObjects.get(enemy) ?? { objects: new Set(), tweenTargets: new Set() };
+    this.enemyTransientObjects.set(enemy, state);
+    return state;
+  }
+
+  private trackEnemyTransient<T extends Phaser.GameObjects.GameObject>(enemy: Phaser.GameObjects.Sprite, object: T): T {
+    this.enemyTransientState(enemy).objects.add(object);
+    return object;
+  }
+
+  private destroyEnemyTransient(enemy: Phaser.GameObjects.Sprite, object: Phaser.GameObjects.GameObject): void {
+    this.scene.tweens.killTweensOf(object);
+    if (object.active) object.destroy();
+    const state = this.enemyTransientObjects.get(enemy);
+    state?.objects.delete(object);
+    if (state && state.objects.size === 0 && state.tweenTargets.size === 0) this.enemyTransientObjects.delete(enemy);
+  }
+
+  private trackEnemyTweenTarget<T extends object>(enemy: Phaser.GameObjects.Sprite, target: T): T {
+    this.enemyTransientState(enemy).tweenTargets.add(target);
+    return target;
+  }
+
+  private releaseEnemyTweenTarget(enemy: Phaser.GameObjects.Sprite, target: object): void {
+    const state = this.enemyTransientObjects.get(enemy);
+    state?.tweenTargets.delete(target);
+    if (state && state.objects.size === 0 && state.tweenTargets.size === 0) this.enemyTransientObjects.delete(enemy);
+  }
+
+  private clearEnemyTransientObjects(enemy: Phaser.GameObjects.Sprite): void {
+    const state = this.enemyTransientObjects.get(enemy);
+    if (!state) return;
+    for (const target of state.tweenTargets) this.scene.tweens.killTweensOf(target);
+    for (const object of state.objects) {
+      this.scene.tweens.killTweensOf(object);
+      if (object.active) object.destroy();
+    }
+    this.enemyTransientObjects.delete(enemy);
+  }
+
+  private destroyEnemyPattern(enemyId: string): void {
+    const current = this.enemyPatternObjects.get(enemyId);
+    if (!current) return;
+    this.scene.tweens.killTweensOf(current.graphics);
+    current.graphics.destroy();
+    this.enemyPatternObjects.delete(enemyId);
   }
 
   private createCrosshairTexture(): void {

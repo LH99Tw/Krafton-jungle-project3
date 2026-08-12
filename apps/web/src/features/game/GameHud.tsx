@@ -173,9 +173,11 @@ export function GameHud({
             </label>
             <div className="game-settings-actions">
               <button type="button" className="game-settings-resume" onClick={() => setSettingsOpen(false)}>
-                게임으로 돌아가기
+                <Image className="game-settings-button-art" src="/images/ui/game-menu/button-resume-v1.png" width={1774} height={887} alt="" aria-hidden="true" />
+                <span>게임으로 돌아가기</span>
               </button>
               <button type="button" className="game-settings-exit" onClick={onExit}>
+                <Image className="game-settings-button-art" src="/images/ui/game-menu/button-exit-v1.png" width={1774} height={887} alt="" aria-hidden="true" />
                 <span>게임 로비로 나가기</span>
               </button>
             </div>

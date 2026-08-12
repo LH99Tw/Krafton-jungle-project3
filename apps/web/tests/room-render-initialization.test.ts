@@ -27,6 +27,19 @@ test("runtime preloads four-direction hero sheets and selects a movement-facing 
   assert.doesNotMatch(generatedTextures, /key: "hero-/);
 });
 
+test("hero clones and attached effects are cleaned across reconnect and scene lifecycle boundaries", () => {
+  const scene = readFileSync(new URL("../src/game/runtime/room/RoomGameScene.ts", import.meta.url), "utf8");
+  const renderer = readFileSync(new URL("../src/game/runtime/room/RoomRenderer.ts", import.meta.url), "utf8");
+  assert.match(scene, /userId === local\.userId \|\| userId === this\.options\.userId/);
+  assert.match(scene, /this\.destroyRemotePlayer\(userId, sprite\)/);
+  assert.match(scene, /previousRoomId !== member\.roomId[\s\S]*?releaseHeroVisuals/);
+  assert.match(scene, /!visible && sprite\.visible[\s\S]*?releaseHeroVisuals/);
+  assert.match(renderer, /heroTransientObjects/);
+  assert.match(renderer, /onComplete: \(\) => this\.destroyHeroTransient\(sprite, ghost\)/);
+  assert.match(renderer, /releaseHeroVisuals[\s\S]*?clearHeroTransientObjects[\s\S]*?killTweensOf\(hero\)/);
+  assert.match(renderer, /destroy\(\): void[\s\S]*?clearHeroTransientObjects/);
+});
+
 test("network enemy hp bars are batched at the interpolated sprite positions", () => {
   const scene = readFileSync(new URL("../src/game/runtime/room/RoomGameScene.ts", import.meta.url), "utf8");
   const transformUpdate = scene.slice(
@@ -70,6 +83,25 @@ test("new enemies emerge from a client-rendered black floor shadow", () => {
   assert.match(renderer, /setCrop\(0, frameHeight - revealedHeight, frameWidth, revealedHeight\)/);
   assert.match(renderer, /add\.ellipse[\s\S]*?0x000000/);
   assert.match(renderer, /if \(kind === "hidden"\) this\.applyDemonHoverMotion\(enemy\)/);
+  assert.match(renderer, /trackEnemyTransient\(enemy, this\.scene\.add\.ellipse/);
+  assert.match(renderer, /trackEnemyTweenTarget\(enemy, \{ width: 1, height: 1 \}\)/);
+  assert.match(renderer, /releaseNetworkEnemy[\s\S]*?clearEnemyTransientObjects\(enemy\)/);
+});
+
+test("moving enemy telegraphs and hidden units do not leave detached visuals behind", () => {
+  const scene = readFileSync(new URL("../src/game/runtime/room/RoomGameScene.ts", import.meta.url), "utf8");
+  const renderer = readFileSync(new URL("../src/game/runtime/room/RoomRenderer.ts", import.meta.url), "utf8");
+  assert.match(renderer, /current\.graphics\.setPosition\(x - current\.originX, y - current\.originY\)/);
+  assert.match(renderer, /enemyPatternObjects\.set\(enemyId, \{ key, graphics, originX: x, originY: y \}\)/);
+  assert.match(renderer, /hideNetworkEnemyVisuals[\s\S]*?destroyEnemyPattern[\s\S]*?clearEnemyTransientObjects/);
+  assert.match(scene, /!visible && sprite\.visible[\s\S]*?hideNetworkEnemyVisuals\(enemy\.id, sprite\)/);
+  const transformUpdate = scene.slice(
+    scene.indexOf("  private updateNetworkTransforms(): void"),
+    scene.indexOf("  private configureInput(): void"),
+  );
+  assert.match(transformUpdate, /releaseHeroVisuals\(member\.userId, sprite\)/);
+  assert.match(transformUpdate, /hideNetworkEnemyVisuals\(enemy\.id, sprite\)/);
+  assert.match(transformUpdate, /updateEnemyPattern\([\s\S]*?point\.x,[\s\S]*?point\.y,[\s\S]*?visible/);
 });
 
 test("room transitions update dynamic waypoints without rebuilding the authored world", () => {
