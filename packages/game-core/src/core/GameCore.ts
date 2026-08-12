@@ -1886,7 +1886,11 @@ export class GameCore {
   private updatePatternEnemies(delta: number): void {
     for (const enemy of this.activeStaticEnemies()) {
       if (!enemy.alive || !["hidden", "gate", "boss"].includes(enemy.kind)) continue;
-      const tier = enemy.kind === "boss" ? "boss" : enemy.kind === "hidden" ? "hidden" : "gate";
+      if (enemy.kind === "boss") {
+        this.updateBossEnemy(enemy, delta);
+        continue;
+      }
+      const tier = enemy.kind === "hidden" ? "hidden" : "gate";
       const config = enemyPatternConfig(tier);
       enemy.attackCooldown = Math.max(0, enemy.attackCooldown - delta);
       const target = enemy.kind === "hidden"
@@ -1963,6 +1967,85 @@ export class GameCore {
     for (const enemy of this.enemies.values()) {
       if (yielded.has(enemy.id) || enemy.kind !== "hidden" || (!enemy.aggroed && !this.returningHiddenEnemies.has(enemy.id))) continue;
       yield enemy;
+    }
+  }
+
+  private selectNearestPlayerInRoom(enemy: CoreEnemy): CorePlayer | null {
+    let nearest: CorePlayer | null = null;
+    let minDistance = Number.POSITIVE_INFINITY;
+    for (const player of this.players.values()) {
+      if (!player.alive || player.roomId !== enemy.roomId) continue;
+      const dist = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+      if (dist < minDistance) {
+        minDistance = dist;
+        nearest = player;
+      }
+    }
+    return nearest;
+  }
+
+  private updateBossEnemy(enemy: CoreEnemy, delta: number): void {
+    const target = this.selectNearestPlayerInRoom(enemy);
+    if (!target) {
+      enemy.targetId = null;
+      enemy.lastMoveSpeed = 0;
+      return;
+    }
+    enemy.aggroed = true;
+    enemy.targetId = target.userId;
+
+    const isDragon = enemy.hp <= enemy.maxHp * 0.5;
+    const distance = Math.hypot(target.x - enemy.x, target.y - enemy.y);
+
+    if (!isDragon) {
+      // PHASE 1: MINOTAUR / FIERY BULL FORM (boss_bull.png)
+      // Continuous linear charging towards nearest player + 5s fire trails + wall crash bounce
+      enemy.attackCooldown = Math.max(0, enemy.attackCooldown - delta);
+      const chargeSpeed = 220;
+
+      const angle = Math.atan2(target.y - enemy.y, target.x - enemy.x);
+      const dx = Math.cos(angle) * chargeSpeed * delta;
+      const dy = Math.sin(angle) * chargeSpeed * delta;
+
+      const roomRect = this.roomRectOf(enemy.roomId);
+      const targetX = enemy.x + dx;
+      const targetY = enemy.y + dy;
+
+      const clampedX = Math.max(roomRect.x + 35, Math.min(roomRect.x + roomRect.width - 35, targetX));
+      const clampedY = Math.max(roomRect.y + 35, Math.min(roomRect.y + roomRect.height - 35, targetY));
+      const isWallBlocked = (clampedX !== targetX || clampedY !== targetY);
+
+      enemy.x = clampedX;
+      enemy.y = clampedY;
+      enemy.lastMoveSpeed = chargeSpeed;
+
+      if (distance <= 85 && enemy.attackCooldown <= 0) {
+        enemy.attackCooldown = 0.6;
+        enemy.attackSequence += 1;
+        this.recordEnemyCombatAction(enemy, target, "melee");
+        this.damagePlayer(target, enemy.damage);
+      }
+
+      if (isWallBlocked) {
+        this.recordEnemyCombatAction(enemy, target, "pattern-resolve");
+      }
+    } else {
+      // PHASE 2: FIERY DRAGON FORM (boss_dragon.png - HP <= 50%)
+      // Pursues nearest player + 16-directional radial fireball barrage
+      enemy.attackCooldown = Math.max(0, enemy.attackCooldown - delta);
+
+      if (distance > 110) {
+        this.moveEnemyToward(enemy, target.x, target.y, delta * 125);
+      } else {
+        enemy.lastMoveSpeed = 0;
+      }
+
+      if (distance <= 90 && enemy.attackCooldown <= 0) {
+        enemy.attackCooldown = 0.7;
+        enemy.attackSequence += 1;
+        this.recordEnemyCombatAction(enemy, target, "melee");
+        this.damagePlayer(target, enemy.damage);
+      }
     }
   }
 

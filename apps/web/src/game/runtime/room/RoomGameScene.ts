@@ -154,6 +154,23 @@ export class RoomGameScene extends Phaser.Scene {
   private readonly networkPlayerSkillSequence = new Map<string, number>();
   private readonly networkDrops = new Map<string, Phaser.GameObjects.Container>();
   private readonly networkDropRequests = new Map<string, number>();
+  private readonly bossFireTrails: Array<{
+    x: number;
+    y: number;
+    expiresAt: number;
+    graphics: Phaser.GameObjects.Graphics;
+    lastDamageAt: number;
+  }> = [];
+  private readonly dragonFireballs: Array<{
+    x: number;
+    y: number;
+    vx: number;
+    vy: number;
+    createdAt: number;
+    graphics: Phaser.GameObjects.Graphics;
+  }> = [];
+  private lastBossTrailAt = 0;
+  private lastBossShotAt = 0;
   private currentZone: ZoneId = 1;
   private currentRoomId: string;
   private zoneWorld!: RenderZoneWorld;
@@ -716,6 +733,8 @@ export class RoomGameScene extends Phaser.Scene {
       );
     }
     this.drawNetworkEnemyHpBars(snapshot, localState, now);
+    this.updateBossFireTrails(now);
+    this.updateDragonFireballs(now);
   }
 
   private configureInput(): void {
@@ -1074,21 +1093,37 @@ export class RoomGameScene extends Phaser.Scene {
             this.cameras.main.shake(350, 0.015);
           }
         }
+
+        const now = performance.now();
+        if (!isDragonPhase && visible && enemy.alive) {
+          if (now - this.lastBossTrailAt >= 120) {
+            this.lastBossTrailAt = now;
+            this.spawnBossFireTrail(sprite.x, sprite.y, now);
+          }
+        }
+        if (isDragonPhase && visible && enemy.alive) {
+          if (now - this.lastBossShotAt >= 1500) {
+            this.lastBossShotAt = now;
+            this.fireDragonRadialFireballs(sprite.x, sprite.y, now);
+          }
+        }
       }
 
       // attackSequence is state-recovery metadata; live visuals use combat.action.
       this.networkEnemyAttackSequence.set(enemy.id, enemy.attackSequence);
       sprite.setVisible(visible).setActive(enemy.alive);
-      this.roomRenderer.updateEnemyPattern(
-        enemy.id,
-        patternTier(kind),
-        enemy.patternKind,
-        enemy.patternPhase,
-        enemy.patternIndex,
-        sprite.x,
-        sprite.y,
-        visible,
-      );
+      if (kind !== "boss") {
+        this.roomRenderer.updateEnemyPattern(
+          enemy.id,
+          patternTier(kind),
+          enemy.patternKind,
+          enemy.patternPhase,
+          enemy.patternIndex,
+          sprite.x,
+          sprite.y,
+          visible,
+        );
+      }
     }
   }
 
@@ -1327,6 +1362,95 @@ export class RoomGameScene extends Phaser.Scene {
     this.networkDropRequests.clear();
     this.visionFog?.destroy();
     this.roomRenderer?.destroy();
+  }
+
+  private spawnBossFireTrail(x: number, y: number, time: number): void {
+    const graphics = this.add.graphics().setDepth(10);
+    graphics.fillStyle(0xff3300, 0.7);
+    graphics.fillCircle(0, 0, 18);
+    graphics.lineStyle(2, 0xffaa00, 0.9);
+    graphics.strokeCircle(0, 0, 22);
+    graphics.setPosition(x, y);
+
+    this.bossFireTrails.push({
+      x,
+      y,
+      expiresAt: time + 5_000,
+      graphics,
+      lastDamageAt: 0,
+    });
+  }
+
+  private updateBossFireTrails(time: number): void {
+    for (let i = this.bossFireTrails.length - 1; i >= 0; i--) {
+      const trail = this.bossFireTrails[i]!;
+      if (time >= trail.expiresAt) {
+        trail.graphics.clear();
+        trail.graphics.destroy();
+        this.bossFireTrails.splice(i, 1);
+        continue;
+      }
+      const remainingMs = trail.expiresAt - time;
+      if (remainingMs < 1000) {
+        trail.graphics.setAlpha(remainingMs / 1000);
+      }
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, trail.x, trail.y);
+      if (dist <= 32 && time - trail.lastDamageAt >= 450) {
+        trail.lastDamageAt = time;
+        this.roomRenderer.showImpact(this.player.x, this.player.y, 35, 0xff3300);
+      }
+    }
+  }
+
+  private fireDragonRadialFireballs(x: number, y: number, time: number): void {
+    const count = 16;
+    for (let i = 0; i < count; i++) {
+      const angle = i * ((Math.PI * 2) / count);
+      const speed = 320;
+      const vx = Math.cos(angle) * speed;
+      const vy = Math.sin(angle) * speed;
+
+      const graphics = this.add.graphics().setDepth(20);
+      graphics.fillStyle(0xff1100, 0.95);
+      graphics.fillCircle(0, 0, 8);
+      graphics.lineStyle(2, 0xffcc00, 1);
+      graphics.strokeCircle(0, 0, 10);
+      graphics.setPosition(x, y);
+
+      this.dragonFireballs.push({
+        x,
+        y,
+        vx,
+        vy,
+        createdAt: time,
+        graphics,
+      });
+    }
+  }
+
+  private updateDragonFireballs(time: number): void {
+    const deltaSec = 0.016;
+    for (let i = this.dragonFireballs.length - 1; i >= 0; i--) {
+      const fb = this.dragonFireballs[i]!;
+      fb.x += fb.vx * deltaSec;
+      fb.y += fb.vy * deltaSec;
+      fb.graphics.setPosition(fb.x, fb.y);
+
+      const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, fb.x, fb.y);
+      if (dist <= 24) {
+        this.roomRenderer.showImpact(fb.x, fb.y, 45, 0xff2200);
+        fb.graphics.clear();
+        fb.graphics.destroy();
+        this.dragonFireballs.splice(i, 1);
+        continue;
+      }
+
+      if (time - fb.createdAt >= 2200) {
+        fb.graphics.clear();
+        fb.graphics.destroy();
+        this.dragonFireballs.splice(i, 1);
+      }
+    }
   }
 
   private configureVisionWorld(): void {
