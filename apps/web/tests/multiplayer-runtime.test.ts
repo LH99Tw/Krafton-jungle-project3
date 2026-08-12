@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { resolveRuntimeOptions } from "../src/game/domain/runtimeOptions";
+import { DASH_INPUT_BUTTON } from "../src/game/transport/ColyseusTransport";
 
 const options = {
   heroClass: "archer",
@@ -15,4 +16,8 @@ test("uses the authoritative network scene after connecting to the game server",
 
 test("keeps the offline fallback on the local scene", () => {
   assert.equal(resolveRuntimeOptions(options, "").networked, false);
+});
+
+test("encodes Space dodge using the server dash input bit", () => {
+  assert.equal(DASH_INPUT_BUTTON, 4);
 });

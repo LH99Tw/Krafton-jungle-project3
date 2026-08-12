@@ -45,6 +45,7 @@ type TransportEvent = {
   stats?: Partial<TeamStats>;
 };
 type EventListener = (event: TransportEvent) => void;
+export const DASH_INPUT_BUTTON = 1 << 2;
 
 type SchemaCollection<T> = {
   forEach(callback: (value: T, key: string | number) => void): void;
@@ -518,6 +519,7 @@ class ColyseusTransport {
 
   private startInputCapture(): void {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code === "Space") event.preventDefault();
       this.pressed.add(event.code);
       if (!event.repeat) {
         // Keep the rising edge alive for the whole press so a tap that falls
@@ -529,6 +531,7 @@ class ColyseusTransport {
       if (event.code === "KeyB" && !event.repeat) this.requestRecall();
     };
     const onKeyUp = (event: KeyboardEvent) => {
+      if (event.code === "Space") event.preventDefault();
       this.pressed.delete(event.code);
       this.risingKeys.delete(event.code);
     };
@@ -557,7 +560,7 @@ class ColyseusTransport {
   private sampleAndSendInput(): void {
     const x = Number(this.pressed.has("KeyD")) - Number(this.pressed.has("KeyA"));
     const y = Number(this.pressed.has("KeyS")) - Number(this.pressed.has("KeyW"));
-    const buttons = Number(this.pressed.has("Space") || this.risingKeys.has("Space"));
+    const buttons = (this.pressed.has("Space") || this.risingKeys.has("Space")) ? DASH_INPUT_BUTTON : 0;
     this.sendInputFrame({ x, y, aim: this.aim, buttons });
   }
 

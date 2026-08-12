@@ -103,6 +103,9 @@ test("retains the Phaser game while adding the Colyseus transport", async () => 
   assert.match(transport, /joinOrCreate\(PARTY_ROOM/);
   assert.match(transport, /POST/);
   assert.match(transport, /game-ticket/);
+  assert.match(transport, /DASH_INPUT_BUTTON = 1 << 2/);
+  assert.match(transport, /event\.code === "Space"\) event\.preventDefault\(\)/);
+  assert.match(transport, /\? DASH_INPUT_BUTTON : 0/);
 });
 
 test("composes the in-game relic HUD from focused components", async () => {
