@@ -809,13 +809,16 @@ test("night invaders assign seventy-five percent of spawns to the base", () => {
 
 test("a 21-invader wave leaves its distributed gate slots without corridor deadlock", () => {
   const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "invader-large-wave", minimumPlayers: 1, maxLiveInvaders: 50 });
+  core.addPlayer({ userId: "p1", displayName: "용사", heroClass: "swordsman" });
+  core.setReady("p1", true);
   core.setConnected("p1", false);
   const invaders = Array.from({ length: 21 }, () => core.spawnInvader(1));
   const starts = new Map(invaders.map((invader) => [invader.id, { x: invader.x, y: invader.y }]));
   for (let index = 0; index < 100; index += 1) core.update(0.1);
   for (const invader of invaders) {
     const start = starts.get(invader.id)!;
-    assert.ok(!invader.alive || Math.hypot(invader.x - start.x, invader.y - start.y) > 100);
+    const distance = Math.hypot(invader.x - start.x, invader.y - start.y);
+    assert.ok(!invader.alive || distance > 100, `${invader.id} remained ${distance.toFixed(1)}px from its spawn`);
   }
 });
 
