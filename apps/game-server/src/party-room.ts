@@ -1003,9 +1003,8 @@ export class PartyRoom extends Room<PartyRoomState> {
     const deltaSeconds = previous ? Math.max(0.001, (serverTime - previous.at) / 1000) : 0;
     const distance = previous ? Math.hypot(x - previous.x, y - previous.y) : 0;
     const discontinuity = Boolean(previous && distance > DISCONTINUITY_DISTANCE);
-    const moved = !previous || previous.roomId !== roomId || distance > 0;
-    const vx = previous && !discontinuity && distance > 0 ? (x - previous.x) / deltaSeconds : (previous?.vx ?? 0);
-    const vy = previous && !discontinuity && distance > 0 ? (y - previous.y) / deltaSeconds : (previous?.vy ?? 0);
+    const vx = previous && !discontinuity && distance > 0 ? (x - previous.x) / deltaSeconds : 0;
+    const vy = previous && !discontinuity && distance > 0 ? (y - previous.y) / deltaSeconds : 0;
     const sample: TransformSample = {
       id,
       roomId,
@@ -1016,7 +1015,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       aim,
       flags: discontinuity ? transformFlags.discontinuity : transformFlags.none,
     };
-    if (moved) this.previousTransforms.set(cacheKey, {
+    this.previousTransforms.set(cacheKey, {
       roomId,
       x,
       y,
