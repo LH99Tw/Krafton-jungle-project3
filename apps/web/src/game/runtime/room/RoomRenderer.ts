@@ -22,8 +22,10 @@ import {
 } from "../../client/render/heroSprites";
 import {
   FIELD_ENEMY_TEXTURE_BY_ZONE,
+  enemyFrameRow,
   fieldEnemyTextureForSpawn,
   HIDDEN_ENEMY_TEXTURE_BY_ZONE,
+  HIDDEN_ENEMY_FRAME_COUNT,
   hiddenEnemyTextureForZone,
   resolveEnemyFacingAngle,
   SKELETON_FRAME_COUNT,
@@ -162,20 +164,22 @@ export class RoomRenderer {
   }
 
   private createFieldEnemyAnimations(): void {
+    const hiddenTextures = new Set(Object.values(HIDDEN_ENEMY_TEXTURE_BY_ZONE));
     for (const texture of [
       ...Object.values(FIELD_ENEMY_TEXTURE_BY_ZONE),
       ...Object.values(UPGRADED_FIELD_ENEMY_TEXTURE_BY_ZONE),
       ...Object.values(HIDDEN_ENEMY_TEXTURE_BY_ZONE),
     ]) {
       if (!this.scene.textures.exists(texture)) continue;
+      const frameCount = hiddenTextures.has(texture) ? HIDDEN_ENEMY_FRAME_COUNT : SKELETON_FRAME_COUNT;
       for (const [angleText, row] of Object.entries(SKELETON_ROW_BY_ANGLE)) {
         const key = `${texture}-walk-${angleText}`;
         if (this.scene.anims.exists(key)) continue;
         this.scene.anims.create({
           key,
           frames: this.scene.anims.generateFrameNumbers(texture, {
-            start: row * SKELETON_FRAME_COUNT,
-            end: (row + 1) * SKELETON_FRAME_COUNT - 1,
+            start: row * frameCount,
+            end: (row + 1) * frameCount - 1,
           }),
           frameRate: 10,
           repeat: -1,
@@ -992,8 +996,8 @@ export class RoomRenderer {
     enemy
       .setData("isEmerging", true)
       .setData("hasHoverMotion", false)
-      .setAlpha(0.12)
-      .setTint(0x050505)
+      .clearTint()
+      .setAlpha(1)
       .setCrop(
         kind === "gate" ? (frameWidth - 1) / 2 : 0,
         kind === "gate" ? (frameHeight - 1) / 2 : frameHeight - 1,
@@ -1034,12 +1038,6 @@ export class RoomRenderer {
       duration: duration + 110,
       ease: "Cubic.easeOut",
       onComplete: () => this.destroyEnemyTransient(enemy, shadow),
-    });
-    this.scene.tweens.add({
-      targets: enemy,
-      alpha: 1,
-      duration: Math.min(260, duration),
-      ease: "Quad.easeOut",
     });
     this.scene.tweens.add({
       targets: reveal,
@@ -1250,11 +1248,11 @@ export class RoomRenderer {
       sprite.setAlpha(1).clearTint();
       const midbossKey = sprite.getData("hiddenEnemyTexture") as string | undefined ?? "enemy-demon-midboss-0";
       if (midbossKey !== "enemy-demon-midboss-0") {
-        const row = SKELETON_ROW_BY_ANGLE[snapAngle] ?? 0;
+        const row = enemyFrameRow(midbossKey, snapAngle);
         if (speedSq > 4) sprite.play(`${midbossKey}-walk-${snapAngle}`, true);
         else {
           sprite.stop();
-          sprite.setTexture(midbossKey, row * SKELETON_FRAME_COUNT);
+          sprite.setTexture(midbossKey, row * HIDDEN_ENEMY_FRAME_COUNT);
         }
         sprite.setDisplaySize(MIDBOSS_DISPLAY_SIZE, MIDBOSS_DISPLAY_SIZE);
       } else {
@@ -1278,7 +1276,7 @@ export class RoomRenderer {
     } else if (kind === "static" || kind === "invader") {
       const texture = sprite.getData("fieldEnemyTexture") as string | undefined ?? "enemy-skeleton-unarmed";
       if (this.scene.textures.exists(texture)) {
-        const row = SKELETON_ROW_BY_ANGLE[snapAngle] ?? 0;
+        const row = enemyFrameRow(texture, snapAngle);
         if (speedSq > 4) sprite.play(`${texture}-walk-${snapAngle}`, true);
         else {
           sprite.stop();

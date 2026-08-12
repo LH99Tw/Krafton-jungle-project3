@@ -79,7 +79,6 @@ test("network enemies use a bounded render queue without client physics bodies",
 test("new enemies emerge from a client-rendered black floor shadow", () => {
   const renderer = readFileSync(new URL("../src/game/runtime/room/RoomRenderer.ts", import.meta.url), "utf8");
   assert.match(renderer, /playEnemyEmergence/);
-  assert.match(renderer, /setTint\(0x050505\)/);
   assert.match(renderer, /setCrop\(0, frameHeight - revealedHeight, frameWidth, revealedHeight\)/);
   assert.match(renderer, /add\.ellipse[\s\S]*?0x000000/);
   assert.match(renderer, /applyDemonHoverMotion\(enemy\)/);
@@ -88,14 +87,15 @@ test("new enemies emerge from a client-rendered black floor shadow", () => {
   assert.match(renderer, /releaseNetworkEnemy[\s\S]*?clearEnemyTransientObjects\(enemy\)/);
 });
 
-test("rare units skip every translucent emergence effect", () => {
+test("enemy emergence never fades a sprite, even before rare metadata arrives", () => {
   const renderer = readFileSync(new URL("../src/game/runtime/room/RoomRenderer.ts", import.meta.url), "utf8");
   const emergence = renderer.slice(
     renderer.indexOf("  private playEnemyEmergence("),
     renderer.indexOf("  applyBullChargeMotion("),
   );
   assert.match(emergence, /if \(kind === "hidden"\) \{[\s\S]*?clearTint\(\)[\s\S]*?setAlpha\(1\)[\s\S]*?setData\("isEmerging", false\)[\s\S]*?applyDemonHoverMotion\(enemy\)[\s\S]*?return/);
-  assert.ok(emergence.indexOf('if (kind === "hidden")') < emergence.indexOf("setAlpha(0.12)"));
+  assert.doesNotMatch(emergence, /setAlpha\(0\.12\)|targets: enemy,[\s\S]{0,120}?alpha: 1/);
+  assert.match(emergence, /setData\("isEmerging", true\)[\s\S]*?clearTint\(\)[\s\S]*?setAlpha\(1\)/);
   assert.match(renderer, /if \(kind === "hidden"\) \{[\s\S]*?sprite\.setAlpha\(1\)\.clearTint\(\)/);
 });
 

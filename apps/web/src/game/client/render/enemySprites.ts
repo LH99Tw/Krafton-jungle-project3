@@ -4,11 +4,12 @@ export const DEMON_SPRITE_PATH = "/Asset/sprites/demon-unarmed-8dir-walk-v1.png"
 export const FROG_UPGRADED_SPRITE_PATH = "/Asset/sprites/frog-upgraded-8dir-walk-v1.png";
 export const SUCCUBUS_UPGRADED_SPRITE_PATH = "/Asset/sprites/succubus-upgraded-8dir-walk-v1.png";
 export const GOLEM_UPGRADED_SPRITE_PATH = "/Asset/sprites/golem-upgraded-8dir-walk-v1.png";
-export const HIDDEN_ENT_SPRITE_PATH = "/Asset/sprites/hidden-ent-8dir-walk-v1.png";
-export const HIDDEN_STONE_GOLEM_SPRITE_PATH = "/Asset/sprites/hidden-stone-golem-8dir-walk-v1.png";
-export const HIDDEN_DULLAHAN_SPRITE_PATH = "/Asset/sprites/hidden-dullahan-8dir-walk-v1.png";
+export const HIDDEN_ENT_SPRITE_PATH = "/Asset/sprites/hidden-ent-7frame-8dir-walk-v2.png";
+export const HIDDEN_STONE_GOLEM_SPRITE_PATH = "/Asset/sprites/hidden-stone-golem-7frame-8dir-walk-v2.png";
+export const HIDDEN_DULLAHAN_SPRITE_PATH = "/Asset/sprites/hidden-dullahan-7frame-8dir-walk-v2.png";
 export const SKELETON_FRAME_SIZE = 160;
 export const SKELETON_FRAME_COUNT = 8;
+export const HIDDEN_ENEMY_FRAME_COUNT = 7;
 
 export const FIELD_ENEMY_TEXTURE_BY_ZONE: Readonly<Record<number, string>> = {
   1: "enemy-goblin-unarmed",
@@ -113,3 +114,12 @@ export const SKELETON_ROW_BY_ANGLE: Readonly<Record<number, number>> = {
   270: 4,
   315: 7,
 };
+
+export const STANDARD_ENEMY_ROW_BY_ANGLE: Readonly<Record<number, number>> = {
+  0: 2, 45: 1, 90: 0, 135: 7, 180: 6, 225: 5, 270: 4, 315: 3,
+};
+
+export function enemyFrameRow(textureKey: string, angle: number): number {
+  const rows = textureKey === "enemy-skeleton-unarmed" ? SKELETON_ROW_BY_ANGLE : STANDARD_ENEMY_ROW_BY_ANGLE;
+  return rows[angle] ?? 0;
+}

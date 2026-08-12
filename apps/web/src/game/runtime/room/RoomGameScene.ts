@@ -28,6 +28,7 @@ import {
   FROG_UPGRADED_SPRITE_PATH,
   GOBLIN_SPRITE_PATH,
   GOLEM_UPGRADED_SPRITE_PATH,
+  HIDDEN_ENEMY_FRAME_COUNT,
   HIDDEN_DULLAHAN_SPRITE_PATH,
   HIDDEN_ENT_SPRITE_PATH,
   HIDDEN_STONE_GOLEM_SPRITE_PATH,
@@ -297,17 +298,17 @@ export class RoomGameScene extends Phaser.Scene {
     this.load.spritesheet("enemy-hidden-ent", HIDDEN_ENT_SPRITE_PATH, {
       frameWidth: SKELETON_FRAME_SIZE,
       frameHeight: SKELETON_FRAME_SIZE,
-      endFrame: SKELETON_FRAME_COUNT * 8 - 1,
+      endFrame: HIDDEN_ENEMY_FRAME_COUNT * 8 - 1,
     });
     this.load.spritesheet("enemy-hidden-stone-golem", HIDDEN_STONE_GOLEM_SPRITE_PATH, {
       frameWidth: SKELETON_FRAME_SIZE,
       frameHeight: SKELETON_FRAME_SIZE,
-      endFrame: SKELETON_FRAME_COUNT * 8 - 1,
+      endFrame: HIDDEN_ENEMY_FRAME_COUNT * 8 - 1,
     });
     this.load.spritesheet("enemy-hidden-dullahan", HIDDEN_DULLAHAN_SPRITE_PATH, {
       frameWidth: SKELETON_FRAME_SIZE,
       frameHeight: SKELETON_FRAME_SIZE,
-      endFrame: SKELETON_FRAME_COUNT * 8 - 1,
+      endFrame: HIDDEN_ENEMY_FRAME_COUNT * 8 - 1,
     });
     for (const sprite of BASIC_ATTACK_ALL_SPRITES) {
       this.load.spritesheet(sprite.textureKey, sprite.path, {
