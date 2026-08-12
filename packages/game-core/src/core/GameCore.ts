@@ -509,7 +509,15 @@ export class GameCore {
       player.lastSkillId = "dash";
       player.skillOriginX = player.x;
       player.skillOriginY = player.y;
-      this.movePlayer(player, Math.cos(aim) * 145, Math.sin(aim) * 145);
+      // Dash follows the held movement direction (arrow keys / WASD) so local
+      // and server behavior stay identical; aim is the fallback while idle.
+      let dashX = player.inputX;
+      let dashY = player.inputY;
+      if (Math.hypot(dashX, dashY) < 0.001) {
+        dashX = Math.cos(aim);
+        dashY = Math.sin(aim);
+      }
+      this.movePlayer(player, dashX * 145, dashY * 145);
       // The effect target must be the resolved landing point so the client
       // never renders the dodge trail through a wall or off-screen.
       player.skillTargetX = player.x;

@@ -196,6 +196,56 @@ test("dash resolves to the walkable landing point and never targets through a wa
   assert.ok(player.x > rect.x + rect.width - 250, "an eastward dash from an interior point covers the full 145px");
 });
 
+test("dash follows the movement input direction and falls back to aim while idle", () => {
+  const core = startedCore("dash-movement-direction");
+  const player = core.players.get("p1")!;
+  const start = core.rooms.get(player.roomId)!;
+  const rect = roomWorldRect({ x: start.gridX, y: start.gridY });
+
+  const dash = (x: number, y: number, aim: number, seq: number): boolean => core.applyInput("p1", {
+    v: PROTOCOL_VERSION,
+    type: "player.input",
+    seq,
+    clientTime: seq,
+    payload: { x, y, aim, buttons: 4 },
+  });
+
+  // Moving east while aiming west: the held movement direction must win.
+  player.x = rect.x + rect.width - 300;
+  player.y = rect.y + rect.height / 2;
+  const originX = player.x;
+  assert.equal(dash(1, 0, Math.PI, 1), true);
+  assert.ok(player.x > originX, "dash must move east along the held movement input");
+  assert.equal(player.skillOriginX, originX);
+  assert.equal(player.skillTargetX, player.x);
+
+  // Moving west while aiming east: still the movement direction.
+  for (let index = 0; index < 60; index += 1) core.update(0.1);
+  core.applyInput("p1", {
+    v: PROTOCOL_VERSION,
+    type: "player.input",
+    seq: 2,
+    clientTime: 2,
+    payload: { x: 0, y: 0, aim: 0, buttons: 0 },
+  });
+  const westStart = player.x;
+  dash(-1, 0, 0, 3);
+  assert.ok(player.x < westStart, "a westward movement input must dash west despite the eastward aim");
+
+  // Idle with no movement keys: aim decides.
+  for (let index = 0; index < 60; index += 1) core.update(0.1);
+  core.applyInput("p1", {
+    v: PROTOCOL_VERSION,
+    type: "player.input",
+    seq: 4,
+    clientTime: 4,
+    payload: { x: 0, y: 0, aim: 0, buttons: 0 },
+  });
+  const idleStart = player.x;
+  dash(0, 0, 0, 5);
+  assert.ok(player.x > idleStart, "an idle dash must fall back to the aim direction");
+});
+
 test("a skipped server interval advances combat clocks and resolves one bounded auto attack", () => {
   const core = startedCore("lag-compensated-auto-attack");
   const player = core.players.get("p1")!;
