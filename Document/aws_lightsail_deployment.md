@@ -1,9 +1,13 @@
 # AWS Lightsail MVP 배포·운영 런북
 
 > 상태: Docker Compose·Caddy·CI/CD 파일 구현 완료, 실제 AWS 계정 배포 전 검증 기준
-> 기준일: 2026-08-10
+> 기준일: 2026-08-12
 > 리전: 서울 `ap-northeast-2`
 > 대상: 동시접속 10~20명 시연용 MVP
+
+게임 서버는 2GB/2vCPU 번들의 지속 CPU·월 전송량과 같은 호스트의 웹·DB 여유를 보존하기 위해
+동시 게임방을 8개(파티 모드 최대 24명)로 제한한다. 새 방만 503으로 거절하며 진행 중인
+방의 시뮬레이션 빈도나 유닛 좌표를 건너뛰지 않는다.
 
 ## 1. 결론과 비용 기준
 
@@ -28,7 +32,42 @@ AWS에서 이 시스템을 영구적으로 완전 무료 운영할 수 있다고
 
 ### 1.1 레이턴시 기준
 
-레이턴시는 물리적 거리 때문에 0으로 만들 수 없다. MVP는 한국 사용자를 기준으로 웹, Colyseus, PostgreSQL을 서울의 동일 Lightsail 인스턴스와 Docker network에 배치하고 ALB, NAT Gateway, CloudFront, 외부 Redis를 경로에서 제외한다. 브라우저는 하나의 WSS 연결을 유지하고 서버는 20Hz로 판정한다. 운영 검증에서는 네트워크 RTT와 Room tick p95를 분리해 측정한다.
+레이턴시는 물리적 거리 때문에 0으로 만들 수 없다. MVP는 한국 사용자를 기준으로 웹, Colyseus, PostgreSQL을 서울의 동일 Lightsail 인스턴스와 Docker network에 배치하고 ALB, NAT Gateway, CloudFront, 외부 Redis를 경로에서 제외한다. 브라우저는 하나의 WSS 연결을 유지하고 서버는 60Hz로 판정한다. 운영 검증에서는 네트워크 RTT와 Room tick p95를 분리해 측정한다.
+
+### 1.2 유닛 부하와 동시 게임방 산정
+
+2026-08-12 기준 부하 테스트는 배포와 같은 `OFFICIAL_WORLD`, 60Hz 코어, 10Hz 스키마/AOI,
+30Hz 월드 프레임, 방당 플레이어 3명과 invader 256마리를 사용한다. 재현 명령은 다음과 같다.
+
+```bash
+pnpm --filter @five-days/game-server benchmark:rooms -- \
+  --rooms=8 --units=256 --clients=3 --seconds=120 --scenario=contact
+```
+
+Apple M4 로컬 측정에서 8개 방의 최악 접촉 시나리오는 한 코어의 1.08%, 룸 틱 p99
+0.12ms, 최대 0.68ms, 룸당 heap 약 1.39MB를 사용했다. 이동 중인 cold 시나리오는 한
+코어의 1.03%, p99 0.12ms였다. Lightsail CPU를 이 측정보다 3배 느리다고 가정하면 게임
+서버 경로는 한 코어의 약 3.24%를 사용한다.
+
+Linux 2GB/2vCPU 월 12달러 번들의 지속 CPU 기준은 vCPU당 20%이므로 합계 0.4코어
+상당이다. 게임 서버 외에 Next.js, PostgreSQL, Caddy가 같은 호스트에서 실행되므로 이
+수치를 전부 게임에 배정하지 않는다. 8개 방 상한은 CPU보다 전송량을 기준으로 결정했다.
+
+월 전송량은 벤치마크의 JSON 월드 프레임을 30일 연속 전송한다고 가정한 극단값이다.
+
+| 시나리오 | 8룸 전송률 | 30일 환산 | 3TB 대비 |
+|---|---:|---:|---:|
+| 256마리 이동 | 2.22Mbps | 0.72TB | 24% |
+| 256마리 접촉/전투 | 4.17Mbps | 1.35TB | 45% |
+
+나머지 전송량은 TLS/QUIC 오버헤드, Colyseus 상태 패치, 웹 트래픽과 운영 여유로 남긴다.
+전체 적 복구 키프레임은 5초마다 보내되 이동 델타는 계속 절대좌표로 전송한다. 부하가
+상한에 도달하면 새 방만 거절하며 진행 중인 유닛의 이동 틱이나 좌표를 생략하지 않는다.
+
+운영에서는 `CPUUtilization`, `BurstCapacityPercentage`, `BurstCapacityTime`, 룸 틱 p99,
+월 전송량을 함께 확인한다. CPU burst 잔량이 25% 아래로 내려가거나 룸 틱 p99가 4ms를
+10분 이상 넘으면 새 방 상한을 6개로 낮춘다. 반대로 실제 Lightsail에서 24시간 측정 후
+burst 잔량이 유지되고 전송량 예측이 2TB 미만일 때만 10개로 올린다.
 
 ## 2. MVP 인프라 결정
 

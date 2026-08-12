@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc --noEmit",
+    "benchmark:rooms": "node --expose-gc --import tsx scripts/room-load.ts",
     "start": "tsx src/index.ts",
     "lint": "eslint src test --config ../../eslint.config.mjs",
     "test": "tsx --test test/*.test.ts",

@@ -255,7 +255,8 @@ test("reuses generated navigation chrome across lobby and character selection", 
   assert.doesNotMatch(characterSelect, /select-loading|FIELD ASSETS|전장 자원 준비 중/);
   assert.doesNotMatch(characterSelect, /출전 직업을 선택하세요|select-ready-count/);
   assert.doesNotMatch(characterSelect, /selection-ready-stage/);
-  assert.doesNotMatch(characterSelect, /className="launch-curtain"/);
+  assert.match(characterSelect, /className="launch-curtain"/);
+  assert.match(characterSelect, /curtainVisible \? <div className="launch-curtain"/);
   assert.match(lobbyRoom, /CHARACTER_SELECTION_LAUNCH_DELAY_MS = 2_000/);
   assert.match(lobbyRoom, /SELECTION_LOCKED/);
   assert.match(gameShell, /selectionPreloadReadyRef\.current\) launchSelectedRun\(event\)/);

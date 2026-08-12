@@ -478,7 +478,7 @@ test("crossing into a connected room keeps a continuous transform while a real t
   assert.equal(teleport.vx, 0);
 });
 
-test("world frames send enemy deltas and recover with a one-second keyframe", () => {
+test("world frames send enemy deltas and recover with a five-second keyframe", () => {
   const frames: WorldFrame[] = [];
   const player = { userId: "viewer", roomId: "room-a", x: 10, y: 10, aim: 0 };
   const enemy = { id: "enemy-1", roomId: "room-a", x: 20, y: 20 };
@@ -505,7 +505,7 @@ test("world frames send enemy deltas and recover with a one-second keyframe", ()
   emit.call(harness as unknown as PartyRoom);
   harness.serverTick = 4;
   emit.call(harness as unknown as PartyRoom);
-  harness.serverTick = 60;
+  harness.serverTick = 300;
   emit.call(harness as unknown as PartyRoom);
 
   assert.equal(frames[0]?.enemies.length, 1);

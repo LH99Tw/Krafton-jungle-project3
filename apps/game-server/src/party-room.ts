@@ -79,8 +79,9 @@ export const INPUT_LEASE_MS = 100;
 const MAX_CATCH_UP_TICKS = 4;
 const KEYFRAME_INTERVAL_MS = 500;
 const DISCONTINUITY_DISTANCE = 96;
-const ENEMY_WORLD_KEYFRAME_TICKS = 60;
+const ENEMY_WORLD_KEYFRAME_TICKS = 60 * 5;
 const WEBSOCKET_SIZE_SAMPLE_INTERVAL = 30;
+const DEFAULT_MAX_ACTIVE_GAMES = 8;
 
 type PreviousTransform = { roomId: string; x: number; y: number; at: number; vx: number; vy: number };
 type EnemySchemaSnapshot = {
@@ -235,7 +236,7 @@ export class PartyRoom extends Room<PartyRoomState> {
   async onCreate(rawOptions: unknown): Promise<void> {
     const activeGames = await matchMaker.query({ name: PARTY_ROOM });
     const otherGames = activeGames.filter((room) => room.roomId !== this.roomId);
-    if (otherGames.length >= numericEnv("MAX_ACTIVE_GAMES", 100, 1, 1_000)) {
+    if (otherGames.length >= numericEnv("MAX_ACTIVE_GAMES", DEFAULT_MAX_ACTIVE_GAMES, 1, 1_000)) {
       throw new ServerError(503, "활성 게임 한도에 도달했습니다.");
     }
     const options = roomOptionsSchema.parse(rawOptions);
@@ -794,9 +795,9 @@ export class PartyRoom extends Room<PartyRoomState> {
       Object.assign(state, door);
     }
 
-    const liveEnemyIds = new Set(view.enemies.map((enemy) => enemy.id));
     this.state.enemies.forEach((state, id) => {
-      if (liveEnemyIds.has(id)) return;
+      const enemy = this.core.enemies.get(id);
+      if (enemy && this.core.discoveredRooms.has(enemy.roomId)) return;
       for (const client of this.clients) {
         if (this.visibleEnemies.get(client.sessionId)?.delete(id)) client.view?.remove(state);
       }
@@ -805,6 +806,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       this.previousTransforms.delete(`enemy:${id}`);
       this.lastEnemyFramePositions?.delete(id);
       this.enemySchemaSnapshots?.delete(id);
+      this.removeEnemyRoomMembership(id);
     });
 
     for (const enemy of view.enemies) {
@@ -815,29 +817,19 @@ export class PartyRoom extends Room<PartyRoomState> {
         this.state.enemies.set(enemy.id, state);
       }
       const roomChanged = this.schemaRoomIds.get(`enemy:${enemy.id}`) !== enemy.roomId;
-      const nextSnapshot: EnemySchemaSnapshot = {
-        hp: enemy.hp,
-        targetId: enemy.targetId ?? "",
-        roomId: enemy.roomId,
-        alive: enemy.alive,
-        patternKind: enemy.patternKind,
-        patternPhase: enemy.patternPhase,
-        patternRemaining: enemy.patternRemaining,
-        patternIndex: enemy.patternIndex,
-        attackSequence: enemy.attackSequence,
-      };
+      const targetId = enemy.targetId ?? "";
       this.enemySchemaSnapshots ??= new Map<string, EnemySchemaSnapshot>();
       const previousSnapshot = this.enemySchemaSnapshots.get(enemy.id);
       const revisionChanged = !previousSnapshot
-        || previousSnapshot.hp !== nextSnapshot.hp
-        || previousSnapshot.targetId !== nextSnapshot.targetId
-        || previousSnapshot.roomId !== nextSnapshot.roomId
-        || previousSnapshot.alive !== nextSnapshot.alive
-        || previousSnapshot.patternKind !== nextSnapshot.patternKind
-        || previousSnapshot.patternPhase !== nextSnapshot.patternPhase
-        || previousSnapshot.patternRemaining !== nextSnapshot.patternRemaining
-        || previousSnapshot.patternIndex !== nextSnapshot.patternIndex
-        || previousSnapshot.attackSequence !== nextSnapshot.attackSequence;
+        || previousSnapshot.hp !== enemy.hp
+        || previousSnapshot.targetId !== targetId
+        || previousSnapshot.roomId !== enemy.roomId
+        || previousSnapshot.alive !== enemy.alive
+        || previousSnapshot.patternKind !== enemy.patternKind
+        || previousSnapshot.patternPhase !== enemy.patternPhase
+        || previousSnapshot.patternRemaining !== enemy.patternRemaining
+        || previousSnapshot.patternIndex !== enemy.patternIndex
+        || previousSnapshot.attackSequence !== enemy.attackSequence;
       if (isNew || revisionChanged) {
         Object.assign(state, {
           id: enemy.id,
@@ -845,17 +837,35 @@ export class PartyRoom extends Room<PartyRoomState> {
           behavior: enemy.behavior,
           spawnRoomId: enemy.spawnRoomId,
           maxHp: enemy.maxHp,
-          ...nextSnapshot,
+          hp: enemy.hp,
+          targetId,
+          roomId: enemy.roomId,
+          alive: enemy.alive,
+          patternKind: enemy.patternKind,
+          patternPhase: enemy.patternPhase,
+          patternRemaining: enemy.patternRemaining,
+          patternIndex: enemy.patternIndex,
+          attackSequence: enemy.attackSequence,
         });
-        this.enemySchemaSnapshots.set(enemy.id, nextSnapshot);
+        this.enemySchemaSnapshots.set(enemy.id, {
+          hp: enemy.hp,
+          targetId,
+          roomId: enemy.roomId,
+          alive: enemy.alive,
+          patternKind: enemy.patternKind,
+          patternPhase: enemy.patternPhase,
+          patternRemaining: enemy.patternRemaining,
+          patternIndex: enemy.patternIndex,
+          attackSequence: enemy.attackSequence,
+        });
       }
       if (isNew || keyframeDue || roomChanged) {
         state.x = enemy.x;
         state.y = enemy.y;
       }
       this.schemaRoomIds.set(`enemy:${enemy.id}`, enemy.roomId);
+      if (isNew || roomChanged) this.updateEnemyRoomMembership(enemy.id, enemy.roomId);
     }
-    this.refreshEnemyRoomBuckets(view.enemies);
 
     for (const waypoint of view.waypoints) {
       let state = this.state.waypoints.get(waypoint.id);
@@ -1064,33 +1074,31 @@ export class PartyRoom extends Room<PartyRoomState> {
     }
   }
 
-  private refreshEnemyRoomBuckets(enemies: Iterable<{ id: string; roomId: string }>): void {
+  private updateEnemyRoomMembership(enemyId: string, roomId: string): void {
     this.enemyIdsByRoom ??= new Map<string, Set<string>>();
     this.enemyRoomMembership ??= new Map<string, string>();
     this.enemyMembershipRevision ??= 0;
-    const liveIds = new Set<string>();
-    let changed = false;
-    for (const enemy of enemies) {
-      liveIds.add(enemy.id);
-      const previousRoomId = this.enemyRoomMembership.get(enemy.id);
-      if (previousRoomId === enemy.roomId) continue;
-      if (previousRoomId) this.enemyIdsByRoom.get(previousRoomId)?.delete(enemy.id);
-      let bucket = this.enemyIdsByRoom.get(enemy.roomId);
-      if (!bucket) {
-        bucket = new Set<string>();
-        this.enemyIdsByRoom.set(enemy.roomId, bucket);
-      }
-      bucket.add(enemy.id);
-      this.enemyRoomMembership.set(enemy.id, enemy.roomId);
-      changed = true;
+    const previousRoomId = this.enemyRoomMembership.get(enemyId);
+    if (previousRoomId === roomId) return;
+    if (previousRoomId) this.enemyIdsByRoom.get(previousRoomId)?.delete(enemyId);
+    let bucket = this.enemyIdsByRoom.get(roomId);
+    if (!bucket) {
+      bucket = new Set<string>();
+      this.enemyIdsByRoom.set(roomId, bucket);
     }
-    for (const [enemyId, roomId] of this.enemyRoomMembership) {
-      if (liveIds.has(enemyId)) continue;
-      this.enemyRoomMembership.delete(enemyId);
-      this.enemyIdsByRoom.get(roomId)?.delete(enemyId);
-      changed = true;
-    }
-    if (changed) this.enemyMembershipRevision += 1;
+    bucket.add(enemyId);
+    this.enemyRoomMembership.set(enemyId, roomId);
+    this.enemyMembershipRevision += 1;
+  }
+
+  private removeEnemyRoomMembership(enemyId: string): void {
+    const roomId = this.enemyRoomMembership?.get(enemyId);
+    if (!roomId) return;
+    this.enemyRoomMembership.delete(enemyId);
+    const bucket = this.enemyIdsByRoom.get(roomId);
+    bucket?.delete(enemyId);
+    if (bucket?.size === 0) this.enemyIdsByRoom.delete(roomId);
+    this.enemyMembershipRevision += 1;
   }
 
   private updateClientView(client: Client, userId: string): void {

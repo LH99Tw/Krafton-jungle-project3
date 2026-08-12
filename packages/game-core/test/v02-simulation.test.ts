@@ -570,16 +570,55 @@ test("invaders physically traverse connected corridors and damage the base only 
   assert.ok(core.baseHp < baseBefore);
 });
 
-test("invaders hand off from an upper-zone start to the previous-zone gate", () => {
+test("production authored invaders never jump farther than one bounded movement step", () => {
+  const core = new GameCore({
+    mode: "prototype",
+    difficulty: "normal",
+    seed: "authored-no-teleport",
+    minimumPlayers: 1,
+    world: OFFICIAL_WORLD,
+    invaderUpdateRates: { warmHz: 20, coldHz: 10 },
+  });
+  const player = core.addPlayer({ userId: "observer", displayName: "관찰자", heroClass: "swordsman" });
+  core.setReady(player.userId, true);
+  core.setConnected(player.userId, false);
+  core.baseHp = 1_000_000;
+  const invader = core.spawnInvader(3);
+  invader.speed = 920;
+  let crossedRooms = 0;
+
+  for (let tick = 0; tick < 5_000 && invader.alive; tick += 1) {
+    const before = { x: invader.x, y: invader.y, roomId: invader.roomId };
+    core.update(1 / 60);
+    const displacement = Math.hypot(invader.x - before.x, invader.y - before.y);
+    assert.ok(displacement <= invader.speed * 0.1 + 0.001, `tick ${tick} moved ${displacement}px`);
+    if (invader.roomId !== before.roomId) {
+      assert.ok(core.rooms.get(before.roomId)?.connections.includes(invader.roomId));
+      crossedRooms += 1;
+    }
+  }
+
+  assert.ok(crossedRooms > 0);
+});
+
+test("procedural upper-zone invaders resolve at the zone relay without teleporting", () => {
   const core = startedCore("invader-zone-handoff");
   core.setConnected("p1", false);
   const invader = core.spawnInvader(3);
   invader.speed = 920;
+  const baseBefore = core.baseHp;
 
-  for (let index = 0; index < 1_000 && !invader.roomId.startsWith("zone-2:"); index += 1) core.update(0.1);
-  assert.equal(invader.roomId, core.maps.zones[1].gateRoomId);
-  assert.equal(invader.path[0], core.maps.zones[1].gateRoomId);
-  assert.equal(invader.path.at(-1), core.maps.zones[1].startRoomId);
+  for (let index = 0; index < 1_000 && invader.alive; index += 1) {
+    const before = { x: invader.x, y: invader.y, roomId: invader.roomId };
+    core.update(0.1);
+    assert.ok(Math.hypot(invader.x - before.x, invader.y - before.y) <= invader.speed * 0.1 + 0.001);
+    if (invader.roomId !== before.roomId) {
+      assert.ok(core.rooms.get(before.roomId)?.connections.includes(invader.roomId));
+    }
+  }
+  assert.equal(invader.alive, false);
+  assert.equal(invader.roomId.startsWith("zone-3:"), true);
+  assert.ok(core.baseHp < baseBefore);
 });
 
 test("invader path selection is deterministic and occasionally chooses a route up to two hops longer", () => {
@@ -941,6 +980,26 @@ test("queued waves release no more than three invaders per 100ms", () => {
   core.update(0.1);
   assert.equal(core.liveInvaderCount, 9);
   assert.equal(core.invaderWorkMetrics.microSpawned, 9);
+});
+
+test("queued wave creation defers route planning into the bounded replan budget", () => {
+  const core = startedCore("deferred-wave-replan");
+  const gate = [...core.enemies.values()].find((enemy) => enemy.kind === "gate" && core.rooms.get(enemy.roomId)?.zone === 1)!;
+  const internals = core as unknown as {
+    enqueueInvaderWave(gateEnemyId: string, zone: 1, count: number): void;
+    releaseOldestInvaderWave(): void;
+    releasePendingInvaderReplans(playerTargets: ReadonlyMap<string, unknown>, playerRooms: ReadonlySet<string>): void;
+  };
+
+  internals.enqueueInvaderWave(gate.id, 1, 3);
+  internals.releaseOldestInvaderWave();
+  assert.equal(core.liveInvaderCount, 3);
+  assert.equal(core.invaderWorkMetrics.pendingReplans, 3);
+  assert.equal(core.invaderWorkMetrics.completedReplans, 0);
+
+  internals.releasePendingInvaderReplans(new Map(), new Set());
+  assert.equal(core.invaderWorkMetrics.pendingReplans, 0);
+  assert.equal(core.invaderWorkMetrics.completedReplans, 3);
 });
 
 test("a congested spawn slot remains a numeric queue instead of creating an overlapping object", () => {
