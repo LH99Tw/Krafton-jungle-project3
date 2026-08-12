@@ -602,16 +602,16 @@ export class RoomRenderer {
         this.createTrapPortcullis(barrier);
         continue;
       }
-      const glow = this.scene.add.rectangle(barrier.x, barrier.y, barrier.width + 18, barrier.height + 18, 0x75ddff, 0.12)
+      const glow = this.scene.add.rectangle(barrier.x, barrier.y, barrier.width + 20, barrier.height + 20, 0xff1133, 0.28)
         .setBlendMode(Phaser.BlendModes.ADD).setDepth(24);
-      const field = this.scene.add.rectangle(barrier.x, barrier.y, barrier.width, barrier.height, 0x83e4ff, 0.34)
-        .setStrokeStyle(3, 0xc8f5ff, 0.92).setBlendMode(Phaser.BlendModes.ADD).setDepth(25);
-      const core = this.scene.add.rectangle(barrier.x, barrier.y, Math.max(3, barrier.width * 0.18), Math.max(3, barrier.height * 0.18), 0xe8fbff, 0.82)
+      const field = this.scene.add.rectangle(barrier.x, barrier.y, barrier.width, barrier.height, 0xff2244, 0.52)
+        .setStrokeStyle(3, 0xff6688, 0.95).setBlendMode(Phaser.BlendModes.ADD).setDepth(25);
+      const core = this.scene.add.rectangle(barrier.x, barrier.y, Math.max(4, barrier.width * 0.22), Math.max(4, barrier.height * 0.22), 0xffddee, 0.95)
         .setBlendMode(Phaser.BlendModes.ADD).setDepth(26);
       this.progressionBarrierObjects.push(glow, field, core);
       this.progressionBarrierTweens.push(
-        this.scene.tweens.add({ targets: glow, alpha: { from: 0.08, to: 0.3 }, scaleX: { from: 0.96, to: 1.08 }, scaleY: { from: 0.96, to: 1.08 }, duration: 720, yoyo: true, repeat: -1, ease: "Sine.easeInOut" }),
-        this.scene.tweens.add({ targets: core, alpha: { from: 0.35, to: 0.95 }, duration: 430, yoyo: true, repeat: -1, ease: "Sine.easeInOut" }),
+        this.scene.tweens.add({ targets: glow, alpha: { from: 0.15, to: 0.45 }, scaleX: { from: 0.96, to: 1.08 }, scaleY: { from: 0.96, to: 1.08 }, duration: 720, yoyo: true, repeat: -1, ease: "Sine.easeInOut" }),
+        this.scene.tweens.add({ targets: core, alpha: { from: 0.45, to: 1.0 }, duration: 430, yoyo: true, repeat: -1, ease: "Sine.easeInOut" }),
       );
     }
   }
