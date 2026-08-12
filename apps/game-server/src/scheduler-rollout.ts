@@ -82,7 +82,7 @@ export class SchedulerRolloutController {
   }
 }
 
-export function rolloutBucket(value: string): number {
+function rolloutBucket(value: string): number {
   let hash = 2_166_136_261;
   for (let index = 0; index < value.length; index += 1) {
     hash ^= value.charCodeAt(index);

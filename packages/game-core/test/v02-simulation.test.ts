@@ -147,6 +147,55 @@ test("records whether the latest authoritative basic attack was critical", () =>
   assert.equal(player.lastAttackCritical, true);
 });
 
+test("dash resolves to the walkable landing point and never targets through a wall", () => {
+  const core = startedCore("dash-target-clamp");
+  const player = core.players.get("p1")!;
+  const start = core.rooms.get(player.roomId)!;
+  const rect = roomWorldRect({ x: start.gridX, y: start.gridY });
+
+  const dash = (aim: number, seq: number): boolean => core.applyInput("p1", {
+    v: PROTOCOL_VERSION,
+    type: "player.input",
+    seq,
+    clientTime: seq,
+    payload: { x: 0, y: 0, aim, buttons: 4 },
+  });
+
+  player.x = rect.x + 40;
+  player.y = rect.y + rect.height / 2;
+  assert.equal(dash(Math.PI, 1), true, "dash toward the west wall is accepted");
+  assert.equal(player.lastSkillId, "dash");
+  assert.equal(player.dashCooldown, 5);
+  assert.equal(player.skillOriginX, rect.x + 40, "the effect origin must be the pre-dash position");
+  assert.equal(player.skillOriginY, player.y);
+  assert.equal(player.skillTargetX, player.x, "the effect target must equal the resolved landing point");
+  assert.equal(player.skillTargetY, player.y);
+  assert.ok(player.x < rect.x + 100, "the landing point must be clamped inside the room, not past the wall");
+  assert.ok(player.x >= rect.x - 1 && player.y >= rect.y - 1);
+
+  const sequenceAfterWallDash = player.skillSequence;
+  const xAfterWallDash = player.x;
+  dash(0, 2);
+  assert.equal(player.skillSequence, sequenceAfterWallDash, "a second dash inside the cooldown window is rejected");
+  assert.equal(player.x, xAfterWallDash, "the player must not move while dash is cooling down");
+
+  for (let index = 0; index < 60; index += 1) core.update(0.1);
+  const beforeSequence = player.skillSequence;
+  player.x = rect.x + rect.width - 100;
+  player.y = rect.y + rect.height / 2;
+  core.applyInput("p1", {
+    v: PROTOCOL_VERSION,
+    type: "player.input",
+    seq: 3,
+    clientTime: 3,
+    payload: { x: 0, y: 0, aim: 0, buttons: 0 },
+  });
+  assert.equal(dash(0, 4), true, "dash after the cooldown is accepted again");
+  assert.equal(player.skillSequence, beforeSequence + 1);
+  assert.equal(player.skillTargetX, player.x);
+  assert.ok(player.x > rect.x + rect.width - 250, "an eastward dash from an interior point covers the full 145px");
+});
+
 test("a skipped server interval advances combat clocks and resolves one bounded auto attack", () => {
   const core = startedCore("lag-compensated-auto-attack");
   const player = core.players.get("p1")!;

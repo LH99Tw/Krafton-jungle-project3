@@ -4,7 +4,7 @@ import {
   PLAYER_VISION_RADIUS,
   PROTOCOL_VERSION,
   clientCommandSchema,
-  combatAttackEventSchema,
+  combatActionEventSchema,
   inputFrameSchema,
   lobbyChatSchema,
   lobbyClassSelectSchema,
@@ -97,9 +97,9 @@ test("strictly validates protocol v8 combat action events", () => {
     patternKind: null,
     firedAt: 12.5,
   } as const;
-  assert.equal(combatAttackEventSchema.safeParse(event).success, true);
-  assert.equal(combatAttackEventSchema.safeParse({ ...event, targetX: Number.NaN }).success, false);
-  assert.equal(combatAttackEventSchema.safeParse({ ...event, v: 6 }).success, false);
+  assert.equal(combatActionEventSchema.safeParse(event).success, true);
+  assert.equal(combatActionEventSchema.safeParse({ ...event, targetX: Number.NaN }).success, false);
+  assert.equal(combatActionEventSchema.safeParse({ ...event, v: 6 }).success, false);
 });
 
 test("strictly validates every command envelope and payload", () => {

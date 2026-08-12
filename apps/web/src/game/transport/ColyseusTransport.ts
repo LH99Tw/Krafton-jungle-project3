@@ -69,8 +69,11 @@ type PlayerStateLike = {
   moveSpeed?: number;
   qCooldown?: number;
   eCooldown?: number;
+  dashCooldown?: number;
   skillSequence?: number;
   lastSkillId?: string;
+  skillOriginX?: number;
+  skillOriginY?: number;
   skillTargetX?: number;
   skillTargetY?: number;
   skillRadius?: number;
@@ -214,6 +217,7 @@ class ColyseusTransport {
   private readonly pendingInputs = new Map<number, InputFrame>();
   private inputTimer: ReturnType<typeof setInterval> | null = null;
   private readonly pressed = new Set<string>();
+  private readonly risingKeys = new Set<string>();
   private aim = 0;
   private cleanupInput: (() => void) | null = null;
   private readonly stateListeners = new Set<StateListener>();
@@ -518,20 +522,27 @@ class ColyseusTransport {
   private startInputCapture(): void {
     const onKeyDown = (event: KeyboardEvent) => {
       this.pressed.add(event.code);
+      if (!event.repeat) {
+        // Keep the rising edge alive for the whole press so a tap that falls
+        // between 60Hz input samples (or a dropped fast-lane datagram) never
+        // loses the dodge trigger, and send it immediately to cut latency.
+        this.risingKeys.add(event.code);
+        if (event.code === "Space") this.sampleAndSendInput();
+      }
       if (event.code === "KeyB" && !event.repeat) this.requestRecall();
     };
-    const onKeyUp = (event: KeyboardEvent) => this.pressed.delete(event.code);
-    const clearPressed = () => this.pressed.clear();
+    const onKeyUp = (event: KeyboardEvent) => {
+      this.pressed.delete(event.code);
+      this.risingKeys.delete(event.code);
+    };
+    const clearPressed = () => {
+      this.pressed.clear();
+      this.risingKeys.clear();
+    };
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("keyup", onKeyUp);
     window.addEventListener("blur", clearPressed);
-    this.inputTimer = setInterval(() => {
-      const x = Number(this.pressed.has("KeyD")) - Number(this.pressed.has("KeyA"));
-      const y = Number(this.pressed.has("KeyS")) - Number(this.pressed.has("KeyW"));
-      const buttons =
-        Number(this.pressed.has("Space"));
-      this.sendInputFrame({ x, y, aim: this.aim, buttons });
-    }, 1000 / 60);
+    this.inputTimer = setInterval(() => this.sampleAndSendInput(), 1000 / 60);
 
     this.cleanupInput = () => {
       window.removeEventListener("keydown", onKeyDown);
@@ -543,6 +554,14 @@ class ColyseusTransport {
   /** Phaser owns the camera transform, so it supplies the authoritative local aim. */
   setAim(angle: number): void {
     if (Number.isFinite(angle)) this.aim = normalizeAimAngle(angle);
+  }
+
+  /** Sends one 60Hz input sample; the Space rising edge stays set until keyup. */
+  private sampleAndSendInput(): void {
+    const x = Number(this.pressed.has("KeyD")) - Number(this.pressed.has("KeyA"));
+    const y = Number(this.pressed.has("KeyS")) - Number(this.pressed.has("KeyW"));
+    const buttons = Number(this.pressed.has("Space") || this.risingKeys.has("Space"));
+    this.sendInputFrame({ x, y, aim: this.aim, buttons });
   }
 
   private sendInputFrame(payload: Pick<InputFrame, "x" | "y" | "aim" | "buttons">): void {
@@ -669,8 +688,11 @@ class ColyseusTransport {
       equipment: equipmentSummaries(player.equipment),
       qCooldown: player.qCooldown ?? 0,
       eCooldown: player.eCooldown ?? 0,
+      dashCooldown: player.dashCooldown ?? 0,
       skillSequence: player.skillSequence ?? 0,
       lastSkillId: player.lastSkillId === "q" || player.lastSkillId === "e" || player.lastSkillId === "dash" ? player.lastSkillId : "",
+      skillOriginX: player.skillOriginX ?? 0,
+      skillOriginY: player.skillOriginY ?? 0,
       skillTargetX: player.skillTargetX ?? 0,
       skillTargetY: player.skillTargetY ?? 0,
       skillRadius: player.skillRadius ?? 0,

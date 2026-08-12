@@ -114,18 +114,15 @@ export const combatActionEventSchema = z.object({
   actionKind: z.enum(["basic", "melee", "pattern-telegraph", "pattern-resolve"]),
   heroClass: heroClassSchema.nullable(),
   targetId: networkIdSchema.nullable(),
-  startX: z.number().finite(),
-  startY: z.number().finite(),
   targetX: z.number().finite(),
   targetY: z.number().finite(),
+  startX: z.number().finite(),
+  startY: z.number().finite(),
   aim: z.number().finite().min(-Math.PI * 2).max(Math.PI * 2),
   critical: z.boolean(),
   patternKind: z.enum(["fan", "floor"]).nullable(),
   firedAt: z.number().finite().nonnegative(),
 }).strict();
-
-/** @deprecated Protocol v8 uses the unified combat.action contract. */
-export const combatAttackEventSchema = combatActionEventSchema;
 
 export const fastLaneOfferSchema = z.object({
   url: z.string().url().refine((value) => value.startsWith("https://"), "fast lane requires HTTPS"),
@@ -284,8 +281,6 @@ export type InputFrame = z.infer<typeof inputFrameSchema>;
 export type TransformSample = z.infer<typeof transformSampleSchema>;
 export type WorldFrame = z.infer<typeof worldFrameSchema>;
 export type CombatActionEvent = z.infer<typeof combatActionEventSchema>;
-/** @deprecated Use CombatActionEvent. */
-export type CombatAttackEvent = CombatActionEvent;
 export type FastLaneOffer = z.infer<typeof fastLaneOfferSchema>;
 export type TransportMode = z.infer<typeof transportModeSchema>;
 export type MiniMapPoint = z.infer<typeof minimapPointSchema>;

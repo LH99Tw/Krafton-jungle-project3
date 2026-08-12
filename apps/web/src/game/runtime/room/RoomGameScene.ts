@@ -557,7 +557,9 @@ export class RoomGameScene extends Phaser.Scene {
           x: Number(this.keys.D?.isDown) - Number(this.keys.A?.isDown),
           y: Number(this.keys.S?.isDown) - Number(this.keys.W?.isDown),
           aim,
-          buttons: Number(this.keys.SPACE?.isDown) << 2,
+          // JustDown keeps the Space edge alive for a frame even if the key is
+          // tapped between two simulation ticks, matching the local dash path.
+          buttons: (Number(this.keys.SPACE?.isDown) | Number(Phaser.Input.Keyboard.JustDown(this.keys.SPACE))) << 2,
         };
         const localFrame = localCoreSession.tick(safeDeltaMs, input);
         if (localFrame.message) this.message = localFrame.message;
@@ -1128,15 +1130,13 @@ export class RoomGameScene extends Phaser.Scene {
 
   private useDash(aim: number): void {
     this.dashReadyAt = this.time.now + 5000;
-    const body = this.player.body as Phaser.Physics.Arcade.Body;
     const start = this.lastWalkablePlayerPosition ?? { x: this.player.x, y: this.player.y };
-    const direction = new Phaser.Math.Vector2(body.velocity.x, body.velocity.y);
-    if (direction.lengthSq() < 1) direction.setToPolar(aim, 1);
-    direction.normalize().scale(145);
+    // Dash toward the cursor aim on every mode, matching the authoritative
+    // server dash so local/editor/network behavior stays identical.
     const point = clampToWalkable(
       this.zoneWorld.walkable,
-      start.x + direction.x,
-      start.y + direction.y,
+      start.x + Math.cos(aim) * 145,
+      start.y + Math.sin(aim) * 145,
       start.x,
       start.y,
       PLAYER_COLLISION_RADIUS,
@@ -1989,7 +1989,13 @@ export class RoomGameScene extends Phaser.Scene {
       if (previousSkillSequence !== undefined && (member.skillSequence ?? 0) > previousSkillSequence && visible) {
         const skillId = member.lastSkillId;
         if (skillId === "dash") {
-          this.roomRenderer.showDodge(sprite, member.skillTargetX ?? member.x, member.skillTargetY ?? member.y);
+          this.roomRenderer.showDodge(
+            sprite,
+            member.skillTargetX ?? member.x,
+            member.skillTargetY ?? member.y,
+            member.skillOriginX ?? sprite.x,
+            member.skillOriginY ?? sprite.y,
+          );
         } else if (skillId === "q" || skillId === "e") {
           this.roomRenderer.showAutoSkill(member.heroClass, skillId, sprite, member.skillTargetX ?? member.x, member.skillTargetY ?? member.y, member.skillRadius ?? 0);
         }
@@ -2375,7 +2381,7 @@ export class RoomGameScene extends Phaser.Scene {
       buildMode: this.buildMode,
       qCooldown: local?.qCooldown ?? 0,
       eCooldown: local?.eCooldown ?? 0,
-      dashCooldown: 0,
+      dashCooldown: local?.dashCooldown ?? 0,
       bossAvailable: currentRoom?.type === "gate" && currentRoom.zone === 3 && currentRoom.cleared,
       bossHp: boss?.hp ?? null,
       bossMaxHp: boss?.maxHp ?? null,
