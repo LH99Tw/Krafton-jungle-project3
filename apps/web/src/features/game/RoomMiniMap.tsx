@@ -220,10 +220,14 @@ type Transform = Readonly<{
 type MiniMapView = Readonly<{ zoom: number; centerX: number | null; centerY: number | null }>;
 type MiniMapPan = { pointerId: number; clientX: number; clientY: number };
 
-function fullMapScale(width: number, height: number, minimap: MiniMapSnapshot): number {
+export function fullMapScale(width: number, height: number, minimap: MiniMapSnapshot): number {
   const padding = 10;
   const { bounds } = minimap.geometry;
-  return Math.min((width - padding * 2) / bounds.width, (height - padding * 2) / bounds.height);
+  const drawableWidth = Math.max(1, finiteOr(width, 1) - padding * 2);
+  const drawableHeight = Math.max(1, finiteOr(height, 1) - padding * 2);
+  const worldWidth = positiveFiniteOr(bounds.width, 1);
+  const worldHeight = positiveFiniteOr(bounds.height, 1);
+  return Math.max(Number.EPSILON, Math.min(drawableWidth / worldWidth, drawableHeight / worldHeight));
 }
 
 function mapCenter(minimap: MiniMapSnapshot, focus: { x: number; y: number } | null): { x: number; y: number } {
@@ -235,12 +239,13 @@ function viewCenter(minimap: MiniMapSnapshot, focus: { x: number; y: number } | 
   return view.centerX === null || view.centerY === null ? mapCenter(minimap, focus) : { x: view.centerX, y: view.centerY };
 }
 
-function mapTransform(width: number, height: number, minimap: MiniMapSnapshot, focus: { x: number; y: number } | null = null, view: MiniMapView = DEFAULT_VIEW): Transform {
+export function mapTransform(width: number, height: number, minimap: MiniMapSnapshot, focus: { x: number; y: number } | null = null, view: MiniMapView = DEFAULT_VIEW): Transform {
   const fullScale = fullMapScale(width, height, minimap);
+  const visionDiameter = positiveFiniteOr(minimap.geometry.visionRadius * 2.4, 1);
   const baseScale = focus
-    ? Math.min(fullScale * 4, Math.max(fullScale * 2.35, Math.min(width, height) / (minimap.geometry.visionRadius * 2.4)))
+    ? Math.min(fullScale * 4, Math.max(fullScale * 2.35, Math.max(1, Math.min(width, height)) / visionDiameter))
     : fullScale;
-  const scale = baseScale * view.zoom;
+  const scale = positiveFiniteOr(baseScale * positiveFiniteOr(view.zoom, 1), fullScale);
   const { x: centerX, y: centerY } = viewCenter(minimap, focus, view);
   const offsetX = width / 2 - centerX * scale;
   const offsetY = height / 2 - centerY * scale;
@@ -345,6 +350,10 @@ function renderDynamicMap(
     context.clip(path);
     const center = transform.toCanvas(member.x, member.y);
     const radius = geometry.visionRadius * transform.scale;
+    if (!Number.isFinite(center.x) || !Number.isFinite(center.y) || !Number.isFinite(radius) || radius <= 0) {
+      context.restore();
+      continue;
+    }
     const glow = context.createRadialGradient(center.x, center.y, 0, center.x, center.y, radius);
     glow.addColorStop(0, "rgba(176, 248, 220, .9)");
     glow.addColorStop(.88, "rgba(113, 218, 179, .58)");
@@ -396,4 +405,12 @@ function playerColor(userId: string): string {
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
+}
+
+function finiteOr(value: number, fallback: number): number {
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function positiveFiniteOr(value: number, fallback: number): number {
+  return Number.isFinite(value) && value > 0 ? value : fallback;
 }

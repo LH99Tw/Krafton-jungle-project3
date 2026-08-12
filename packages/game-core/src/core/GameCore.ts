@@ -1548,19 +1548,10 @@ export class GameCore {
   }
 
   private canUseSpecialRoom(player: CorePlayer, kind: CoreSpecialRoomState["kind"]): boolean {
-    return player.alive && this.rooms.get(player.roomId)?.kind === kind && this.specialRooms.get(player.roomId)?.kind === kind
-      && (kind !== "shop" || this.isInPersonalShopZone(player));
-  }
-
-  private isInPersonalShopZone(player: CorePlayer): boolean {
-    const members = [...this.players.keys()].sort();
-    const index = members.indexOf(player.userId);
-    if (index < 0) return false;
-    const center = this.roomWorldCenterOf(player.roomId);
-    const angles = [-Math.PI / 2, Math.PI / 6, Math.PI * 5 / 6];
-    const angle = angles[index % angles.length]!;
-    const target = { x: center.x + Math.cos(angle) * 180, y: center.y + Math.sin(angle) * 150 };
-    return Math.hypot(player.x - target.x, player.y - target.y) <= 92;
+    // Shop offers and inventories are already scoped to the requesting player.
+    // The HUD is visible throughout the shop room, so requiring an unrendered
+    // 92px personal hotspot made every visible purchase button look broken.
+    return player.alive && this.rooms.get(player.roomId)?.kind === kind && this.specialRooms.get(player.roomId)?.kind === kind;
   }
 
   private isNearRoomCenter(player: CorePlayer, radius: number): boolean {

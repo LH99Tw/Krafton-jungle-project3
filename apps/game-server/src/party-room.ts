@@ -86,6 +86,11 @@ const MAX_CATCH_UP_TICKS = 4;
 const KEYFRAME_INTERVAL_MS = 500;
 const DISCONTINUITY_DISTANCE = 96;
 const ENEMY_WORLD_KEYFRAME_TICKS = 60 * 5;
+
+export function replaceSchemaArray<T>(target: { length: number; splice(start: number, deleteCount: number): unknown; push(value: T): unknown }, values: readonly T[]): void {
+  target.splice(0, target.length);
+  for (const value of values) target.push(value);
+}
 const WEBSOCKET_SIZE_SAMPLE_INTERVAL = 30;
 const DEFAULT_MAX_ACTIVE_GAMES = 8;
 
@@ -861,7 +866,9 @@ export class PartyRoom extends Room<PartyRoomState> {
         trapDebuff: entry.trapDebuff ?? "",
         goldClaimed: entry.goldClaimed ?? false,
       });
-      state.trapParticipants.splice(0, state.trapParticipants.length, ...(entry.trapParticipants ?? []));
+      // ArraySchema does not allow a splice to insert more elements than it
+      // removes. Clear first, then append the authoritative participant list.
+      replaceSchemaArray(state.trapParticipants, entry.trapParticipants ?? []);
       this.state.specialRooms.set(entry.roomId, state);
     }
     const visibleOffers = view.shopStocks.flatMap((stock) => stock.offers.map((offer) => ({ stock, offer })));

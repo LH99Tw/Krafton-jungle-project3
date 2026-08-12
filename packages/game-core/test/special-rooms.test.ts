@@ -50,6 +50,18 @@ test("shop stock is deterministic, personal, and shared gold never goes negative
   assert.equal(first.core.gold, 0);
 });
 
+test("shop purchase works from the room center where its HUD first opens", () => {
+  const { core, player } = setup("shop-center-purchase");
+  const shop = "editor:shop" as AuthoredRoomId;
+  core.movePlayerToRoom(player.userId, shop);
+  const offer = core.getShopStock(player.userId, shop)!.offers.find((candidate) => candidate.kind === "equipment")!;
+  core.gold = offer.price;
+
+  assert.equal(core.shopBuy(player.userId, offer.id), true);
+  assert.equal(core.gold, 0);
+  assert.ok(player.inventory.some((item) => item?.id === offer.item?.id));
+});
+
 test("trap locks only its doorway and dynamically spawned monsters keep updating", () => {
   const { core, player } = setup("trap-motion");
   core.movePlayerToRoom(player.userId, "editor:trap" as AuthoredRoomId);

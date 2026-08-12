@@ -7,10 +7,11 @@ import {
   OperationTimeoutError,
   PartyRoom,
   createResultMessage,
+  replaceSchemaArray,
   runWithTimeoutAndRetry,
 } from "../src/party-room";
 import { PROTOCOL_VERSION, transformFlags, type WorldFrame } from "@five-days/protocol";
-import { PartyRoomState } from "../src/state";
+import { PartyRoomState, SpecialRoomState } from "../src/state";
 import {
   realtimeMetricsSnapshot,
   recordRoomInvaderMetrics,
@@ -313,6 +314,14 @@ test("input lease tolerates a short room-reveal rendering hitch", () => {
   }).expireStaleInputs;
   expire.call(harness as unknown as PartyRoom, 1_200);
   assert.equal(player.inputX, 1);
+});
+
+test("special-room sync can add multiple trap participants to an empty ArraySchema", () => {
+  const state = new SpecialRoomState();
+  replaceSchemaArray(state.trapParticipants, ["p1", "p2", "p3"]);
+  assert.deepEqual([...state.trapParticipants], ["p1", "p2", "p3"]);
+  replaceSchemaArray(state.trapParticipants, ["p2"]);
+  assert.deepEqual([...state.trapParticipants], ["p2"]);
 });
 
 test("schema sync removes retired enemies and their transform caches", () => {
