@@ -383,6 +383,7 @@ export class RoomGameScene extends Phaser.Scene {
     this.load.image("zone-2-blocked", "/Asset/zone-2-blocked-marsh.png");
     this.load.image("zone-3-blocked", "/Asset/zone-3-blocked-wastes.png");
     this.load.image("enemy-demon-midboss-asset", "/images/demon_midboss.png");
+    this.load.image("enemy-tree-midboss-asset", "/images/tree_midboss.png");
     for (const sprite of Object.values(BASIC_ATTACK_SPRITES)) {
       this.load.spritesheet(sprite.textureKey, sprite.path, {
         frameWidth: sprite.frameWidth,
