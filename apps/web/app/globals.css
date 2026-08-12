@@ -3452,7 +3452,10 @@ button {
 .bag-slot>span { display:flex; gap:2px; margin-top:2px; }
 .bag-slot>span button { flex:1; padding:2px; color:#d6b768; font-size:7px; }
 .special-room-panel progress { position:relative; width:100%; height:5px; accent-color:#b26cff; }
-.special-room-panel.is-checkpoint { width:min(460px,calc(100vw - 48px)); border-color:rgba(132,117,210,.68); background:linear-gradient(150deg,rgba(9,13,18,.97),rgba(22,18,35,.96)); box-shadow:0 22px 70px #000c,inset 0 0 70px rgba(103,80,205,.11); }
+.special-room-panel.is-checkpoint { width:min(410px,calc(100vw - 48px)); padding:18px 20px; border-color:rgba(132,117,210,.68); background:linear-gradient(150deg,rgba(9,13,18,.97),rgba(22,18,35,.96)); box-shadow:0 22px 70px #000c,inset 0 0 70px rgba(103,80,205,.11); }
+.special-room-panel.is-checkpoint header { margin-bottom:10px; padding-bottom:9px; }
+.special-room-panel.is-checkpoint header strong { font-size:19px; }
+.special-room-panel.is-checkpoint p { margin:0; line-height:1.55; }
 .checkpoint-reset { position:relative; }
 .checkpoint-sigil { position:absolute; top:-61px; right:2px; width:72px; height:72px; display:grid; place-items:center; color:#e7ddff; border:1px solid rgba(169,147,255,.62); border-radius:50%; background:radial-gradient(circle,rgba(166,137,255,.28),rgba(45,31,78,.18) 48%,transparent 50%); box-shadow:0 0 28px rgba(138,101,255,.25),inset 0 0 18px rgba(195,179,255,.15); animation:checkpoint-sigil-breathe 2.6s ease-in-out infinite; }
 .checkpoint-sigil::before,.checkpoint-sigil::after { content:""; position:absolute; inset:8px; border:1px solid rgba(194,177,255,.28); transform:rotate(45deg); }

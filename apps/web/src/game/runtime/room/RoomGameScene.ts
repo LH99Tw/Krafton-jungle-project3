@@ -241,6 +241,7 @@ export class RoomGameScene extends Phaser.Scene {
   private readonly pendingNetworkEnemySet = new Set<string>();
   private readonly networkEnemyHp = new Map<string, number>();
   private networkEnemyHpLayer!: Phaser.GameObjects.Graphics;
+  private waypointTravelBar!: Phaser.GameObjects.Graphics;
   private lastNetworkHpDrawAt = 0;
   private readonly networkEnemyAttackSequence = new Map<string, number>();
   private readonly networkPlayerAttackSequence = new Map<string, number>();
@@ -401,7 +402,9 @@ export class RoomGameScene extends Phaser.Scene {
     this.load.image("special-room-shrine-used", "/Asset/special-rooms/echo-shrine-used.webp");
     this.load.image("special-room-trap", "/Asset/special-rooms/trap-device.webp");
     this.load.image("special-room-checkpoint", "/Asset/special-rooms/checkpoint-runestone.webp");
-    this.load.image("waypoint-circle", "/Asset/waypoints/waypoint-circle.png");
+    this.load.image("waypoint-circle-zone-1", "/Asset/waypoints/waypoint-circle-zone-1.png");
+    this.load.image("waypoint-circle-zone-2", "/Asset/waypoints/waypoint-circle-zone-2.png");
+    this.load.image("waypoint-circle-zone-3", "/Asset/waypoints/waypoint-circle-zone-3.png");
     this.load.image("special-room-gamble", "/Asset/special-rooms/gamble-wheel.webp");
     this.load.image("special-room-altar", "/Asset/special-rooms/blood-altar.webp");
 
@@ -441,6 +444,7 @@ export class RoomGameScene extends Phaser.Scene {
       this.roomRenderer.updateSpecialRoomStates(initialSnapshot, initialLocal);
     }
     this.networkEnemyHpLayer = this.add.graphics().setDepth(28);
+    this.waypointTravelBar = this.add.graphics().setDepth(36);
     const startCenter = this.zoneWorld.rooms.find((entry) => entry.room.id === this.currentRoomId)?.center ?? { x: 0, y: 0 };
     this.player = this.roomRenderer.createHero(this.options.heroClass, startCenter.x, startCenter.y);
     this.lastWalkablePlayerPosition = { ...startCenter };
@@ -628,6 +632,7 @@ export class RoomGameScene extends Phaser.Scene {
       this.materializePendingNetworkEnemies();
       this.flushPendingCombatActions();
       this.updateNetworkTransforms();
+      this.drawWaypointTravelBar();
       const aim = this.aimAngle();
       if (this.options.runtimeMode !== "editor-core") colyseusTransport.setAim(aim);
       this.roomRenderer.updateHeroPose(this.player, this.localMovementX, this.localMovementY, time);
@@ -2338,6 +2343,37 @@ export class RoomGameScene extends Phaser.Scene {
     }
   }
 
+  private drawWaypointTravelBar(): void {
+    const graphics = this.waypointTravelBar;
+    graphics.clear().setPosition(0, 0);
+    const snapshot = this.latestNetwork;
+    const local = snapshot?.players.find((member) => member.isLocal || member.userId === this.options.userId);
+    if (!snapshot || !local?.alive || !this.player.visible) return;
+    const waypoint = snapshot.waypoints.find((candidate) => (
+      candidate.roomId === local.roomId
+      && candidate.active
+      && candidate.kind !== "gate"
+      && candidate.kind !== "boss"
+      && candidate.holdProgress > 0
+      && candidate.holdingPlayers > 0
+    ));
+    if (!waypoint) return;
+
+    const progress = Phaser.Math.Clamp(waypoint.holdProgress, 0, 1);
+    const width = 54;
+    const height = 7;
+    const x = this.player.x - width / 2;
+    const y = this.player.y - 58;
+    graphics.fillStyle(0x05070b, 0.92).fillRoundedRect(x - 2, y - 2, width + 4, height + 4, 3);
+    graphics.lineStyle(1, 0xe8dcff, 0.8).strokeRoundedRect(x - 1, y - 1, width + 2, height + 2, 2);
+    graphics.fillStyle(0x24153d, 0.96).fillRoundedRect(x, y, width, height, 2);
+    if (progress > 0) {
+      const fillWidth = Math.max(2, width * progress);
+      graphics.fillStyle(0xa765ff, 1).fillRoundedRect(x, y, fillWidth, height, 2);
+      graphics.fillStyle(0xf1d8ff, 0.72).fillRect(x + 1, y + 1, Math.max(1, fillWidth - 2), 1);
+    }
+  }
+
   private syncNetworkDrops(snapshot: NetworkWorldSnapshot, localRoomId: string): void {
     const visibleDrops = snapshot.drops.filter((drop) => drop.roomId === localRoomId);
     const visibleIds = new Set(visibleDrops.map((drop) => drop.id));
@@ -2771,6 +2807,7 @@ export class RoomGameScene extends Phaser.Scene {
     for (const sprite of this.remotePlayers.values()) sprite.destroy();
     for (const sprite of this.networkEnemies.values()) sprite.destroy();
     this.networkEnemyHpLayer?.destroy();
+    this.waypointTravelBar?.destroy();
     for (const drop of this.networkDrops.values()) drop.destroy();
     this.remotePlayers.clear();
     this.networkEnemies.clear();

@@ -187,7 +187,7 @@ const ROOM_COPY: Record<string, { eyebrow: string; title: string }> = {
   shop: { eyebrow: "BUILD MAINTENANCE", title: "떠돌이 상단" },
   shrine: { eyebrow: "TEMPORARY BLESSING", title: "메아리의 성소" },
   trap: { eyebrow: "LOCKDOWN", title: "몬스터 하우스" },
-  checkpoint: { eyebrow: "FAST TRAVEL", title: "웨이포인트 마법진" },
+  checkpoint: { eyebrow: "", title: "웨이포인트 활성화" },
   gamble: { eyebrow: "THREE CHANCES", title: "운명의 도박장" },
   altar: { eyebrow: "PERMANENT THIS RUN", title: "피의 제단" },
   gold: { eyebrow: "SECRET TREASURY", title: "봉인된 황금 금고" },
@@ -200,7 +200,7 @@ function SpecialRoomPanel({ snapshot }: { snapshot: GameSnapshot }) {
   const send = (action: SpecialAction, payload?: Record<string, string | number>) => gameBridge.command({ type: "special-room", action, payload });
   return (
     <aside className={`special-room-panel is-${room.kind}`} aria-label={copy.title}>
-      <header><small>{copy.eyebrow}</small><strong>{copy.title}</strong></header>
+      <header>{copy.eyebrow && <small>{copy.eyebrow}</small>}<strong>{copy.title}</strong></header>
       {room.kind === "shop" && <>
         <div className="shop-offer-row">{room.offers.map((offer) => <article className={`rarity-${offer.kind === "heal" ? "consumable" : shopRarity(offer.rarity)} ${offer.sold ? "is-sold" : ""}`} key={offer.id}>
           <small>{offer.kind === "heal" ? "회복 물약" : `${offer.rarity} · ${offer.slot}`}</small><b>{offer.price} G</b>
@@ -211,7 +211,7 @@ function SpecialRoomPanel({ snapshot }: { snapshot: GameSnapshot }) {
       </>}
       {room.kind === "shrine" && <><p>{room.state?.shrineClaimedBy ? "성소의 힘이 이미 선택되었습니다." : `${room.state?.shrineKind || "알 수 없는"}의 힘 · 중앙에서 3초간 집중`}</p><progress max={3} value={room.state?.shrineClaimProgress ?? 0} /><button className="special-primary" disabled={Boolean(room.state?.shrineClaimedBy)} onClick={() => send("shrine.claim")}>성소 점유 시작</button></>}
       {room.kind === "trap" && <p className="trap-status">{room.state?.trapPhase === "cleared" ? "봉인이 해제되었습니다." : `${room.state?.trapPhase || "idle"} · ${room.state?.trapDebuff || "진입 시 저주 결정"}`}</p>}
-      {room.kind === "checkpoint" && <p>웨이포인트가 활성화되었습니다. 마법진 위에 서서 미니맵의 다른 보라색 웨이포인트를 선택하면 3초 후 이동합니다.</p>}
+      {room.kind === "checkpoint" && <p>마법진 위에 서서 미니맵의 다른 웨이포인트를 눌러 이동하세요.</p>}
       {room.kind === "gamble" && <><p>판돈 {25 * snapshot.currentZone}G · 남은 기회 {Math.max(0, 3 - room.gambleAttempts)}회</p><button className="special-primary" disabled={room.gambleAttempts >= 3} onClick={() => send("gamble.play")}>운명에 걸기</button></>}
       {room.kind === "altar" && <><p>능력치 하나는 25% 강화되고 다른 하나는 15% 약화됩니다.</p><button className="special-primary" disabled={room.altarAttempts >= 3} onClick={() => send("altar.reroll")}>제단 리롤 · {room.altarAttempts}/3</button></>}
       {room.kind === "gold" && <><p>{room.state?.goldClaimed ? "황금 금고는 이미 비어 있습니다." : "원정대 공유 골드가 들어 있는 비밀 금고입니다."}</p><button className="special-primary" disabled={Boolean(room.state?.goldClaimed)} onClick={() => send("gold.claim")}>황금 상자 열기</button></>}

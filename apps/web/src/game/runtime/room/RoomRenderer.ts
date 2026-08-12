@@ -245,14 +245,14 @@ export class RoomRenderer {
         ? room.zone === 3 ? "마왕전 진입 웨이포인트" : "다음 구역 웨이포인트"
         : room.type === "checkpoint" ? "탐색 웨이포인트"
           : room.type === "central-waypoint" ? "중앙 웨이포인트" : "베이스 웨이포인트";
-      const circle = this.scene.add.image(center.x, center.y, "waypoint-circle").setDisplaySize(190, 190).setDepth(1).setAlpha(0.82);
+      const circle = this.scene.add.image(center.x, center.y, `waypoint-circle-zone-${room.zone}`).setDisplaySize(190, 190).setDepth(1).setAlpha(0.82);
       this.scene.tweens.add({ targets: circle, alpha: { from: 0.68, to: 0.96 }, duration: 1100, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
       this.waypointObjects.push(
         circle,
         this.scene.add.text(center.x, center.y + 58, label, {
           fontFamily: "sans-serif",
           fontSize: "11px",
-          color: "#dfc5ff",
+          color: room.zone === 1 ? "#c8f5bd" : room.zone === 2 ? "#a5f3ef" : "#f5b8eb",
           backgroundColor: "#13211dcc",
           padding: { x: 7, y: 4 },
         }).setOrigin(0.5).setDepth(3),

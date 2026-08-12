@@ -36,13 +36,6 @@ export function ExplorationHud({ snapshot }: { snapshot: GameSnapshot }) {
               {snapshot.waypoint.holdProgress > 0 && <i style={{ width: `${snapshot.waypoint.holdProgress * 100}%` }} />}
             </button>
           )}
-          {snapshot.waypoint.nearby && !snapshot.bossAvailable && (
-            <div className="waypoint-rally is-fast-travel" role="status">
-              <span>{snapshot.waypoint.holdProgress > 0 ? "순간이동 집중 중 · 움직이면 취소" : "미니맵의 보라색 웨이포인트를 선택하세요"}</span>
-              <strong>{snapshot.waypoint.holdProgress > 0 ? `${Math.ceil((1 - snapshot.waypoint.holdProgress) * 3)}초` : "3초"}</strong>
-              {snapshot.waypoint.holdProgress > 0 && <i style={{ width: `${snapshot.waypoint.holdProgress * 100}%` }} />}
-            </div>
-          )}
         </div>
       </div>
     </section>
