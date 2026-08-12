@@ -371,7 +371,12 @@ test("static enemies chase, animate an attack sequence, and stay in their spawn 
   const core = startedCore("static-behavior");
   const player = core.players.get("p1")!;
   player.aim = Math.PI;
-  const staticEnemy = enemy("static-test", player.roomId, player.x + 180, player.y);
+  const staticEnemy = enemy(
+    "static-test",
+    player.roomId,
+    player.x + CLASS_COMBAT_RULES.swordsman.attackRange + 60,
+    player.y,
+  );
   core.enemies.clear();
   core.enemies.set(staticEnemy.id, staticEnemy);
   const originalX = staticEnemy.x;

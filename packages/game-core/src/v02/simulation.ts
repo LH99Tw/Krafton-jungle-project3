@@ -1,7 +1,6 @@
 import type { Difficulty, HeroClassId } from "@five-days/protocol";
 import {
-  BOSS_BASE_HP,
-  BOSS_HP_MULTIPLIERS,
+  BOSS_THREE_PLAYER_HP,
   DIFFICULTY_RULES,
   EQUIPMENT_BALANCE,
   INVADER_BALANCE,
@@ -239,8 +238,8 @@ export const CLASS_COMBAT_RULES: Readonly<Record<HeroClassId, ClassCombatRule>> 
     hp: 165,
     speed: 230 * PLAYER_MOVE_SPEED_MULTIPLIER,
     power: 115,
-    attackDamage: 11,
-    attackRange: 118,
+    attackDamage: 15,
+    attackRange: 180,
     attackInterval: 0.44,
     coneHalfAngle: Math.PI * 55 / 180,
   },
@@ -248,7 +247,7 @@ export const CLASS_COMBAT_RULES: Readonly<Record<HeroClassId, ClassCombatRule>> 
     hp: 115,
     speed: 255 * PLAYER_MOVE_SPEED_MULTIPLIER,
     power: 120,
-    attackDamage: 7,
+    attackDamage: 10,
     attackRange: 460,
     attackInterval: 0.36,
     coneHalfAngle: Math.PI / 6,
@@ -257,8 +256,8 @@ export const CLASS_COMBAT_RULES: Readonly<Record<HeroClassId, ClassCombatRule>> 
     hp: 105,
     speed: 240 * PLAYER_MOVE_SPEED_MULTIPLIER,
     power: 125,
-    attackDamage: 9,
-    attackRange: 390,
+    attackDamage: 12,
+    attackRange: 400,
     attackInterval: 0.62,
     coneHalfAngle: Math.PI / 6,
   },
@@ -340,7 +339,11 @@ export function createRuntimeWorld(
 
 export function createBossEnemy(seed: string | number, difficulty: Difficulty, balancePartySize: BalancePartySize = 1): CoreEnemy {
   const multiplier = DIFFICULTY_RULES[difficulty];
-  const hp = Math.round(BOSS_BASE_HP * BOSS_HP_MULTIPLIERS[difficulty] * partyHpMultiplier(balancePartySize));
+  const hp = Math.round(
+    BOSS_THREE_PLAYER_HP[difficulty]
+      * partyHpMultiplier(balancePartySize)
+      / partyHpMultiplier(3),
+  );
   const boss = bossWorldRect();
   const x = boss.x + boss.width / 2;
   const y = boss.y + boss.height * 0.3;

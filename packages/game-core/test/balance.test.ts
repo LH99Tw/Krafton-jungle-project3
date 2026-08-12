@@ -1,8 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  BOSS_BASE_HP,
-  BOSS_HP_MULTIPLIERS,
+  BOSS_THREE_PLAYER_HP,
   DIFFICULTY_RULES,
   EQUIPMENT_BALANCE,
   INVADER_BALANCE,
@@ -66,8 +65,10 @@ test("difficulty and frozen party size scale every enemy HP deterministically", 
 
   const normalBoss = createBossEnemy("boss", "normal", 3);
   const hardBoss = createBossEnemy("boss", "hard", 3);
-  assert.equal(normalBoss.maxHp, Math.round(BOSS_BASE_HP * BOSS_HP_MULTIPLIERS.normal * 2.3));
-  assert.equal(hardBoss.maxHp, Math.round(BOSS_BASE_HP * BOSS_HP_MULTIPLIERS.hard * 2.3));
+  assert.equal(normalBoss.maxHp, BOSS_THREE_PLAYER_HP.normal);
+  assert.equal(hardBoss.maxHp, BOSS_THREE_PLAYER_HP.hard);
+  assert.equal(createBossEnemy("boss", "normal", 1).maxHp, Math.round(10_000 / 2.3));
+  assert.equal(createBossEnemy("boss", "normal", 2).maxHp, Math.round(10_000 * 1.65 / 2.3));
   assert.equal(normalBoss.damage, 32);
   assert.equal(hardBoss.damage, 41);
 });
@@ -104,6 +105,9 @@ test("each invader grants its small XP reward only once", () => {
 
 test("equipment uses bounded percentage defense without upgrade scaling", () => {
   assert.deepEqual((["swordsman", "archer", "mage"] as const).map((heroClass) => CLASS_COMBAT_RULES[heroClass].hp), [165, 115, 105]);
+  assert.deepEqual((["swordsman", "archer", "mage"] as const).map((heroClass) => CLASS_COMBAT_RULES[heroClass].attackDamage), [15, 10, 12]);
+  assert.deepEqual((["swordsman", "archer", "mage"] as const).map((heroClass) => CLASS_COMBAT_RULES[heroClass].attackRange), [180, 460, 400]);
+  assert.ok((["swordsman", "archer", "mage"] as const).every((heroClass) => CLASS_COMBAT_RULES[heroClass].attackRange % 10 === 0));
   const item = (slot: PersonalHiddenDrop["slot"]): PersonalHiddenDrop => ({
     id: slot,
     ownerPlayerId: "p1",
@@ -177,12 +181,12 @@ test("one thousand deterministic builds stay inside the level 25 and level 30 DP
 
   const level25 = partyDps(25);
   const level30 = partyDps(30);
-  assert.ok(level25[499]! >= 250 && level25[499]! <= 280, `level 25 median DPS was ${level25[499]}`);
-  assert.ok(level30[899]! <= 340, `level 30 p90 DPS was ${level30[899]}`);
+  assert.ok(level25[499]! >= 290 && level25[499]! <= 315, `level 25 median DPS was ${level25[499]}`);
+  assert.ok(level30[899]! <= 390, `level 30 p90 DPS was ${level30[899]}`);
   const normalTtk = createBossEnemy("ttk-normal", "normal", 3).maxHp / level25[499]!;
   const hardTtk = createBossEnemy("ttk-hard", "hard", 3).maxHp / level25[499]!;
-  assert.ok(normalTtk >= 35 && normalTtk <= 45, `normal boss basic-attack TTK was ${normalTtk}`);
-  assert.ok(hardTtk >= 55 && hardTtk <= 65, `hard boss basic-attack TTK was ${hardTtk}`);
+  assert.ok(normalTtk >= 31 && normalTtk <= 35, `normal boss basic-attack TTK was ${normalTtk}`);
+  assert.ok(hardTtk >= 47 && hardTtk <= 52, `hard boss basic-attack TTK was ${hardTtk}`);
 });
 
 function expectedBossBasicDps(heroClass: "swordsman" | "archer" | "mage", stacks: AugmentStacks): number {

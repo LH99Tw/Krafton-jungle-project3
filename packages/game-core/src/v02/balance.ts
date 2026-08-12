@@ -53,10 +53,9 @@ export const SPECIAL_ROOM_BALANCE = {
   shrineArea: 1.5,
 } as const;
 
-export const BOSS_BASE_HP = 3_350;
-export const BOSS_HP_MULTIPLIERS: Readonly<Record<Difficulty, number>> = {
-  normal: 1.35,
-  hard: 2.025,
+export const BOSS_THREE_PLAYER_HP: Readonly<Record<Difficulty, number>> = {
+  normal: 10_000,
+  hard: 15_000,
 };
 
 export function partyHpMultiplier(partySize: BalancePartySize): number {
