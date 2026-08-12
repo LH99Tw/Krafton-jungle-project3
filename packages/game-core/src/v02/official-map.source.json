@@ -344,8 +344,8 @@
     },
     {
       "id": "room-local-44",
-      "name": "자원 방",
-      "type": "resource",
+      "name": "몬스터 방",
+      "type": "static-monster",
       "asset": "wastes",
       "x": 32,
       "y": -19,

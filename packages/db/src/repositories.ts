@@ -254,7 +254,6 @@ export type FinalPlayerResult = {
   kills: number;
   deaths: number;
   structuresBuilt: number;
-  goldSpent: number;
   gatesDestroyed: number;
   disconnected: boolean;
 };

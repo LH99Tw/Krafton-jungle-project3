@@ -20,14 +20,6 @@ export const ROOM_VIEW = {
   bottom: 668,
 } as const;
 
-export const BUILD_BOUNDS = {
-  minX: 82,
-  maxX: 486,
-  minY: 390,
-  maxY: 638,
-  gridSize: 40,
-} as const;
-
 const WALL_HALF_TILE = 20;
 
 export function wallEnvelopeRects(
@@ -48,7 +40,7 @@ export type RenderableRoom = {
   x: number;
   y: number;
   type: "start" | "gate" | "resource" | "static-monster" | "empty" | "central-waypoint" | "hidden-monster" | "boss"
-    | "gate-candidate" | "shop" | "shrine" | "trap" | "checkpoint" | "gamble" | "altar" | "gold";
+    | "gate-candidate" | "shrine" | "trap" | "checkpoint" | "altar";
   connections: readonly string[];
 };
 

@@ -59,7 +59,6 @@ export type TeamStats = {
   kills: number;
   deaths: number;
   structuresBuilt: number;
-  goldSpent: number;
   gatesDestroyed: number;
 };
 
@@ -95,9 +94,8 @@ export type PartyMemberSnapshot = {
   skillTargetY?: number;
   skillRadius?: number;
   combatStats?: PlayerCombatStats;
-  inventory?: Array<{ id: string; slot: EquipmentSummary["slot"]; rarity: EquipmentSummary["rarity"]; upgradeLevel: number } | null>;
+  inventory?: Array<{ id: string; slot: EquipmentSummary["slot"]; rarity: EquipmentSummary["rarity"] } | null>;
   respawnRoomId?: string;
-  gambleAttempts?: number;
   altarAttempts?: number;
   shrineBuff?: string;
   shrineBuffRemaining?: number;
@@ -119,7 +117,7 @@ export type RoomMapCell = {
   x: number;
   y: number;
   type: "start" | "gate" | "resource" | "static-monster" | "empty" | "central-waypoint" | "hidden-monster" | "boss"
-    | "gate-candidate" | "shop" | "shrine" | "trap" | "checkpoint" | "gamble" | "altar" | "gold";
+    | "gate-candidate" | "shrine" | "trap" | "checkpoint" | "altar";
   visited: boolean;
   current: boolean;
   cleared: boolean;
@@ -188,7 +186,6 @@ export type NetworkWorldSnapshot = {
   phaseEndsAt: number;
   baseHp: number;
   baseMaxHp: number;
-  gold: number;
   currentZone: number;
   teamLevel: number;
   teamXp: number;
@@ -216,8 +213,7 @@ export type NetworkWorldSnapshot = {
   } | null;
   stats: TeamStats;
   minimap: MiniMapSnapshot | null;
-  specialRooms: Array<{ roomId: string; kind: string; shrineKind: string; shrineClaimedBy: string; shrineClaimingBy: string; shrineClaimProgress: number; trapPhase: string; trapDebuff: string; trapParticipants: string[]; goldClaimed: boolean }>;
-  shopOffers: Array<{ id: string; playerId: string; roomId: string; kind: string; slot: string; rarity: string; price: number; sold: boolean; locked: boolean }>;
+  specialRooms: Array<{ roomId: string; kind: string; shrineKind: string; shrineClaimedBy: string; shrineClaimingBy: string; shrineClaimProgress: number; trapPhase: string; trapDebuff: string; trapParticipants: string[] }>;
 };
 
 export type GameSnapshot = {
@@ -235,7 +231,6 @@ export type GameSnapshot = {
   level: number;
   xp: number;
   xpToNext: number;
-  gold: number;
   teamPower: number;
   gatesDestroyed: number;
   buildMode: BuildMode;
@@ -263,10 +258,8 @@ export type GameSnapshot = {
   specialRoom?: {
     kind: string;
     state: NetworkWorldSnapshot["specialRooms"][number] | null;
-    offers: NetworkWorldSnapshot["shopOffers"];
     inventory: NonNullable<PartyMemberSnapshot["inventory"]>;
     respawnRoomId: string;
-    gambleAttempts: number;
     altarAttempts: number;
     shrineBuff: string;
     shrineBuffRemaining: number;
@@ -276,7 +269,7 @@ export type GameSnapshot = {
 export type GameStartOptions = {
   heroClass: HeroClassId;
   sessionMode: SessionMode;
-  difficulty: "easy" | "normal" | "hard";
+  difficulty: "normal" | "hard";
   partyMode: PartyMode;
   runtimeMode?: "server" | "editor-core";
   userId?: string;
@@ -308,7 +301,6 @@ export const EMPTY_SNAPSHOT: GameSnapshot = {
   level: 1,
   xp: 0,
   xpToNext: 20,
-  gold: 0,
   teamPower: 0,
   gatesDestroyed: 0,
   buildMode: null,
@@ -326,7 +318,6 @@ export const EMPTY_SNAPSHOT: GameSnapshot = {
     kills: 0,
     deaths: 0,
     structuresBuilt: 0,
-    goldSpent: 0,
     gatesDestroyed: 0,
   },
   party: [],

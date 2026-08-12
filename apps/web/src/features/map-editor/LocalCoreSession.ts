@@ -133,17 +133,11 @@ export class LocalCoreSession {
 
   specialCommand(type: string, payload: Record<string, string | number> = {}): boolean {
     const core = this.requireCore();
-    if (type === "shop.buy") return core.shopBuy(this.localUserId, String(payload.offerId ?? ""));
-    if (type === "shop.reroll") return core.shopReroll(this.localUserId);
-    if (type === "shop.lock") return core.shopLock(this.localUserId, String(payload.offerId ?? ""));
-    if (type === "shop.sell") return core.shopSell(this.localUserId, Number(payload.inventoryIndex));
-    if (type === "shop.upgrade") return core.shopUpgrade(this.localUserId, Number(payload.inventoryIndex));
     if (type === "equipment.inventory-equip") return core.equipInventoryItem(this.localUserId, Number(payload.inventoryIndex));
+    if (type === "equipment.inventory-discard") return core.discardInventoryItem(this.localUserId, Number(payload.inventoryIndex));
     if (type === "shrine.claim") return core.claimShrine(this.localUserId);
     if (type === "checkpoint.set") return core.setCheckpoint(this.localUserId);
-    if (type === "gamble.play") return core.playGamble(this.localUserId) !== null;
     if (type === "altar.reroll") return core.rerollAltar(this.localUserId) !== null;
-    if (type === "gold.claim") return core.claimGoldRoom(this.localUserId) !== null;
     return false;
   }
 
@@ -177,7 +171,6 @@ export class LocalCoreSession {
       phaseEndsAt: view.phaseRemaining > 0 ? now + view.phaseRemaining * 1_000 : 0,
       baseHp: view.baseHp,
       baseMaxHp: view.baseMaxHp,
-      gold: view.gold,
       currentZone: view.currentZone,
       teamLevel: view.teamLevel,
       teamXp: view.teamXp,
@@ -244,7 +237,6 @@ export class LocalCoreSession {
         kills: [...core.players.values()].reduce((sum, player) => sum + player.kills, 0),
         deaths: [...core.players.values()].reduce((sum, player) => sum + player.deaths, 0),
         structuresBuilt: [...core.players.values()].reduce((sum, player) => sum + player.structuresBuilt, 0),
-        goldSpent: [...core.players.values()].reduce((sum, player) => sum + player.goldSpent, 0),
         gatesDestroyed: [...core.players.values()].reduce((sum, player) => sum + player.gatesDestroyed, 0),
       },
       minimap: this.minimap,
@@ -253,12 +245,7 @@ export class LocalCoreSession {
         shrineClaimingBy: entry.shrineClaimingBy ?? "", shrineClaimProgress: entry.shrineClaimProgress ?? 0,
         trapPhase: entry.trapPhase ?? "", trapDebuff: entry.trapDebuff ?? "",
         trapParticipants: [...(entry.trapParticipants ?? [])],
-        goldClaimed: entry.goldClaimed ?? false,
       })),
-      shopOffers: view.shopStocks.filter((stock) => stock.playerId === this.localUserId).flatMap((stock) => stock.offers.map((offer) => ({
-        id: offer.id, playerId: stock.playerId, roomId: stock.roomId, kind: offer.kind, slot: offer.item?.slot ?? "",
-        rarity: offer.item?.rarity ?? "", price: offer.price, sold: offer.sold, locked: offer.locked,
-      }))),
     };
   }
 
@@ -335,9 +322,8 @@ function playerSnapshot(core: GameCore, player: CorePlayer, isLocal: boolean): P
     attackCritical: player.lastAttackCritical,
     isLocal,
     equipment,
-    inventory: player.inventory.map((item) => item ? ({ id: item.id, slot: item.slot, rarity: item.rarity, upgradeLevel: item.upgradeLevel ?? 0 }) : null),
+    inventory: player.inventory.map((item) => item ? ({ id: item.id, slot: item.slot, rarity: item.rarity }) : null),
     respawnRoomId: player.respawnRoomId,
-    gambleAttempts: player.gambleAttempts,
     altarAttempts: player.altarAttempts,
     shrineBuff: player.shrineBuff?.kind ?? "",
     shrineBuffRemaining: player.shrineBuff ? Math.max(0, player.shrineBuff.expiresAt - core.elapsed) : 0,

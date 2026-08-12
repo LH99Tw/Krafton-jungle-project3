@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import type { LobbyChatMessage, LobbyListing } from "@five-days/protocol";
+import type { Difficulty, LobbyChatMessage, LobbyListing } from "@five-days/protocol";
 import type { LobbySnapshot } from "@/src/game/transport/LobbyTransport";
 import type { Viewer } from "../game/GameShell";
 import { FantasyButton } from "../../components/ui/FantasyButton";
@@ -15,7 +15,7 @@ export function LobbyScreen({ viewer, rooms, snapshot, messages, busy, error, on
   messages: LobbyChatMessage[];
   busy: boolean;
   error: string;
-  onCreate: (input: { roomName: string; sessionMode: "prototype" | "full"; difficulty: "easy" | "normal" | "hard" }) => Promise<void>;
+  onCreate: (input: { roomName: string; sessionMode: "prototype" | "full"; difficulty: Difficulty }) => Promise<void>;
   onJoin: (roomId: string) => Promise<void>;
   onLeave: () => Promise<void>;
   onReady: (ready: boolean) => void;
@@ -129,14 +129,14 @@ export function LobbyScreen({ viewer, rooms, snapshot, messages, busy, error, on
   );
 }
 
-function CreateRoomDialog({ busy, onClose, onCreate }: { busy: boolean; onClose: () => void; onCreate: (input: { roomName: string; sessionMode: "prototype" | "full"; difficulty: "easy" | "normal" | "hard" }) => Promise<void> }) {
+function CreateRoomDialog({ busy, onClose, onCreate }: { busy: boolean; onClose: () => void; onCreate: (input: { roomName: string; sessionMode: "prototype" | "full"; difficulty: Difficulty }) => Promise<void> }) {
   const [suggestedRoomName] = useState(createRandomExpeditionName);
   const [roomName, setRoomName] = useState(suggestedRoomName);
   const [usingSuggestedName, setUsingSuggestedName] = useState(true);
   const [sessionMode, setSessionMode] = useState<"prototype" | "full">("prototype");
-  const [difficulty, setDifficulty] = useState<"easy" | "normal" | "hard">("normal");
+  const [difficulty, setDifficulty] = useState<Difficulty>("normal");
   const customNameIsTooShort = roomName.trim().length === 1;
-  return <div className="create-backdrop" role="dialog" aria-modal="true" aria-labelledby="create-title"><form className="create-dialog" onSubmit={(event) => { event.preventDefault(); void onCreate({ roomName: roomName.trim() || suggestedRoomName, sessionMode, difficulty }); }}><span>새로운 여정의 시작</span><h2 id="create-title">원정대 편성</h2><label>원정대 이름<input value={roomName} maxLength={24} minLength={2} onFocus={() => { if (usingSuggestedName) { setRoomName(""); setUsingSuggestedName(false); } }} onChange={(event) => { setUsingSuggestedName(false); setRoomName(event.target.value); }} placeholder={suggestedRoomName} /></label><fieldset><legend>원정 시간</legend><FantasyButton type="button" variant={sessionMode === "prototype" ? "primary" : "quiet"} className={sessionMode === "prototype" ? "active" : ""} onClick={() => setSessionMode("prototype")}>짧은 원정 <small>8분</small></FantasyButton><FantasyButton type="button" variant={sessionMode === "full" ? "primary" : "quiet"} className={sessionMode === "full" ? "active" : ""} onClick={() => setSessionMode("full")}>긴 원정 <small>25분</small></FantasyButton></fieldset><fieldset><legend>난이도</legend>{(["easy", "normal", "hard"] as const).map((value) => <FantasyButton key={value} type="button" variant={difficulty === value ? "primary" : "quiet"} className={difficulty === value ? "active" : ""} onClick={() => setDifficulty(value)}>{difficultyLabel(value)}</FantasyButton>)}</fieldset><div><FantasyButton type="button" variant="quiet" onClick={onClose}>돌아가기</FantasyButton><FantasyButton type="submit" variant="primary" disabled={busy || customNameIsTooShort}>원정대 만들기</FantasyButton></div></form></div>;
+  return <div className="create-backdrop" role="dialog" aria-modal="true" aria-labelledby="create-title"><form className="create-dialog" onSubmit={(event) => { event.preventDefault(); void onCreate({ roomName: roomName.trim() || suggestedRoomName, sessionMode, difficulty }); }}><span>새로운 여정의 시작</span><h2 id="create-title">원정대 편성</h2><label>원정대 이름<input value={roomName} maxLength={24} minLength={2} onFocus={() => { if (usingSuggestedName) { setRoomName(""); setUsingSuggestedName(false); } }} onChange={(event) => { setUsingSuggestedName(false); setRoomName(event.target.value); }} placeholder={suggestedRoomName} /></label><fieldset><legend>원정 시간</legend><FantasyButton type="button" variant={sessionMode === "prototype" ? "primary" : "quiet"} className={sessionMode === "prototype" ? "active" : ""} onClick={() => setSessionMode("prototype")}>짧은 원정 <small>8분</small></FantasyButton><FantasyButton type="button" variant={sessionMode === "full" ? "primary" : "quiet"} className={sessionMode === "full" ? "active" : ""} onClick={() => setSessionMode("full")}>긴 원정 <small>25분</small></FantasyButton></fieldset><fieldset><legend>난이도</legend>{(["normal", "hard"] as const).map((value) => <FantasyButton key={value} type="button" variant={difficulty === value ? "primary" : "quiet"} className={difficulty === value ? "active" : ""} onClick={() => setDifficulty(value)}>{difficultyLabel(value)}</FantasyButton>)}</fieldset><div><FantasyButton type="button" variant="quiet" onClick={onClose}>돌아가기</FantasyButton><FantasyButton type="submit" variant="primary" disabled={busy || customNameIsTooShort}>원정대 만들기</FantasyButton></div></form></div>;
 }
 
 const EXPEDITION_NAME_PREFIXES = ["새벽의", "잿빛", "별빛", "붉은 달", "고요한", "황금 사자", "검은 숲", "은빛"] as const;
@@ -148,4 +148,4 @@ function createRandomExpeditionName() {
   return `${prefix} ${noun} 원정대`;
 }
 
-function difficultyLabel(value: "easy" | "normal" | "hard") { return value === "easy" ? "쉬움" : value === "normal" ? "보통" : "어려움"; }
+function difficultyLabel(value: Difficulty) { return value === "normal" ? "보통" : "어려움"; }

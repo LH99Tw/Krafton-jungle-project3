@@ -1,4 +1,16 @@
-import type { HeroClassId } from "@five-days/protocol";
+import type { Difficulty, HeroClassId } from "@five-days/protocol";
+import {
+  BOSS_BASE_HP,
+  BOSS_HP_MULTIPLIERS,
+  DIFFICULTY_RULES,
+  EQUIPMENT_BALANCE,
+  INVADER_BALANCE,
+  ZONE_ONE_ENEMY_MULTIPLIERS,
+  invaderXp,
+  partyHpMultiplier,
+  staticMonsterXp,
+  type BalancePartySize,
+} from "./balance";
 import {
   EQUIPMENT_RARITIES,
   type EquipmentSlot,
@@ -12,7 +24,7 @@ import {
   type ZoneId,
   type ZoneMap,
 } from "./map";
-import type { AugmentDefinition, AugmentStacks } from "./progression";
+import { augmentEffectValue, type AugmentDefinition, type AugmentStacks } from "./progression";
 import { createSeededRandom, hashSeed } from "./random";
 import {
   bossWorldRect,
@@ -35,7 +47,7 @@ export const BOSS_ROOM_ID = "boss:arena" as const;
 
 export type AuthoredRoomId = `editor:${string}`;
 export type CoreRoomId = RoomId | typeof BOSS_ROOM_ID | AuthoredRoomId;
-export type SpecialRoomKind = "shop" | "shrine" | "trap" | "checkpoint" | "gamble" | "altar" | "gold";
+export type SpecialRoomKind = "shrine" | "trap" | "checkpoint" | "altar";
 export type CoreRoomKind = RoomType | "boss" | "gate-candidate" | SpecialRoomKind;
 export type CoreEnemyKind = "static" | "hidden" | "gate" | "invader" | "boss";
 export type CoreEnemyBehavior = "static" | "gate" | "invader" | "boss";
@@ -118,7 +130,6 @@ export type CoreEnemy = {
   attackRange: number;
   attackCooldown: number;
   xpReward: number;
-  goldReward: number;
   alive: boolean;
   aggroed: boolean;
   targetId: string | null;
@@ -225,7 +236,7 @@ export const MONSTER_MOVE_SPEED = 280;
 
 export const CLASS_COMBAT_RULES: Readonly<Record<HeroClassId, ClassCombatRule>> = {
   swordsman: {
-    hp: 150,
+    hp: 165,
     speed: 230 * PLAYER_MOVE_SPEED_MULTIPLIER,
     power: 115,
     attackDamage: 11,
@@ -234,7 +245,7 @@ export const CLASS_COMBAT_RULES: Readonly<Record<HeroClassId, ClassCombatRule>> 
     coneHalfAngle: Math.PI * 55 / 180,
   },
   archer: {
-    hp: 105,
+    hp: 115,
     speed: 255 * PLAYER_MOVE_SPEED_MULTIPLIER,
     power: 120,
     attackDamage: 7,
@@ -243,7 +254,7 @@ export const CLASS_COMBAT_RULES: Readonly<Record<HeroClassId, ClassCombatRule>> 
     coneHalfAngle: Math.PI / 6,
   },
   mage: {
-    hp: 95,
+    hp: 105,
     speed: 240 * PLAYER_MOVE_SPEED_MULTIPLIER,
     power: 125,
     attackDamage: 9,
@@ -253,28 +264,22 @@ export const CLASS_COMBAT_RULES: Readonly<Record<HeroClassId, ClassCombatRule>> 
   },
 };
 
-const DIFFICULTY_MULTIPLIER = {
-  easy: { hp: 0.82, damage: 0.78 },
-  normal: { hp: 1, damage: 1 },
-  hard: { hp: 1.25, damage: 1.18 },
-} as const;
-
 const ENEMY_RULES: Readonly<Record<Exclude<CoreEnemyKind, "invader" | "boss">, {
   hp: number;
   damage: number;
   speed: number;
   attackRange: number;
   xp: number;
-  gold: number;
 }>> = {
-  static: { hp: 68, damage: 7, speed: MONSTER_MOVE_SPEED, attackRange: 38, xp: 18, gold: 5 },
-  hidden: { hp: 450, damage: 16, speed: MONSTER_MOVE_SPEED, attackRange: 165, xp: 120, gold: 45 },
-  gate: { hp: 190, damage: 18, speed: 55, attackRange: 250, xp: 75, gold: 24 },
+  static: { hp: 68, damage: 7, speed: MONSTER_MOVE_SPEED, attackRange: 38, xp: 18 },
+  hidden: { hp: 450, damage: 16, speed: MONSTER_MOVE_SPEED, attackRange: 165, xp: 120 },
+  gate: { hp: 190, damage: 18, speed: 55, attackRange: 250, xp: 75 },
 };
 
 export function createRuntimeWorld(
   seed: string | number,
-  difficulty: "easy" | "normal" | "hard",
+  difficulty: Difficulty,
+  balancePartySize: BalancePartySize = 1,
 ): RuntimeWorld {
   const maps = generateThreeZoneMap(seed);
   const rooms = new Map<CoreRoomId, CoreRoom>();
@@ -311,7 +316,7 @@ export function createRuntimeWorld(
       const kind = enemyKindForRoom(room.type);
       if (kind) {
         const origin = roomWorldRect({ x: room.x, y: room.y });
-        const enemy = createSeededRoomEnemy(seed, room.id, room.zone, kind, difficulty, origin.x, origin.y);
+        const enemy = createSeededRoomEnemy(seed, room.id, room.zone, kind, difficulty, origin.x, origin.y, ROOM_WIDTH, ROOM_HEIGHT, balancePartySize);
         enemies.set(enemy.id, enemy);
       }
     }
@@ -333,9 +338,9 @@ export function createRuntimeWorld(
   return { maps, rooms, doors, enemies, waypoints };
 }
 
-export function createBossEnemy(seed: string | number, difficulty: "easy" | "normal" | "hard"): CoreEnemy {
-  const multiplier = DIFFICULTY_MULTIPLIER[difficulty];
-  const hp = Math.round(28500 * multiplier.hp);
+export function createBossEnemy(seed: string | number, difficulty: Difficulty, balancePartySize: BalancePartySize = 1): CoreEnemy {
+  const multiplier = DIFFICULTY_RULES[difficulty];
+  const hp = Math.round(BOSS_BASE_HP * BOSS_HP_MULTIPLIERS[difficulty] * partyHpMultiplier(balancePartySize));
   const boss = bossWorldRect();
   const x = boss.x + boss.width / 2;
   const y = boss.y + boss.height * 0.3;
@@ -356,7 +361,6 @@ export function createBossEnemy(seed: string | number, difficulty: "easy" | "nor
     attackRange: 0,
     attackCooldown: 0,
     xpReward: 0,
-    goldReward: 0,
     alive: true,
     aggroed: false,
     targetId: null,
@@ -380,13 +384,14 @@ export function createInvaderEnemy(
   zone: ZoneId,
   spawnIndex: number,
   maps: ThreeZoneMap,
-  difficulty: "easy" | "normal" | "hard",
+  difficulty: Difficulty,
+  balancePartySize: BalancePartySize = 1,
   authored?: Readonly<{ roomId: CoreRoomId; path: readonly CoreRoomId[]; position: Readonly<{ x: number; y: number }> }>,
 ): CoreEnemy {
   const random = createSeededRandom(`invader:${seed}:${zone}:${spawnIndex}`);
-  const multiplier = DIFFICULTY_MULTIPLIER[difficulty];
+  const multiplier = DIFFICULTY_RULES[difficulty];
   const path = authored?.path ?? createInvaderPath(zone, maps);
-  const hp = Math.round((22 + zone * 8) * multiplier.hp);
+  const hp = Math.round((22 + zone * 8) * multiplier.hp * partyHpMultiplier(balancePartySize) * INVADER_BALANCE.hp);
   const spawn = authored?.position ?? invaderWorldSpawn(path[0], maps);
   return {
     id: `enemy:invader:${zone}:${spawnIndex}:${hashSeed(`${seed}:${random.next()}`).toString(16)}`,
@@ -400,12 +405,11 @@ export function createInvaderEnemy(
     spawnY: spawn.y,
     hp,
     maxHp: hp,
-    damage: Math.round((7 + zone * 2) * multiplier.damage),
+    damage: Math.round((7 + zone * 2) * multiplier.damage * INVADER_BALANCE.damage),
     speed: MONSTER_MOVE_SPEED,
     attackRange: 42,
     attackCooldown: 0,
-    xpReward: 10 + zone * 3,
-    goldReward: 4 + zone,
+    xpReward: invaderXp(zone),
     alive: true,
     aggroed: false,
     targetId: "base",
@@ -539,28 +543,26 @@ export function createEmptyEquipment(): CoreEquipmentLoadout {
 }
 
 export function equipmentBonuses(loadout: CoreEquipmentLoadout): CoreEquipmentBonuses {
-  const multiplier = (item: PersonalHiddenDrop | null) => item
-    ? item.statMultiplier * (1 + (item.upgradeLevel ?? 0) * 0.2)
-    : 0;
+  const multiplier = (item: PersonalHiddenDrop | null) => item?.statMultiplier ?? 0;
   const weaponMultiplier = multiplier(loadout.weapon);
   const armorMultiplier = multiplier(loadout.armor);
   const accessoryMultiplier = multiplier(loadout.accessory);
   return {
-    attackBonus: Math.round(20 * weaponMultiplier),
-    maxHpBonus: Math.round(80 * armorMultiplier),
-    defenseBonus: Math.round(8 * armorMultiplier),
-    attackSpeedBonus: Math.round(30 * accessoryMultiplier),
+    attackBonus: Math.round(EQUIPMENT_BALANCE.attack * weaponMultiplier),
+    maxHpBonus: Math.round(EQUIPMENT_BALANCE.maxHp * armorMultiplier),
+    defenseBonus: Math.round(EQUIPMENT_BALANCE.defensePercent * armorMultiplier),
+    attackSpeedBonus: Math.round(EQUIPMENT_BALANCE.attackSpeedPercent * accessoryMultiplier),
   };
 }
 
 export function equipmentPower(item: PersonalHiddenDrop | null): number {
   if (!item) return 0;
   const rarity = EQUIPMENT_RARITIES[item.rarity];
-  return Math.round(rarity.statMultiplier * 100 * (1 + (item.upgradeLevel ?? 0) * 0.2) + rarity.specialOptionCount * 18);
+  return Math.round(rarity.statMultiplier * 100 + rarity.specialOptionCount * 18);
 }
 
 export function augmentAttackBonus(stacks: AugmentStacks): number {
-  return (stacks.power ?? 0) * 3;
+  return augmentEffectValue(stacks, "power", "amount");
 }
 
 export function makeDraftId(seed: string | number, playerId: string, level: number, draftIndex: number): string {
@@ -625,17 +627,21 @@ export function createSeededRoomEnemy(
   roomId: CoreRoomId,
   zone: ZoneId,
   kind: "static" | "hidden" | "gate",
-  difficulty: "easy" | "normal" | "hard",
+  difficulty: Difficulty,
   originX: number,
   originY: number,
   roomWidth = ROOM_WIDTH,
   roomHeight = ROOM_HEIGHT,
+  balancePartySize: BalancePartySize = 1,
 ): CoreEnemy {
   const random = createSeededRandom(`enemy:${seed}:${roomId}:${kind}`);
   const base = ENEMY_RULES[kind];
-  const difficultyRule = DIFFICULTY_MULTIPLIER[difficulty];
+  const difficultyRule = DIFFICULTY_RULES[difficulty];
   const zoneScale = 1 + (zone - 1) * 0.28;
-  const hp = Math.round(base.hp * zoneScale * difficultyRule.hp);
+  const zoneOneMultiplier = zone === 1 && (kind === "static" || kind === "gate")
+    ? ZONE_ONE_ENEMY_MULTIPLIERS[kind]
+    : { hp: 1, damage: 1 };
+  const hp = Math.round(base.hp * zoneScale * difficultyRule.hp * partyHpMultiplier(balancePartySize) * zoneOneMultiplier.hp);
   const x = originX + (kind === "gate"
     ? roomWidth * 0.76
     : kind === "hidden" ? roomWidth / 2 : roomWidth * (0.35 + random.next() * 0.3));
@@ -654,12 +660,11 @@ export function createSeededRoomEnemy(
     spawnY: y,
     hp,
     maxHp: hp,
-    damage: Math.round(base.damage * zoneScale * difficultyRule.damage),
+    damage: Math.round(base.damage * zoneScale * difficultyRule.damage * zoneOneMultiplier.damage),
     speed: base.speed,
     attackRange: base.attackRange,
     attackCooldown: 0,
-    xpReward: Math.round(base.xp * zoneScale),
-    goldReward: Math.round(base.gold * zoneScale),
+    xpReward: kind === "static" ? staticMonsterXp(zone) : Math.round(base.xp * zoneScale),
     alive: true,
     aggroed: false,
     targetId: null,
@@ -680,7 +685,7 @@ export function createSeededRoomEnemy(
 
 export type EnemyPatternTier = "hidden" | "gate" | "boss";
 
-export function enemyPatternConfig(tier: EnemyPatternTier): Readonly<{
+export function enemyPatternConfig(tier: EnemyPatternTier, intensity = 0): Readonly<{
   rayCount: number;
   range: number;
   floorCount: number;
@@ -689,18 +694,18 @@ export function enemyPatternConfig(tier: EnemyPatternTier): Readonly<{
   cooldownSeconds: number;
 }> {
   if (tier === "hidden") return { rayCount: 8, range: 420, floorCount: 5, floorRadius: 54, telegraphSeconds: 1.05, cooldownSeconds: 1.55 };
-  if (tier === "boss") return { rayCount: 16, range: 660, floorCount: 10, floorRadius: 74, telegraphSeconds: 0.65, cooldownSeconds: 0.65 };
+  if (tier === "boss") return { rayCount: 16 + intensity * 4, range: 660, floorCount: 10 + intensity * 2, floorRadius: 74, telegraphSeconds: 0.65, cooldownSeconds: 0.65 };
   return { rayCount: 12, range: 520, floorCount: 7, floorRadius: 64, telegraphSeconds: 0.85, cooldownSeconds: 1 };
 }
 
-export function enemyFanPatternAngles(patternIndex: number, tier: EnemyPatternTier = "gate"): readonly number[] {
-  const config = enemyPatternConfig(tier);
+export function enemyFanPatternAngles(patternIndex: number, tier: EnemyPatternTier = "gate", intensity = 0): readonly number[] {
+  const config = enemyPatternConfig(tier, intensity);
   const rotation = patternIndex * Math.PI / (config.rayCount * 2);
   return Array.from({ length: config.rayCount }, (_, index) => rotation + index * Math.PI * 2 / config.rayCount);
 }
 
-export function enemyFloorPatternCircles(x: number, y: number, patternIndex: number, tier: EnemyPatternTier = "gate"): readonly { x: number; y: number; radius: number }[] {
-  const config = enemyPatternConfig(tier);
+export function enemyFloorPatternCircles(x: number, y: number, patternIndex: number, tier: EnemyPatternTier = "gate", intensity = 0): readonly { x: number; y: number; radius: number }[] {
+  const config = enemyPatternConfig(tier, intensity);
   const rotation = patternIndex * Math.PI / config.floorCount;
   return Array.from({ length: config.floorCount }, (_, index) => {
     const angle = rotation + index * Math.PI * 2 / config.floorCount;

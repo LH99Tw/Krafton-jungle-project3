@@ -80,8 +80,8 @@ test("gates deployments on verification and repairs required production settings
   assert.match(workflow, /five-days-game-server:\$\{\{ env\.RELEASE_SHA \}\}/);
   assert.match(workflow, /upsert_env \.env\.web GUESTBOOK_MASTER_KEY/);
   assert.match(workflow, /upsert_env \.env\.web PUBLIC_PLAYTEST_ENABLED true/);
-  assert.match(workflow, /upsert_env \.env\.web PROTOCOL_VERSION 9/);
-  assert.match(workflow, /upsert_env \.env\.game PROTOCOL_VERSION 9/);
+  assert.match(workflow, /upsert_env \.env\.web PROTOCOL_VERSION 10/);
+  assert.match(workflow, /upsert_env \.env\.game PROTOCOL_VERSION 10/);
   assert.match(configure, /GUESTBOOK_MASTER_KEY/);
   assert.match(instrumentation, /GUESTBOOK_MASTER_KEY is required in production/);
 });
@@ -107,7 +107,7 @@ test("composes the in-game relic HUD from focused components", async () => {
   const minimap = await readFile(new URL("src/features/game/RoomMiniMap.tsx", root), "utf8");
   const styles = await readFile(new URL("app/globals.css", root), "utf8");
 
-  for (const component of ["PhaseHud", "TeamGoldHud", "ExplorationHud", "PlayerCommandBar", "PartyVitalsHud"]) {
+  for (const component of ["PhaseHud", "InventoryHudButton", "ExplorationHud", "PlayerCommandBar", "PartyVitalsHud"]) {
     assert.match(hud, new RegExp(`<${component}`));
   }
   const partyVitals = await readFile(new URL("src/features/game/hud/PartyVitalsHud.tsx", root), "utf8");
@@ -139,7 +139,7 @@ test("composes the in-game relic HUD from focused components", async () => {
   assert.match(phase, /phase-day\.png/);
   assert.match(phase, /phase-night\.png/);
   const generatedHudAssets = [
-    "phase-day.png", "phase-night.png", "gold-coin.png", "frame-phase.png", "frame-gold.png", "frame-map.png",
+    "phase-day.png", "phase-night.png", "frame-phase.png", "frame-map.png",
     "frame-command.png", "frame-stats.png", "skills/swordsman-q.png", "skills/swordsman-e.png",
     "skills/archer-q.png", "skills/archer-e.png", "skills/mage-q.png", "skills/mage-e.png", "skills/stats.png",
   ];

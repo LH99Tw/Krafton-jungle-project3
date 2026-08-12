@@ -132,7 +132,6 @@ export const matchPlayers = pgTable(
     kills: integer("kills").notNull().default(0),
     deaths: integer("deaths").notNull().default(0),
     structuresBuilt: integer("structures_built").notNull().default(0),
-    goldSpent: integer("gold_spent").notNull().default(0),
     gatesDestroyed: integer("gates_destroyed").notNull().default(0),
     joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
     leftAt: timestamp("left_at", { withTimezone: true }),

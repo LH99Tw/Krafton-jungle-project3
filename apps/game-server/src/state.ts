@@ -20,19 +20,6 @@ export class InventoryItemState extends Schema {
   @type("string") id = "";
   @type("string") slot = "weapon";
   @type("string") rarity = "normal";
-  @type("number") upgradeLevel = 0;
-}
-
-export class ShopOfferState extends Schema {
-  @type("string") id = "";
-  @type("string") playerId = "";
-  @type("string") roomId = "";
-  @type("string") kind = "equipment";
-  @type("string") slot = "";
-  @type("string") rarity = "";
-  @type("number") price = 0;
-  @type("boolean") sold = false;
-  @type("boolean") locked = false;
 }
 
 export class SpecialRoomState extends Schema {
@@ -45,7 +32,6 @@ export class SpecialRoomState extends Schema {
   @type("string") trapPhase = "";
   @type("string") trapDebuff = "";
   @type(["string"]) trapParticipants = new ArraySchema<string>();
-  @type("boolean") goldClaimed = false;
 }
 
 export class UpgradeChoiceState extends Schema {
@@ -103,7 +89,6 @@ export class PlayerState extends Schema {
   @type("number") kills = 0;
   @type("number") deaths = 0;
   @type("number") structuresBuilt = 0;
-  @type("number") goldSpent = 0;
   @type("number") gatesDestroyed = 0;
   @type("number") attackSequence = 0;
   @type("string") attackTargetId = "";
@@ -115,7 +100,6 @@ export class PlayerState extends Schema {
   @type(EquipmentSummaryState) equipment = new EquipmentSummaryState();
   @type([InventoryItemState]) inventory = new ArraySchema<InventoryItemState>();
   @type("string") respawnRoomId = "";
-  @type("number") gambleAttempts = 0;
   @type("number") altarAttempts = 0;
   @type("string") shrineBuff = "";
   @type("number") shrineBuffRemaining = 0;
@@ -213,7 +197,6 @@ export class PartyRoomState extends Schema {
   @type("number") phaseEndsAt = 0;
   @type("number") baseHp = 900;
   @type("number") baseMaxHp = 900;
-  @type("number") gold = 100;
   @type("number") teamLevel = 1;
   @type("number") teamXp = 0;
   @type("number") teamXpToNext = 0;
@@ -224,7 +207,6 @@ export class PartyRoomState extends Schema {
   @type({ map: EnemyState }) enemies = new MapSchema<EnemyState>();
   @type({ map: WaypointState }) waypoints = new MapSchema<WaypointState>();
   @type({ map: SpecialRoomState }) specialRooms = new MapSchema<SpecialRoomState>();
-  @type({ map: ShopOfferState }) shopOffers = new MapSchema<ShopOfferState>();
   @type({ map: StructureState }) structures = new MapSchema<StructureState>();
   @view()
   @type({ map: DropState }) drops = new MapSchema<DropState>();

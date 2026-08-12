@@ -12,6 +12,7 @@ import {
   EDITOR_MAP_STORAGE_KEY,
   EDITOR_MAX_COORDINATE,
   EDITOR_MIN_COORDINATE,
+  normalizeEditorMapDefinition,
   validateEditorMap,
   type EditorAssetTheme,
   type EditorConnection,
@@ -48,13 +49,10 @@ const ROOM_TYPES: Array<{ type: EditorRoomType; label: string; mark: string }> =
   { type: "gate-candidate", label: "게이트 후보", mark: "?" },
   { type: "boss", label: "보스룸", mark: "♛" },
   { type: "start", label: "시작 베이스", mark: "⌂" },
-  { type: "shop", label: "상점방", mark: "¤" },
   { type: "shrine", label: "임시 성소", mark: "✺" },
   { type: "trap", label: "함정방", mark: "⚠" },
   { type: "checkpoint", label: "체크포인트", mark: "◎" },
-  { type: "gamble", label: "도박방", mark: "♠" },
   { type: "altar", label: "제단방", mark: "†" },
-  { type: "gold", label: "비밀 골드방", mark: "₲" },
 ];
 const THEMES: Array<{ id: EditorAssetTheme; label: string; image: string }> = [
   { id: "forest", label: "녹음 지대", image: "/Asset/zone-1-vegetation.png" },
@@ -102,8 +100,8 @@ function loadInitialEditorState(): InitialEditorState {
   try {
     const stored = window.localStorage.getItem(EDITOR_MAP_STORAGE_KEY);
     if (stored) {
-      const parsed = JSON.parse(stored) as EditorMapDefinition;
-      if (parsed.version === 1 && Array.isArray(parsed.rooms) && Array.isArray(parsed.connections)) {
+      const parsed = normalizeEditorMapDefinition(JSON.parse(stored));
+      if (parsed) {
         const migrated = createStoredEditorMap(fallbackId, parsed);
         return { map: cloneEditorMap(parsed), activeMapId: fallbackId, savedMaps: [migrated] };
       }

@@ -1,11 +1,11 @@
 # 《5일 뒤 마왕》 프로토콜·데이터 명세
 
-> 공용 계약 버전은 v9다. 실제 필드 검증의 단일 원본은 `packages/protocol/src/index.ts`, Colyseus 상태의 단일 원본은 `apps/game-server/src/state.ts`, DB의 단일 원본은 `packages/db/src/schema.ts`다.
+> 공용 계약 버전은 v10이다. 실제 필드 검증의 단일 원본은 `packages/protocol/src/index.ts`, Colyseus 상태의 단일 원본은 `apps/game-server/src/state.ts`, DB의 단일 원본은 `packages/db/src/schema.ts`다.
 
 ## 1. 버전과 호환성
 
-- `PROTOCOL_VERSION = 9`
-- Room 입장, 명령, 입력 frame, world frame, 미니맵 메시지는 v9 literal을 요구한다.
+- `PROTOCOL_VERSION = 10`
+- Room 입장, 명령, 입력 frame, world frame, 미니맵 메시지는 v10 literal을 요구한다.
 - 공식 맵 revision이 서버와 다르면 게임 룸 입장을 거절한다.
 - 구버전 payload를 자동 변환하지 않는다.
 - 모든 명령 객체는 strict schema이며 정의되지 않은 필드를 거절한다.
@@ -26,9 +26,9 @@
 |---|---|
 | `heroClass` | `swordsman | archer | mage` |
 | `sessionMode` | `prototype | full` |
-| `difficulty` | `easy | normal | hard` |
+| `difficulty` | `normal | hard` |
 | `partyMode` | `solo | coop` |
-| `protocolVersion` | `9` |
+| `protocolVersion` | `10` |
 | `mapRevision` | 1~96자 ID |
 
 룸 생성 옵션과 참가 옵션의 파티 모드, 세션 모드, 난이도, 맵 revision이 같아야 한다.
@@ -39,7 +39,7 @@
 
 ```ts
 {
-  v: 9;
+  v: 10;
   type: string;
   seq: number;
   clientTime: number;
@@ -63,16 +63,10 @@
 | `upgrade.choose` | `{ draftId, upgradeId }` | 구현 |
 | `equipment.equip` | `{ dropId }` | 구현 |
 | `equipment.inventory-equip` | `{ inventoryIndex }` | 구현 |
-| `shop.buy` | `{ offerId }` | 구현 |
-| `shop.reroll` | `{}` | 구현 |
-| `shop.lock` | `{ offerId }` | 구현 |
-| `shop.sell` | `{ inventoryIndex }` | 구현 |
-| `shop.upgrade` | `{ inventoryIndex }` | 구현 |
+| `equipment.inventory-discard` | `{ inventoryIndex }` | 구현 |
 | `shrine.claim` | `{}` | 구현 |
 | `checkpoint.set` | `{}` | 구현 |
-| `gamble.play` | `{}` | 구현 |
 | `altar.reroll` | `{}` | 구현 |
-| `gold.claim` | `{}` | 구현 |
 | `build.place` | `{ buildingId, gridX, gridY }` | `BUILD_NOT_READY` |
 | `build.upgrade` | `{ structureId }` | `BUILD_NOT_READY` |
 
@@ -109,7 +103,7 @@
 
 - protocolVersion, matchId, seed
 - phase, result, day, serverTime, elapsed, phaseEndsAt
-- currentZone, base HP, gold, team level/XP
+- currentZone, base HP, team level/XP
 - players, rooms, doors, enemies, waypoints, specialRooms
 - structures 컬렉션: 계약만 존재하며 현재 비어 있음
 
@@ -119,7 +113,7 @@
 - HP, level, teamPower, 생존·부활·접속·준비
 - 계산된 공격·방어·치명타·공격속도·사거리·이동속도
 - Q/E/Dash 쿨다운과 마지막 스킬 정보
-- 피해, 보스 피해, 킬, 사망, 건설, 골드 소비, 게이트 파괴
+- 피해, 보스 피해, 킬, 사망, 건설, 게이트 파괴
 - 장비 요약, 6칸 개인 인벤토리, 체크포인트와 특수 방 개인 진행 상태
 - 개인 증강 draft
 
@@ -141,7 +135,7 @@ Colyseus `StateView`를 사용한다.
 | 개인 증강 draft | 소유자 |
 | 개인 드롭 | 소유자 |
 | 개인 장비 | 파티 표시용 요약, 상세는 소유자 흐름 |
-| 개인 인벤토리·상점 재고 | 소유자 |
+| 개인 인벤토리 | 소유자 |
 | 발견한 특수 방 공용 상태 | 파티 전체; 개인 획득·시도 상태는 플레이어별 필드 |
 
 다른 사용자의 drop ID로 장착을 요청하면 거절해야 한다.

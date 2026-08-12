@@ -4,7 +4,7 @@ import type { CoreWorldDefinition } from "./simulation";
 export const OFFICIAL_MAP_COMPILER_VERSION = 2;
 
 export type AuthoredRoomType = "start" | "empty" | "resource" | "static-monster" | "hidden-monster" | "gate" | "boss"
-  | "gate-candidate" | "shop" | "shrine" | "trap" | "checkpoint" | "gamble" | "altar" | "gold";
+  | "gate-candidate" | "shrine" | "trap" | "checkpoint" | "altar";
 export type AuthoredAssetTheme = "forest" | "marsh" | "wastes";
 export type AuthoredPortSide = "north" | "east" | "south" | "west";
 export type AuthoredConnectionPort = Readonly<{ side: AuthoredPortSide; offset: number }>;

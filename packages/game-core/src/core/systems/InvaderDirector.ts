@@ -37,6 +37,7 @@ import {
 } from "../constants";
 import { clamp, clampUpdateRate, invaderEdgeKey } from "../helpers";
 import type { ZoneId } from "../../v02/map";
+import { waveBatchSize } from "../../v02/balance";
 
 type ReplanPriority = 0 | 1 | 2;
 type PendingInvaderReplan = { allowRandom: boolean; priority: ReplanPriority };
@@ -201,6 +202,7 @@ export class InvaderDirector {
       this.invaderSerial,
       this.core.maps,
       this.core.options.difficulty,
+      this.core.balancePartySize,
       authoredGate && authoredPath && authoredPosition
         ? { roomId: authoredGate.roomId, path: authoredPath, position: authoredPosition }
         : undefined,
@@ -213,7 +215,9 @@ export class InvaderDirector {
       invader.spawnX = spawn.x;
       invader.spawnY = spawn.y;
     }
-    const targetPreference = spawnIndex % 2 === 0 ? "player" : "base";
+    const targetPreference = this.core.phase === "night"
+      ? spawnIndex % 4 === 0 ? "player" : "base"
+      : spawnIndex % 2 === 0 ? "player" : "base";
     const navigation = this.createInvaderNavigation(invader, targetPreference);
     if (targetPreference === "player") {
       const nearbyPlayer = this.nearestInvaderPlayerTarget(invader);
@@ -446,7 +450,11 @@ export class InvaderDirector {
       }
       this.initialSpawnDelayCompleted = true;
       this.invaderWaveIndex = 1;
-      this.enqueueInvaderWave(spawnGate.id, this.core.currentZone, 1);
+      this.enqueueInvaderWave(
+        spawnGate.id,
+        this.core.currentZone,
+        waveBatchSize("day", this.core.options.difficulty, 0, INVADER_DAY_WAVES),
+      );
     }
     this.invaderSpawnReleaseAccumulator += delta;
     while (this.invaderWaveQueue.length > 0) {
@@ -469,7 +477,7 @@ export class InvaderDirector {
     this.invaderSpawnAccumulator += delta;
     if (this.invaderSpawnAccumulator + SIMULATION_EPSILON < interval) return;
     this.invaderSpawnAccumulator = Math.max(0, this.invaderSpawnAccumulator - interval);
-    const count = isNight ? 3 + this.invaderWaveIndex * 2 : this.invaderWaveIndex + 1;
+    const count = waveBatchSize(this.core.phase, this.core.options.difficulty, this.invaderWaveIndex, waveCount);
     this.invaderWaveIndex = Math.min(waveCount, this.invaderWaveIndex + 1);
     this.enqueueInvaderWave(spawnGate.id, this.core.currentZone, count);
   }

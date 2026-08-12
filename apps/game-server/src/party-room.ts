@@ -39,7 +39,6 @@ import {
   PLAYER_TRANSFORM_VIEW,
   PlayerState,
   RoomState,
-  ShopOfferState,
   SpecialRoomState,
   UpgradeChoiceState,
   WaypointState,
@@ -171,9 +170,8 @@ export function createResultMessage(core: GameCore) {
       kills: total.kills + player.kills,
       deaths: total.deaths + player.deaths,
       structuresBuilt: total.structuresBuilt + player.structuresBuilt,
-      goldSpent: total.goldSpent + player.goldSpent,
       gatesDestroyed: total.gatesDestroyed + player.gatesDestroyed,
-    }), { damage: 0, bossDamage: 0, kills: 0, deaths: 0, structuresBuilt: 0, goldSpent: 0, gatesDestroyed: 0 }),
+    }), { damage: 0, bossDamage: 0, kills: 0, deaths: 0, structuresBuilt: 0, gatesDestroyed: 0 }),
   };
 }
 
@@ -271,6 +269,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       difficulty: options.difficulty,
       seed: crypto.randomUUID(),
       minimumPlayers: options.partyMode === "solo" ? 1 : 3,
+      balancePartySize: options.partyMode === "solo" ? 1 : 3,
       maxLiveInvaders: numericEnv("MAX_LIVE_INVADERS", DEFAULT_MAX_LIVE_INVADERS, 32, ABSOLUTE_MAX_LIVE_INVADERS),
       invaderUpdateRates: {
         warmHz: numericEnv("INVADER_WARM_HZ", 20, 1, 60),
@@ -310,16 +309,10 @@ export class PartyRoom extends Room<PartyRoomState> {
       "recall.request",
       "equipment.equip",
       "equipment.inventory-equip",
-      "shop.buy",
-      "shop.reroll",
-      "shop.lock",
-      "shop.sell",
-      "shop.upgrade",
+      "equipment.inventory-discard",
       "shrine.claim",
       "checkpoint.set",
-      "gamble.play",
       "altar.reroll",
-      "gold.claim",
     ] as const) {
       this.onMessage(messageType, (client, message) => this.handleCommand(client, messageType, message));
     }
@@ -530,24 +523,8 @@ export class PartyRoom extends Room<PartyRoomState> {
       if (!this.core.equipInventoryItem(userId, command.payload.inventoryIndex)) this.reject(client, "EQUIPMENT_REJECTED");
       return;
     }
-    if (command.type === "shop.buy") {
-      if (!this.core.shopBuy(userId, command.payload.offerId)) this.reject(client, "SHOP_REJECTED");
-      return;
-    }
-    if (command.type === "shop.reroll") {
-      if (!this.core.shopReroll(userId)) this.reject(client, "SHOP_REJECTED");
-      return;
-    }
-    if (command.type === "shop.lock") {
-      if (!this.core.shopLock(userId, command.payload.offerId)) this.reject(client, "SHOP_REJECTED");
-      return;
-    }
-    if (command.type === "shop.sell") {
-      if (!this.core.shopSell(userId, command.payload.inventoryIndex)) this.reject(client, "SHOP_REJECTED");
-      return;
-    }
-    if (command.type === "shop.upgrade") {
-      if (!this.core.shopUpgrade(userId, command.payload.inventoryIndex)) this.reject(client, "SHOP_REJECTED");
+    if (command.type === "equipment.inventory-discard") {
+      if (!this.core.discardInventoryItem(userId, command.payload.inventoryIndex)) this.reject(client, "EQUIPMENT_REJECTED");
       return;
     }
     if (command.type === "shrine.claim") {
@@ -558,22 +535,10 @@ export class PartyRoom extends Room<PartyRoomState> {
       if (!this.core.setCheckpoint(userId)) this.reject(client, "CHECKPOINT_REJECTED");
       return;
     }
-    if (command.type === "gamble.play") {
-      const payout = this.core.playGamble(userId);
-      if (payout === null) this.reject(client, "GAMBLE_REJECTED");
-      else this.broadcast("world-notice", { message: `${this.core.players.get(userId)?.displayName ?? "용사"}의 도박 결과: ${payout} 골드` });
-      return;
-    }
     if (command.type === "altar.reroll") {
       const result = this.core.rerollAltar(userId);
       if (!result) this.reject(client, "ALTAR_REJECTED");
       else this.broadcast("world-notice", { message: `${this.core.players.get(userId)?.displayName ?? "용사"}의 제단: ${result.increased} 강화 / ${result.decreased} 약화` });
-      return;
-    }
-    if (command.type === "gold.claim") {
-      const reward = this.core.claimGoldRoom(userId);
-      if (reward === null) this.reject(client, "GOLD_REJECTED");
-      else this.broadcast("world-notice", { message: `${this.core.players.get(userId)?.displayName ?? "용사"}가 비밀 금고에서 ${reward} 골드를 획득했습니다.` });
       return;
     }
     if (command.type === "skill.cast") {
@@ -751,7 +716,6 @@ export class PartyRoom extends Room<PartyRoomState> {
     this.state.phaseEndsAt = view.phaseRemaining > 0 ? Date.now() + view.phaseRemaining * 1000 : 0;
     this.state.baseHp = view.baseHp;
     this.state.baseMaxHp = view.baseMaxHp;
-    this.state.gold = view.gold;
     this.state.currentZone = view.currentZone;
     this.state.teamLevel = view.teamLevel;
     this.state.teamXp = view.teamXp;
@@ -796,7 +760,6 @@ export class PartyRoom extends Room<PartyRoomState> {
         kills: player.kills,
         deaths: player.deaths,
         structuresBuilt: player.structuresBuilt,
-        goldSpent: player.goldSpent,
         gatesDestroyed: player.gatesDestroyed,
         attackSequence: player.attackCount,
         attackTargetId: player.lastAttackTargetId ?? "",
@@ -806,7 +769,6 @@ export class PartyRoom extends Room<PartyRoomState> {
         ready: player.ready,
         connected: player.connected,
         respawnRoomId: player.respawnRoomId,
-        gambleAttempts: player.gambleAttempts,
         altarAttempts: player.altarAttempts,
         shrineBuff: player.shrineBuff?.kind ?? "",
         shrineBuffRemaining: player.shrineBuff ? Math.max(0, player.shrineBuff.expiresAt - view.elapsed) : 0,
@@ -833,7 +795,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       state.inventory.splice(0, state.inventory.length);
       player.inventory.forEach((item) => {
         const itemState = new InventoryItemState();
-        if (item) Object.assign(itemState, { id: item.id, slot: item.slot, rarity: item.rarity, upgradeLevel: item.upgradeLevel ?? 0 });
+        if (item) Object.assign(itemState, { id: item.id, slot: item.slot, rarity: item.rarity });
         state!.inventory.push(itemState);
       });
       const draft = player.upgradeDraft;
@@ -874,26 +836,12 @@ export class PartyRoom extends Room<PartyRoomState> {
         shrineClaimProgress: entry.shrineClaimProgress ?? 0,
         trapPhase: entry.trapPhase ?? "",
         trapDebuff: entry.trapDebuff ?? "",
-        goldClaimed: entry.goldClaimed ?? false,
       });
       // ArraySchema does not allow a splice to insert more elements than it
       // removes. Clear first, then append the authoritative participant list.
       replaceSchemaArray(state.trapParticipants, entry.trapParticipants ?? []);
       this.state.specialRooms.set(entry.roomId, state);
     }
-    const visibleOffers = view.shopStocks.flatMap((stock) => stock.offers.map((offer) => ({ stock, offer })));
-    const offerIds = new Set(visibleOffers.map(({ offer }) => offer.id));
-    for (const id of this.state.shopOffers.keys()) if (!offerIds.has(id)) this.state.shopOffers.delete(id);
-    for (const { stock, offer } of visibleOffers) {
-      const state = this.state.shopOffers.get(offer.id) ?? new ShopOfferState();
-      Object.assign(state, {
-        id: offer.id, playerId: stock.playerId, roomId: stock.roomId, kind: offer.kind,
-        slot: offer.item?.slot ?? "", rarity: offer.item?.rarity ?? "", price: offer.price,
-        sold: offer.sold, locked: offer.locked,
-      });
-      this.state.shopOffers.set(offer.id, state);
-    }
-
     for (const room of view.rooms) {
       let state = this.state.rooms.get(room.id);
       if (!state) {
@@ -1427,7 +1375,6 @@ export class PartyRoom extends Room<PartyRoomState> {
         kills: player.kills,
         deaths: player.deaths,
         structuresBuilt: player.structuresBuilt,
-        goldSpent: player.goldSpent,
         gatesDestroyed: player.gatesDestroyed,
         disconnected: !player.connected,
       })),

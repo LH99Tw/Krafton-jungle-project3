@@ -8,7 +8,7 @@ const EDITOR_MAX_ROOM_WIDTH = 6;
 const EDITOR_MIN_ROOM_HEIGHT = 2;
 const EDITOR_MAX_ROOM_HEIGHT = 5;
 
-const EDITOR_ROOM_TYPES = ["start", "empty", "resource", "static-monster", "hidden-monster", "gate", "gate-candidate", "boss", "shop", "shrine", "trap", "checkpoint", "gamble", "altar", "gold"] as const;
+const EDITOR_ROOM_TYPES = ["start", "empty", "resource", "static-monster", "hidden-monster", "gate", "gate-candidate", "boss", "shrine", "trap", "checkpoint", "altar"] as const;
 const EDITOR_ASSET_THEMES = ["forest", "marsh", "wastes"] as const;
 const EDITOR_PORT_SIDES = ["north", "east", "south", "west"] as const;
 
@@ -163,6 +163,22 @@ export function isEditorMapDefinition(value: unknown): value is EditorMapDefinit
   if (map.version !== 1 || typeof map.title !== "string" || map.title.trim().length === 0 || map.title.length > 80) return false;
   if (!Array.isArray(map.rooms) || !Array.isArray(map.connections)) return false;
   return map.rooms.every(isEditorRoom) && map.connections.every(isEditorConnection);
+}
+
+export function normalizeEditorMapDefinition(value: unknown): EditorMapDefinition | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as { rooms?: unknown };
+  if (!Array.isArray(candidate.rooms)) return null;
+  const rooms = candidate.rooms.map((entry) => {
+    if (!entry || typeof entry !== "object") return entry;
+    const room = entry as Record<string, unknown>;
+    const type = room.type === "shop" || room.type === "gold"
+      ? "resource"
+      : room.type === "gamble" ? "altar" : room.type;
+    return { ...room, type };
+  });
+  const normalized = { ...(value as object), rooms };
+  return isEditorMapDefinition(normalized) ? cloneEditorMap(normalized) : null;
 }
 
 function isEditorRoom(value: unknown): value is EditorRoom {

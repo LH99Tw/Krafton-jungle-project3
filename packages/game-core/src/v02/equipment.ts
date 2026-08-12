@@ -40,8 +40,6 @@ export type PersonalHiddenDrop = Readonly<{
   slot: EquipmentSlot;
   statMultiplier: number;
   specialOptionCount: number;
-  /** Shop upgrades never change rarity; this level scales the item's base stat. */
-  upgradeLevel?: number;
 }>;
 
 export type PersonalHiddenDropInput = Readonly<{
@@ -91,7 +89,6 @@ export function rollPersonalHiddenDrop(input: PersonalHiddenDropInput): Personal
     slot,
     statMultiplier: rule.statMultiplier,
     specialOptionCount: rule.specialOptionCount,
-    upgradeLevel: 0,
   };
 }
 

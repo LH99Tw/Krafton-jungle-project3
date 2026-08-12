@@ -28,7 +28,7 @@ test("official party exploration reveals discovered rooms and publishes category
   const boss = OFFICIAL_WORLD.rooms.find((room) => room.id === OFFICIAL_WORLD.bossRoomId)!;
   assert.equal(isExplored(mask, cellIndexAt(init.geometry, boss.rect.x + boss.rect.width / 2, boss.rect.y + boss.rect.height / 2)), false);
   const markers = new Set(init.geometry.markers.map((marker) => marker.kind));
-  assert.ok(markers.has("resource"));
+  assert.equal(markers.has("resource"), false);
   assert.ok(markers.has("monster"));
   assert.ok(markers.has("elite"));
   assert.ok(markers.has("waypoint"));

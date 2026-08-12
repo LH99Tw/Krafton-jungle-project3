@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { clampEditorPort, cloneEditorMap, DEFAULT_EDITOR_MAP, validateEditorMap, type EditorMapDefinition } from "../src/game/domain/mapEditor";
+import { clampEditorPort, cloneEditorMap, DEFAULT_EDITOR_MAP, normalizeEditorMapDefinition, validateEditorMap, type EditorMapDefinition } from "../src/game/domain/mapEditor";
 import { buildEditorConnectionRoute, buildEditorGeometry, editorRoomPort } from "../src/game/domain/editorGeometry";
 import { editorViewBox, fitEditorViewport, panEditorViewport, zoomEditorViewportAt } from "../src/game/domain/editorViewport";
 import { buildEditorRenderWorld, clampToWalkable, clipWalkableLine, isWalkableDisc, wallEnvelopeRects } from "../src/game/runtime/room/layout";
@@ -75,9 +75,24 @@ test("local editor session advances the same GameCore result for the same fixed 
   const corePlayer = core.players.get("same-user")!;
   assert.equal(localPlayer.x, corePlayer.x);
   assert.equal(localPlayer.y, corePlayer.y);
-  assert.equal(local.gold, core.gold);
   assert.equal(local.teamXp, core.teamXp);
   session.stop();
+});
+
+test("legacy economy rooms normalize to supported reward rooms", () => {
+  const legacy = JSON.parse(JSON.stringify(DEFAULT_EDITOR_MAP)) as {
+    rooms: Array<Record<string, unknown>>;
+  };
+  legacy.rooms = legacy.rooms.slice(0, 3);
+  legacy.rooms[0]!.type = "shop";
+  legacy.rooms[1]!.type = "gold";
+  legacy.rooms[2]!.type = "gamble";
+
+  assert.deepEqual(normalizeEditorMapDefinition(legacy)!.rooms.map((room) => room.type), [
+    "resource",
+    "resource",
+    "altar",
+  ]);
 });
 
 test("authoritative editor movement and dash cannot cross an exterior wall", () => {

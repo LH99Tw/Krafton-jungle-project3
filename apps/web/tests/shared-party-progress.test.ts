@@ -9,11 +9,10 @@ const rooms: RoomMapCell[] = [
   { id: "z2-start", zone: 2, x: 0, y: 4, type: "start", visited: true, current: true, cleared: true, connections: [] },
 ];
 
-test("derives map, gates, economy, experience, and base health only from shared party state", () => {
+test("derives map, gates, experience, and base health only from shared party state", () => {
   const shared = resolveSharedPartyProgress({
     baseHp: 720,
     baseMaxHp: 900,
-    gold: 145,
     currentZone: 2,
     teamLevel: 7,
     teamXp: 42,
@@ -24,7 +23,6 @@ test("derives map, gates, economy, experience, and base health only from shared 
   assert.deepEqual(shared, {
     baseHp: 720,
     baseMaxHp: 900,
-    gold: 145,
     level: 7,
     xp: 42,
     xpToNext: 80,

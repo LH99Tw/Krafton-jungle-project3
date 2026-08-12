@@ -11,7 +11,6 @@ export function createCoreViewSnapshot(core: GameCore): CoreViewSnapshot {
     phaseRemaining: core.phaseRemaining,
     baseHp: core.baseHp,
     baseMaxHp: core.baseMaxHp,
-    gold: core.gold,
     currentZone: core.currentZone,
     teamLevel: core.teamLevel,
     teamXp: core.teamXp,
@@ -25,6 +24,5 @@ export function createCoreViewSnapshot(core: GameCore): CoreViewSnapshot {
     drops: [...core.drops.values()],
     waypoints: [...core.waypoints.values()].filter((waypoint) => core.discoveredRooms.has(waypoint.roomId)),
     specialRooms: [...core.specialRooms.values()].filter((room) => core.discoveredRooms.has(room.roomId)),
-    shopStocks: [...core.shopStocks.values()],
   };
 }

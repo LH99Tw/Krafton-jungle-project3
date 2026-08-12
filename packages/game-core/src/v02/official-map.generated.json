@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "compilerVersion": 2,
-  "mapRevision": "ea38c119b21cd320d5d606f9ae2ac8ee4cf4dc309e39f869f36cb47e5148cee8",
+  "mapRevision": "618d637b67143efe4fa1cabd2676de55a1c3788f595544b8e2c50dd36649c49b",
   "map": {
     "version": 1,
     "title": "현재 기본맵 · 2/3/3 게이트",
@@ -348,8 +348,8 @@
       },
       {
         "id": "room-local-44",
-        "name": "자원 방",
-        "type": "resource",
+        "name": "몬스터 방",
+        "type": "static-monster",
         "asset": "wastes",
         "x": 32,
         "y": -19,
@@ -1780,7 +1780,7 @@
       {
         "id": "editor:room-local-44",
         "zone": 3,
-        "kind": "resource",
+        "kind": "static-monster",
         "rect": {
           "x": 11520,
           "y": 220,

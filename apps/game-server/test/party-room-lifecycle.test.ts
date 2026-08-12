@@ -34,7 +34,7 @@ test("terminal result messages contain one complete final report", () => {
     day: 1,
     level: 1,
     teamPower: 123,
-    stats: { damage: 800, bossDamage: 500, kills: 12, deaths: 0, structuresBuilt: 0, goldSpent: 0, gatesDestroyed: 0 },
+    stats: { damage: 800, bossDamage: 500, kills: 12, deaths: 0, structuresBuilt: 0, gatesDestroyed: 0 },
   });
 });
 

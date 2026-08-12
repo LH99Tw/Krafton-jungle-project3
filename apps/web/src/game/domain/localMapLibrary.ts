@@ -1,4 +1,4 @@
-import { cloneEditorMap, isEditorMapDefinition, type EditorMapDefinition } from "./mapEditor";
+import { cloneEditorMap, normalizeEditorMapDefinition, type EditorMapDefinition } from "./mapEditor";
 
 export const EDITOR_MAP_LIBRARY_STORAGE_KEY = "five-days:local-map-library:v1";
 
@@ -48,10 +48,7 @@ export function parseEditorMapLibrary(value: string | null): EditorMapLibrary | 
   try {
     const parsed = JSON.parse(value) as Partial<EditorMapLibrary>;
     if (parsed.version !== 1 || typeof parsed.activeMapId !== "string" || !Array.isArray(parsed.maps)) return null;
-    const maps = parsed.maps.filter(isStoredEditorMap).map((record) => ({
-      ...record,
-      map: cloneEditorMap(record.map),
-    }));
+    const maps = parsed.maps.flatMap(normalizeStoredEditorMap);
     if (maps.length === 0) return null;
     const activeMapId = maps.some((record) => record.id === parsed.activeMapId)
       ? parsed.activeMapId
@@ -62,12 +59,14 @@ export function parseEditorMapLibrary(value: string | null): EditorMapLibrary | 
   }
 }
 
-function isStoredEditorMap(value: unknown): value is StoredEditorMap {
-  if (!value || typeof value !== "object") return false;
+function normalizeStoredEditorMap(value: unknown): StoredEditorMap[] {
+  if (!value || typeof value !== "object") return [];
   const record = value as Partial<StoredEditorMap>;
-  return typeof record.id === "string"
+  const map = normalizeEditorMapDefinition(record.map);
+  if (!(typeof record.id === "string"
     && record.id.length > 0
     && Number.isFinite(record.createdAt)
     && Number.isFinite(record.updatedAt)
-    && isEditorMapDefinition(record.map);
+    && map)) return [];
+  return [{ ...record, id: record.id, createdAt: record.createdAt!, updatedAt: record.updatedAt!, map }];
 }

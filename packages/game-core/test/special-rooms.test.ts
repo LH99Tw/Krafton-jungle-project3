@@ -8,9 +8,9 @@ const room = (id: string, kind: CoreWorldDefinition["rooms"][number]["kind"], zo
 });
 
 function specialWorld(): CoreWorldDefinition {
-  const rooms = [room("start", "start", 1, 0), room("shop", "shop", 1, 1_200), room("shrine", "shrine", 1, 2_400),
-    room("trap", "trap", 1, 3_600), room("checkpoint", "checkpoint", 2, 4_800), room("gamble", "gamble", 2, 6_000),
-    room("altar", "altar", 3, 7_200), room("gold", "gold", 1, 8_400), room("boss", "boss", 3, 9_600)];
+  const rooms = [room("start", "start", 1, 0), room("resource", "resource", 1, 1_200), room("shrine", "shrine", 1, 2_400),
+    room("trap", "trap", 1, 3_600), room("checkpoint", "checkpoint", 2, 4_800), room("resource-two", "resource", 2, 6_000),
+    room("altar", "altar", 3, 7_200), room("boss", "boss", 3, 8_400)];
   const ids = rooms.map((entry) => entry.id);
   return {
     kind: "authored", id: "special-test", rooms: rooms.map((entry, index) => ({ ...entry, connections: [ids[index - 1], ids[index + 1]].filter(Boolean) as AuthoredRoomId[] })),
@@ -24,7 +24,7 @@ function specialWorld(): CoreWorldDefinition {
       lockBarrier: { x: 3_470, y: 300, width: 18, height: 100 },
       trapBarrier: { x: 3_570, y: 300, width: 18, height: 100 },
     }],
-    walkable: rooms.map((entry) => entry.rect), bounds: { x: 0, y: 0, width: 10_600, height: 700 },
+    walkable: rooms.map((entry) => entry.rect), bounds: { x: 0, y: 0, width: 9_400, height: 700 },
     baseRoomId: ids[0]!, bossRoomId: ids.at(-1)!, gateRoomIds: [],
   };
 }
@@ -36,30 +36,82 @@ function setup(seed = "special") {
   return { core, player };
 }
 
-test("shop stock is deterministic, personal, and shared gold never goes negative", () => {
-  const first = setup("shop-seed");
-  const second = setup("shop-seed");
-  const shop = "editor:shop" as AuthoredRoomId;
-  first.core.movePlayerToRoom("p1", shop);
-  second.core.movePlayerToRoom("p1", shop);
-  const left = first.core.getShopStock("p1", shop)!;
-  const right = second.core.getShopStock("p1", shop)!;
-  assert.deepEqual(left.offers, right.offers);
-  first.core.gold = 0;
-  assert.equal(first.core.shopBuy("p1", left.offers[0]!.id), false);
-  assert.equal(first.core.gold, 0);
+test("resource caches grant deterministic personal equipment only once", () => {
+  const first = setup("resource-seed");
+  const second = setup("resource-seed");
+  const resource = "editor:resource" as AuthoredRoomId;
+  first.core.movePlayerToRoom("p1", resource);
+  second.core.movePlayerToRoom("p1", resource);
+  first.core.update(0.1);
+  second.core.update(0.1);
+  assert.deepEqual(first.player.equipment, second.player.equipment);
+  assert.equal(first.core.rooms.get(resource)?.cleared, true);
+  const equipment = structuredClone(first.player.equipment);
+  const drops = [...first.core.drops.keys()];
+  first.core.movePlayerToRoom("p1", "editor:start" as AuthoredRoomId);
+  first.core.movePlayerToRoom("p1", resource);
+  first.core.update(0.1);
+  assert.deepEqual(first.player.equipment, equipment);
+  assert.deepEqual([...first.core.drops.keys()], drops);
 });
 
-test("shop purchase works from the room center where its HUD first opens", () => {
-  const { core, player } = setup("shop-center-purchase");
-  const shop = "editor:shop" as AuthoredRoomId;
-  core.movePlayerToRoom(player.userId, shop);
-  const offer = core.getShopStock(player.userId, shop)!.offers.find((candidate) => candidate.kind === "equipment")!;
-  core.gold = offer.price;
+test("resource caches reward every party member once across reconnects", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "resource-party", minimumPlayers: 3, world: specialWorld() });
+  const players = (["swordsman", "archer", "mage"] as const).map((heroClass, index) => (
+    core.addPlayer({ userId: `p${index + 1}`, displayName: `P${index + 1}`, heroClass })
+  ));
+  for (const player of players) core.setReady(player.userId, true);
+  const resource = "editor:resource" as AuthoredRoomId;
+  core.movePlayerToRoom(players[0]!.userId, resource);
+  core.update(0.1);
 
-  assert.equal(core.shopBuy(player.userId, offer.id), true);
-  assert.equal(core.gold, 0);
-  assert.ok(player.inventory.some((item) => item?.id === offer.item?.id));
+  const firstRewards = players.map((player) => ({
+    equipment: structuredClone(player.equipment),
+    inventory: structuredClone(player.inventory),
+  }));
+  assert.ok(players.every((player) => Object.values(player.equipment).some(Boolean) || player.inventory.some(Boolean)));
+
+  core.setConnected(players[0]!.userId, false);
+  core.setConnected(players[0]!.userId, true);
+  core.movePlayerToRoom(players[0]!.userId, "editor:start" as AuthoredRoomId);
+  core.movePlayerToRoom(players[0]!.userId, resource);
+  core.update(0.1);
+  assert.deepEqual(players.map((player) => ({ equipment: player.equipment, inventory: player.inventory })), firstRewards);
+});
+
+test("a full inventory leaves resource equipment on the floor until space is discarded", () => {
+  const { core, player } = setup("resource-full-inventory");
+  const filler = {
+    id: "filler", ownerPlayerId: player.userId, zone: 1 as const, hiddenRoomId: "filler",
+    dropIndex: 0, rarity: "legendary" as const, slot: "weapon" as const, statMultiplier: 1,
+    specialOptionCount: 0 as const, attackPowerBonus: 1, armorHpBonus: 0, armorDefense: 0, accessoryAttackSpeed: 0,
+  };
+  player.equipment.weapon = filler;
+  player.equipment.armor = { ...filler, id: "armor", slot: "armor" };
+  player.equipment.accessory = { ...filler, id: "accessory", slot: "accessory" };
+  player.inventory.fill(filler);
+  const resource = "editor:resource" as AuthoredRoomId;
+  core.movePlayerToRoom(player.userId, resource);
+  core.update(0.1);
+  const drop = [...core.drops.values()].find((candidate) => candidate.ownerPlayerId === player.userId);
+  assert.ok(drop);
+  assert.equal(core.equip(player.userId, drop.id), false);
+  assert.ok(core.drops.has(drop.id));
+  assert.equal(core.discardInventoryItem(player.userId, 0), true);
+  assert.equal(core.equip(player.userId, drop.id), true);
+  assert.equal(core.drops.has(drop.id), false);
+});
+
+test("inventory items can be discarded without a shop", () => {
+  const { core, player } = setup("inventory-discard");
+  core.movePlayerToRoom(player.userId, "editor:resource" as AuthoredRoomId);
+  core.update(0.1);
+  const item = Object.values(player.equipment).find((candidate) => candidate !== null);
+  assert.ok(item);
+  player.inventory[0] = item;
+  assert.equal(core.discardInventoryItem(player.userId, 0), true);
+  assert.equal(player.inventory[0], null);
+  assert.equal(core.discardInventoryItem(player.userId, 0), false);
 });
 
 test("trap locks only its doorway and dynamically spawned monsters keep updating", () => {
@@ -96,25 +148,12 @@ test("entering a higher zone clears an active previous-zone trap without spawnin
   assert.deepEqual(barriers, []);
 });
 
-test("gamble and altar enforce three personal attempts", () => {
+test("altar enforces three personal attempts", () => {
   const { core, player } = setup("attempts");
-  core.gold = 10_000;
-  core.movePlayerToRoom(player.userId, "editor:gamble" as AuthoredRoomId);
-  for (let attempt = 0; attempt < 3; attempt += 1) assert.notEqual(core.playGamble(player.userId), null);
-  assert.equal(core.playGamble(player.userId), null);
   core.movePlayerToRoom(player.userId, "editor:altar" as AuthoredRoomId);
   for (let attempt = 0; attempt < 3; attempt += 1) assert.ok(core.rerollAltar(player.userId));
   assert.equal(core.rerollAltar(player.userId), null);
   assert.ok(Object.values(player.altarMultipliers).every((value) => value >= 0.5 && value <= 2));
-});
-
-test("gold room awards shared gold once", () => {
-  const { core, player } = setup("gold-room");
-  core.movePlayerToRoom(player.userId, "editor:gold" as AuthoredRoomId);
-  const before = core.gold;
-  assert.equal(core.claimGoldRoom(player.userId), 100);
-  assert.equal(core.gold, before + 100);
-  assert.equal(core.claimGoldRoom(player.userId), null);
 });
 
 test("discovered checkpoint waypoints provide three-second personal fast travel", () => {

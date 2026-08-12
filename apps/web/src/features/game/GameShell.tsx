@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { HeroClassId, LobbyChatMessage, LobbyGameStart, LobbyListing } from "@five-days/protocol";
+import type { Difficulty, HeroClassId, LobbyChatMessage, LobbyGameStart, LobbyListing } from "@five-days/protocol";
 import { GameCanvas } from "@/src/game/client/GameCanvas";
 import { preloadGameClient } from "@/src/game/client/preloadGameClient";
 import {
@@ -340,7 +340,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     return () => window.clearTimeout(timer);
   }, [autoStartOptions, beginRun, viewer]);
 
-  const createLobby = useCallback(async (options: { roomName: string; sessionMode: "prototype" | "full"; difficulty: "easy" | "normal" | "hard" }) => {
+  const createLobby = useCallback(async (options: { roomName: string; sessionMode: "prototype" | "full"; difficulty: Difficulty }) => {
     if (!viewer) return;
     setBusy(true); setSurfaceError("");
     try { await lobbyTransport.create({ serverUrl: gameServerUrl, csrfToken: viewer.csrfToken, options }); }
@@ -494,7 +494,10 @@ function readRunRecovery(userId: string): { roomId: string; options: GameStartOp
       clearRunRecovery();
       return null;
     }
-    return { roomId: value.roomId, options: options as GameStartOptions };
+    return {
+      roomId: value.roomId,
+      options: { ...options, difficulty: options.difficulty === "hard" ? "hard" : "normal" } as GameStartOptions,
+    };
   } catch {
     clearRunRecovery();
     return null;

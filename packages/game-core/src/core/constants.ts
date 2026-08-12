@@ -3,9 +3,6 @@ export const durations = {
   full: { day: 120, night: 45, standby: 15 },
 } as const;
 
-export const GOLD_ROOM_REWARDS = { 1: 100, 2: 175, 3: 250 } as const;
-
-export const RESOURCE_PRODUCTION_SECONDS = 5;
 export const STATIC_RESPAWN_SECONDS = { prototype: 30, full: 90 } as const;
 export const SIMULATION_EPSILON = 1e-9;
 export const ACTOR_COLLISION_RADIUS = 14;

@@ -10,7 +10,7 @@ const fallback: GameResult = {
   day: 2,
   level: 4,
   teamPower: 90,
-  stats: { damage: 20, bossDamage: 3, kills: 2, deaths: 1, structuresBuilt: 1, goldSpent: 4, gatesDestroyed: 1 },
+  stats: { damage: 20, bossDamage: 3, kills: 2, deaths: 1, structuresBuilt: 1, gatesDestroyed: 1 },
 };
 
 test("normalizes valid terminal results and rejects malformed result states", () => {

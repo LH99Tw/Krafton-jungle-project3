@@ -1,6 +1,6 @@
 import type { GameResult, GameSnapshot, TeamStats } from "@/src/game/domain/types";
 
-const STAT_KEYS = ["damage", "bossDamage", "kills", "deaths", "structuresBuilt", "goldSpent", "gatesDestroyed"] as const satisfies readonly (keyof TeamStats)[];
+const STAT_KEYS = ["damage", "bossDamage", "kills", "deaths", "structuresBuilt", "gatesDestroyed"] as const satisfies readonly (keyof TeamStats)[];
 
 export type GameResultSignal = Readonly<{
   state?: unknown;

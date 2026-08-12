@@ -1,5 +1,5 @@
 import * as Phaser from "phaser";
-import { createSeededRandom, enemyFanPatternAngles, enemyFloorPatternCircles, enemyPatternConfig, type EnemyPatternTier } from "@five-days/game-core";
+import { enemyFanPatternAngles, enemyFloorPatternCircles, enemyPatternConfig, type EnemyPatternTier } from "@five-days/game-core";
 import { CLASS_DEFINITIONS } from "../../content/classes";
 import type { HeroClassId, NetworkWorldSnapshot, PartyMemberSnapshot } from "../../domain/types";
 import { createGameTextures } from "../../client/render/createTextures";
@@ -80,19 +80,16 @@ const ROOM_NAMES: Record<RenderableRoom["type"], string> = {
   start: "원정대 야영지",
   gate: "균열 관문",
   "gate-candidate": "불안정 균열",
-  resource: "고대 채집지",
+  resource: "장비 보급소",
   "static-monster": "봉인된 사냥터",
   empty: "고요한 방",
   "central-waypoint": "중앙 웨이포인트",
   "hidden-monster": "숨겨진 시련",
   boss: "마왕의 제단",
-  shop: "떠돌이 상단",
   shrine: "메아리의 성소",
   trap: "몬스터 하우스",
   checkpoint: "웨이포인트 마법진",
-  gamble: "운명의 도박장",
   altar: "피의 제단",
-  gold: "봉인된 황금 금고",
 };
 
 const SPECIAL_ROOM_OBJECTS: Partial<Record<RenderableRoom["type"], Readonly<{
@@ -101,17 +98,14 @@ const SPECIAL_ROOM_OBJECTS: Partial<Record<RenderableRoom["type"], Readonly<{
   maxHeight: number;
   yOffset: number;
 }>>> = {
-  shop: { texture: "special-room-shop", maxWidth: 360, maxHeight: 310, yOffset: 34 },
   shrine: { texture: "special-room-shrine", maxWidth: 300, maxHeight: 300, yOffset: 24 },
   trap: { texture: "special-room-trap", maxWidth: 350, maxHeight: 350, yOffset: 28 },
-  gamble: { texture: "special-room-gamble", maxWidth: 230, maxHeight: 345, yOffset: 28 },
   altar: { texture: "special-room-altar", maxWidth: 340, maxHeight: 300, yOffset: 34 },
-  gold: { texture: "resource-gold-pickup", maxWidth: 180, maxHeight: 180, yOffset: 28 },
 };
 
 export class RoomRenderer {
   private roomObjects: Phaser.GameObjects.GameObject[] = [];
-  private readonly resourcePickups = new Map<string, Phaser.GameObjects.Image>();
+  private readonly resourcePickups = new Map<string, Phaser.GameObjects.Container>();
   private waypointObjects: Phaser.GameObjects.GameObject[] = [];
   private baseHealthBar: Phaser.GameObjects.Graphics | null = null;
   private roomMasks: Phaser.Display.Masks.GeometryMask[] = [];
@@ -131,10 +125,7 @@ export class RoomRenderer {
   private claimedShrineIds = new Set<string>();
   private specialRoomStateInitialized = false;
   private readonly transitioningShrineIds = new Set<string>();
-  private previousSpecialRoomStates = new Map<string, { trapPhase: string; goldClaimed: boolean }>();
-  private previousShopOfferSignature = "";
-  private previousShopRoomId = "";
-  private previousGambleAttempts = 0;
+  private previousSpecialRoomStates = new Map<string, { trapPhase: string }>();
   private previousAltarAttempts = 0;
   private previousRespawnRoomId = "";
   private progressionBarrierObjects: Phaser.GameObjects.GameObject[] = [];
@@ -311,7 +302,7 @@ export class RoomRenderer {
   }
 
   updateSpecialRoomStates(
-    snapshot: Pick<NetworkWorldSnapshot, "seed" | "specialRooms" | "shopOffers">,
+    snapshot: Pick<NetworkWorldSnapshot, "specialRooms">,
     localPlayer?: PartyMemberSnapshot,
   ): void {
     const states = snapshot.specialRooms;
@@ -335,42 +326,19 @@ export class RoomRenderer {
       this.playShrineClaimTransition(roomId, image);
     }
 
-    const nextSpecialStates = new Map<string, { trapPhase: string; goldClaimed: boolean }>();
+    const nextSpecialStates = new Map<string, { trapPhase: string }>();
     for (const state of states) {
-      const nextState = { trapPhase: state.trapPhase, goldClaimed: state.goldClaimed };
+      const nextState = { trapPhase: state.trapPhase };
       nextSpecialStates.set(state.roomId, nextState);
       const image = this.specialRoomObjects.get(state.roomId);
       if (!image) continue;
       const previous = this.previousSpecialRoomStates.get(state.roomId);
-      if (state.kind === "gold") {
-        image.setAlpha(state.goldClaimed ? 0.38 : 1).setTint(state.goldClaimed ? 0x777777 : 0xffffff);
-        if (wasInitialized && state.goldClaimed && !previous?.goldClaimed) this.playGoldClaimEffect(image);
-      }
       if (wasInitialized && state.kind === "trap" && previous?.trapPhase !== state.trapPhase) {
         this.playTrapPhaseEffect(image, state.trapPhase);
       }
     }
 
-    const shopOfferSignature = [...snapshot.shopOffers]
-      .sort((left, right) => left.id.localeCompare(right.id))
-      .map((offer) => `${offer.id}:${offer.sold ? 1 : 0}:${offer.locked ? 1 : 0}:${offer.price}`)
-      .join("|");
-    const shopRoomId = snapshot.shopOffers[0]?.roomId ?? this.previousShopRoomId;
-    if (wasInitialized && shopOfferSignature && this.previousShopOfferSignature && shopOfferSignature !== this.previousShopOfferSignature) {
-      const image = this.specialRoomObjects.get(shopRoomId);
-      if (image) this.playShopEffect(image);
-    }
-
     if (localPlayer) {
-      const gambleAttempts = localPlayer.gambleAttempts ?? 0;
-      if (wasInitialized && gambleAttempts > this.previousGambleAttempts) {
-        const image = this.specialRoomObjects.get(localPlayer.roomId);
-        if (image?.getData("specialRoomKind") === "gamble") {
-          const attempt = gambleAttempts - 1;
-          const roll = createSeededRandom(`gamble:${snapshot.seed}:${localPlayer.roomId}:${localPlayer.userId}:${attempt}`).next();
-          this.playGambleEffect(image, roll >= 0.5);
-        }
-      }
       const altarAttempts = localPlayer.altarAttempts ?? 0;
       if (wasInitialized && altarAttempts > this.previousAltarAttempts) {
         const image = this.specialRoomObjects.get(localPlayer.roomId);
@@ -381,15 +349,12 @@ export class RoomRenderer {
         const image = this.specialRoomObjects.get(respawnRoomId);
         if (image?.getData("specialRoomKind") === "checkpoint") this.playCheckpointEffect(image);
       }
-      this.previousGambleAttempts = gambleAttempts;
       this.previousAltarAttempts = altarAttempts;
       this.previousRespawnRoomId = respawnRoomId;
     }
 
     this.claimedShrineIds = nextClaimedShrines;
     this.previousSpecialRoomStates = nextSpecialStates;
-    this.previousShopOfferSignature = shopOfferSignature;
-    this.previousShopRoomId = shopRoomId;
     this.specialRoomStateInitialized = true;
   }
 
@@ -438,11 +403,6 @@ export class RoomRenderer {
     });
   }
 
-  private playShopEffect(image: Phaser.GameObjects.Image): void {
-    this.playObjectPulse(image, 0xffd66e);
-    this.playSparkBurst(image, 0xffd66e, 9, 88);
-  }
-
   private playTrapPhaseEffect(image: Phaser.GameObjects.Image, phase: string): void {
     if (phase === "cleared") {
       this.playObjectPulse(image, 0x8fffc7, 560);
@@ -468,55 +428,6 @@ export class RoomRenderer {
     this.playSparkBurst(image, 0xc7bdff, 14, 126);
   }
 
-  private playGambleEffect(image: Phaser.GameObjects.Image, success: boolean): void {
-    if (success) {
-      this.playObjectPulse(image, 0xffd35c, 620);
-      this.playSparkBurst(image, 0xffe487, 18, 148);
-      const originY = image.y;
-      this.scene.tweens.add({
-        targets: image,
-        y: originY - 18,
-        duration: 170,
-        yoyo: true,
-        ease: "Back.easeOut",
-        onComplete: () => image.active && image.setY(originY),
-      });
-      return;
-    }
-    this.playObjectPulse(image, 0xb52d3e, 460);
-    const originX = image.x;
-    this.scene.tweens.add({
-      targets: image,
-      x: originX + 11,
-      angle: { from: -2, to: 2 },
-      duration: 62,
-      yoyo: true,
-      repeat: 4,
-      ease: "Sine.easeInOut",
-      onComplete: () => image.active && image.setPosition(originX, image.y).setAngle(0),
-    });
-    for (let index = 0; index < 7; index += 1) {
-      const smoke = this.track(this.scene.add.circle(
-        image.x + (index - 3) * 11,
-        image.y - 10,
-        10 + index % 3 * 4,
-        0x2b2028,
-        0.72,
-      ).setDepth(image.depth + 2));
-      this.scene.tweens.add({
-        targets: smoke,
-        y: smoke.y - 58 - index * 5,
-        x: smoke.x + (index % 2 === 0 ? -18 : 18),
-        alpha: 0,
-        scale: 1.65,
-        delay: index * 34,
-        duration: 520,
-        ease: "Cubic.easeOut",
-        onComplete: () => smoke.destroy(),
-      });
-    }
-  }
-
   private playAltarEffect(image: Phaser.GameObjects.Image): void {
     this.playObjectPulse(image, 0xd21f3c, 520);
     for (let index = 0; index < 12; index += 1) {
@@ -540,12 +451,6 @@ export class RoomRenderer {
         onComplete: () => drop.destroy(),
       });
     }
-  }
-
-  private playGoldClaimEffect(image: Phaser.GameObjects.Image): void {
-    this.playObjectPulse(image, 0xffdd5b, 720);
-    this.playSparkBurst(image, 0xffe98a, 22, 176);
-    this.scene.tweens.add({ targets: image, alpha: 0.38, duration: 620, ease: "Cubic.easeOut" });
   }
 
   private playObjectPulse(image: Phaser.GameObjects.Image, color: number, duration = 520): void {
@@ -838,7 +743,7 @@ export class RoomRenderer {
       return;
     }
     if (room.type === "resource") {
-      const pickup = this.track(this.scene.add.image(center.x, center.y, "resource-gold-pickup").setDepth(5).setDisplaySize(112, 112));
+      const pickup = this.track(this.createDrop(center.x, center.y, "legendary").setScale(1.25).setDepth(5));
       pickup.setData("roomId", room.id);
       this.resourcePickups.set(room.id, pickup);
       this.scene.tweens.add({ targets: pickup, y: center.y - 8, duration: 760, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
@@ -1662,28 +1567,29 @@ export class RoomRenderer {
     x: number,
     y: number,
     visible: boolean,
+    intensity = 0,
   ): void {
     const current = this.enemyPatternObjects.get(enemyId);
     if (!visible || patternPhase !== "telegraph") {
       this.destroyEnemyPattern(enemyId);
       return;
     }
-    const key = `${patternKind}:${patternIndex}`;
+    const key = `${patternKind}:${patternIndex}:${intensity}`;
     if (current?.key === key) {
       current.graphics.setPosition(x - current.originX, y - current.originY);
       return;
     }
     this.destroyEnemyPattern(enemyId);
     const graphics = this.scene.add.graphics().setDepth(16);
-    const config = enemyPatternConfig(tier);
+    const config = enemyPatternConfig(tier, intensity);
     if (patternKind === "floor") {
-      for (const circle of enemyFloorPatternCircles(x, y, patternIndex, tier)) {
+      for (const circle of enemyFloorPatternCircles(x, y, patternIndex, tier, intensity)) {
         graphics.fillStyle(0xff315a, 0.16).fillCircle(circle.x, circle.y, circle.radius);
         graphics.lineStyle(4, 0xff6b82, 0.9).strokeCircle(circle.x, circle.y, circle.radius);
         graphics.lineStyle(1, 0xffffff, 0.5).strokeCircle(circle.x, circle.y, circle.radius * 0.72);
       }
     } else {
-      for (const angle of enemyFanPatternAngles(patternIndex, tier)) {
+      for (const angle of enemyFanPatternAngles(patternIndex, tier, intensity)) {
         const endX = x + Math.cos(angle) * config.range;
         const endY = y + Math.sin(angle) * config.range;
         graphics.lineStyle(18, 0xff315a, 0.13).lineBetween(x, y, endX, endY);

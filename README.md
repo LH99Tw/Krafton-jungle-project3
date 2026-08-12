@@ -6,14 +6,14 @@
 
 - Next.js 16·React 19 UI와 REST BFF
 - Phaser 3 렌더러
-- Colyseus 권위 게임 서버와 protocol v9
+- Colyseus 권위 게임 서버와 protocol v10
 - 60Hz 게임 코어, 30Hz transform frame, 10Hz Schema 동기화
 - WebTransport 우선, WSS fallback
 - Cognito/Google·개발·공개 게스트 인증
 - PostgreSQL/Drizzle 세션·방명록·경기 결과 저장
 - 공식 편집 맵 48방, 세 구역, 8개 게이트와 최종 보스
 - 솔로 서버 AI, 재접속·이탈 인계, 개인 증강·장비 인벤토리, 파티 미니맵
-- 상점·신전·함정·체크포인트·도박·제단·골드 특수 방
+- 장비 보급·신전·함정·체크포인트·제단 특수 방
 - 방 단위 개척, 콘텐츠 마커, 웨이포인트 반경에서 목적지 마커를 선택하는 3초 순간 이동과 확장 보기를 제공하는 미니맵
 
 현재 알려진 주요 제한은 온라인 Space 대시 입력 매핑 결함과 서버 건설 미구현이다. 게임 실행은 서버 권위 경로만 사용하며, 맵 편집기 플레이 테스트만 개발용 `editor-core`를 로컬에서 실행한다. 정확한 구현 범위와 완료 기준은 [제품·게임플레이 명세](./Document/01-product-gameplay-spec.md)를 따른다.
@@ -59,7 +59,7 @@ packages/
 ├─ auth/                세션·OAuth·게임 티켓
 ├─ db/                  PostgreSQL Schema·repository·migration
 ├─ game-core/           프레임워크 독립 게임 규칙
-└─ protocol/            공용 Zod protocol v9
+└─ protocol/            공용 Zod protocol v10
 
 Document/               현재 빌드의 단일 명세 집합
 deploy/                 AWS·Docker 배포 보조 스크립트
