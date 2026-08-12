@@ -62,6 +62,7 @@ test("constructs a deterministic authoritative world and starts players in the d
   assert.equal(player.alive, true);
   assert.ok(first.discoveredRooms.has(player.roomId));
   assert.deepEqual(player.equipment, { weapon: null, armor: null, accessory: null });
+  assert.equal(first.combatStats(player.userId)?.criticalChance, 10);
 });
 
 test("exposes monsters from a nearby authored room without requiring a direct connection", () => {
@@ -759,8 +760,8 @@ test("invader path selection is deterministic and occasionally chooses a route u
 });
 
 test("gate invaders use 24 deterministic, non-overlapping spawn slots", () => {
-  const first = startedCore("invader-spawn-slots");
-  const second = startedCore("invader-spawn-slots");
+  const first = new GameCore({ mode: "prototype", difficulty: "normal", seed: "invader-spawn-slots", minimumPlayers: 1, maxLiveInvaders: 24 });
+  const second = new GameCore({ mode: "prototype", difficulty: "normal", seed: "invader-spawn-slots", minimumPlayers: 1, maxLiveInvaders: 24 });
   const firstPositions = Array.from({ length: 24 }, () => {
     const invader = first.spawnInvader(1);
     return `${invader.x.toFixed(3)},${invader.y.toFixed(3)}`;
@@ -807,7 +808,7 @@ test("night invaders assign seventy-five percent of spawns to the base", () => {
 });
 
 test("a 21-invader wave leaves its distributed gate slots without corridor deadlock", () => {
-  const core = startedCore("invader-large-wave");
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "invader-large-wave", minimumPlayers: 1, maxLiveInvaders: 50 });
   core.setConnected("p1", false);
   const invaders = Array.from({ length: 21 }, () => core.spawnInvader(1));
   const starts = new Map(invaders.map((invader) => [invader.id, { x: invader.x, y: invader.y }]));
@@ -1274,7 +1275,7 @@ test("a congested spawn slot remains a numeric queue instead of creating an over
 });
 
 test("runtime path replanning is limited to eight invaders per tick", () => {
-  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "replan-budget", minimumPlayers: 1 });
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "replan-budget", minimumPlayers: 1, maxLiveInvaders: 20 });
   const invaders = Array.from({ length: 20 }, () => core.spawnInvader(1));
   const internals = core as unknown as {
     scheduleInvaderReplan(enemyId: string, allowRandom: boolean): void;

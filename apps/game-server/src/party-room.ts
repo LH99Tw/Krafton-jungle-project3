@@ -270,7 +270,7 @@ export class PartyRoom extends Room<PartyRoomState> {
       seed: crypto.randomUUID(),
       minimumPlayers: options.partyMode === "solo" ? 1 : 3,
       balancePartySize: options.partyMode === "solo" ? 1 : 3,
-      maxLiveInvaders: numericEnv("MAX_LIVE_INVADERS", DEFAULT_MAX_LIVE_INVADERS, 32, ABSOLUTE_MAX_LIVE_INVADERS),
+      maxLiveInvaders: numericEnv("MAX_LIVE_INVADERS", DEFAULT_MAX_LIVE_INVADERS, 1, ABSOLUTE_MAX_LIVE_INVADERS),
       invaderUpdateRates: {
         warmHz: numericEnv("INVADER_WARM_HZ", 20, 1, 60),
         coldHz: numericEnv("INVADER_COLD_HZ", 5, 1, 60),
@@ -740,7 +740,7 @@ export class PartyRoom extends Room<PartyRoomState> {
         teamPower: player.teamPower,
         attackDamage: combatStats?.attackDamage ?? 0,
         defense: combatStats?.defense ?? 0,
-        criticalChance: combatStats?.criticalChance ?? 0,
+        criticalChance: combatStats?.criticalChance ?? 10,
         criticalDamage: combatStats?.criticalDamage ?? 150,
         attacksPerSecond: combatStats?.attacksPerSecond ?? 0,
         attackRange: combatStats?.attackRange ?? 0,

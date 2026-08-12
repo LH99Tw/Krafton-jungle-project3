@@ -168,7 +168,7 @@ PR과 main push는 다음을 수행한다.
 
 ## 11. 용량과 확장 기준
 
-단일 Lightsail MVP는 배포 workflow에서 `MAX_ACTIVE_GAMES=8`, `MAX_LIVE_INVADERS=50`을 사용한다. 부하 기준을 넘기면 새 기능보다 먼저 다음을 검토한다.
+단일 Lightsail MVP는 배포 workflow에서 `MAX_ACTIVE_GAMES=8`, `MAX_LIVE_INVADERS=15`를 사용한다. 부하 기준을 넘기면 새 기능보다 먼저 다음을 검토한다.
 
 1. PostgreSQL을 RDS로 분리한다.
 2. Redis 기반 Colyseus presence/driver와 공유 rate limit을 추가한다.

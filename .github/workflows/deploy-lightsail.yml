@@ -194,7 +194,7 @@ jobs:
           upsert_env .env.game FASTLANE_KEY_PATH /run/secrets/fastlane/tls.key
           upsert_env .env.game FASTLANE_MAINTENANCE_MS 10000
           upsert_env .env.game MAX_ACTIVE_GAMES 8
-          upsert_env .env.game MAX_LIVE_INVADERS 50
+          upsert_env .env.game MAX_LIVE_INVADERS 15
           upsert_env .env.game INVADER_MULTIRATE_PERCENT 10
           upsert_env .env.game INVADER_SCHEDULER_DISABLED false
           upsert_env .env.game INVADER_WARM_HZ 20
@@ -221,9 +221,9 @@ jobs:
                curl --fail --silent "https://$WEB_HOST/Asset/sprites/frog-upgraded-8dir-walk-v1.png" >/dev/null && \
                curl --fail --silent "https://$WEB_HOST/Asset/sprites/succubus-upgraded-8dir-walk-v1.png" >/dev/null && \
                curl --fail --silent "https://$WEB_HOST/Asset/sprites/golem-upgraded-8dir-walk-v1.png" >/dev/null && \
-               curl --fail --silent "https://$WEB_HOST/Asset/sprites/hidden-ent-8dir-walk-v1.png" >/dev/null && \
-               curl --fail --silent "https://$WEB_HOST/Asset/sprites/hidden-stone-golem-8dir-walk-v1.png" >/dev/null && \
-               curl --fail --silent "https://$WEB_HOST/Asset/sprites/hidden-dullahan-8dir-walk-v1.png" >/dev/null && \
+               curl --fail --silent "https://$WEB_HOST/Asset/sprites/hidden-ent-8dir-walk-opaque-v2.png" >/dev/null && \
+               curl --fail --silent "https://$WEB_HOST/Asset/sprites/hidden-stone-golem-8dir-walk-opaque-v2.png" >/dev/null && \
+               curl --fail --silent "https://$WEB_HOST/Asset/sprites/hidden-dullahan-8dir-walk-opaque-v2.png" >/dev/null && \
                curl --fail --silent "https://$WEB_HOST/Asset/sprites/skeleton-unarmed-8dir-walk-v1.png" >/dev/null && \
                curl --fail --silent "https://$GAME_HOST/health/ready" >/dev/null && \
                printf '%s' "$game_live" | grep -q '"fastLane":{"state":"ready"'; then

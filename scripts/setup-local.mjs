@@ -29,7 +29,7 @@ const values = [
   `GAME_TICKET_PUBLIC_KEY_BASE64=${Buffer.from(publicKey).toString("base64")}`,
   "GAME_TICKET_ACTIVE_KID=local-v1",
   "PROTOCOL_VERSION=10",
-  "MAX_LIVE_INVADERS=50",
+  "MAX_LIVE_INVADERS=15",
   "ALLOWED_ORIGINS=http://localhost:3000",
   "SERVER_VERSION=development",
   "",

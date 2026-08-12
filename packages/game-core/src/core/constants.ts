@@ -7,6 +7,7 @@ export const STATIC_RESPAWN_SECONDS = { prototype: 30, full: 90 } as const;
 export const SIMULATION_EPSILON = 1e-9;
 export const ACTOR_COLLISION_RADIUS = 14;
 export const PLAYER_RESPAWN_SECONDS = 5;
+export const BASE_CRITICAL_CHANCE = 0.1;
 
 export const INVADER_AGGRO_RADIUS = 1_400;
 export const INVADER_RELEASE_RADIUS = 1_500;
@@ -26,7 +27,7 @@ export const INVADER_SPAWN_GROUP_SIZE = 6;
 export const INVADER_SPAWN_GROUP_PAUSE_SECONDS = 3;
 export const INVADER_EMERGENCE_HOLD_TICKS = 30;
 export const INVADER_REPLAN_BUDGET_PER_TICK = 8;
-export const DEFAULT_MAX_LIVE_INVADERS = 50;
+export const DEFAULT_MAX_LIVE_INVADERS = 15;
 export const ABSOLUTE_MAX_LIVE_INVADERS = 384;
 export const MAX_PENDING_INVADERS = 1_024;
 export const INVADER_CORRIDOR_LANE_OFFSET = 20;
