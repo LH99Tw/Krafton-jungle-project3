@@ -1,7 +1,7 @@
 import type { HeroClassId } from "../../domain/types";
 
 export const HERO_SPRITE_FRAME_SIZE = 362;
-const HERO_SPRITE_DISPLAY_SIZE = 52.8;
+const HERO_SPRITE_DISPLAY_SIZE = 105.6;
 export const HERO_SPRITE_SCALE = HERO_SPRITE_DISPLAY_SIZE / HERO_SPRITE_FRAME_SIZE;
 export const HERO_DIRECTION_COUNT = 4;
 const HERO_ANIMATION_ROW_COUNT = 3;

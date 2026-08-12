@@ -16,9 +16,9 @@ import type { HeroClassId, RoomMapCell } from "../domain/types";
 type TimedTransform = TransformSample & { serverTime: number };
 
 export function shouldRenderPartyMember(
-  member: { connected: boolean; x: number; y: number },
+  member: { connected: boolean; alive: boolean; x: number; y: number },
 ): boolean {
-  return member.connected;
+  return member.connected && member.alive;
 }
 
 export function areAuthoredBossGatesCleared(

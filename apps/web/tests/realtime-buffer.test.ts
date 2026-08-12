@@ -210,10 +210,11 @@ test("boss prediction opens only after every authored gate is cleared on day thr
   assert.equal(areAuthoredBossGatesCleared(3, ["gate-a", "gate-b"], rooms.map((room) => ({ ...room, cleared: true }))), true);
 });
 
-test("remote party visibility is independent of fog radius and follows connection state", () => {
-  assert.equal(shouldRenderPartyMember({ connected: true, x: 800, y: 0 }), true);
-  assert.equal(shouldRenderPartyMember({ connected: false, x: 100, y: 0 }), false);
-  assert.equal(shouldRenderPartyMember({ connected: true, x: 8_001, y: 0 }), true);
+test("remote party visibility is independent of fog radius and requires a connected, living player", () => {
+  assert.equal(shouldRenderPartyMember({ connected: true, alive: true, x: 800, y: 0 }), true);
+  assert.equal(shouldRenderPartyMember({ connected: false, alive: true, x: 100, y: 0 }), false);
+  assert.equal(shouldRenderPartyMember({ connected: true, alive: false, x: 100, y: 0 }), false);
+  assert.equal(shouldRenderPartyMember({ connected: true, alive: true, x: 8_001, y: 0 }), true);
 });
 
 test("official authored rooms resolve the shared official minimap area", () => {

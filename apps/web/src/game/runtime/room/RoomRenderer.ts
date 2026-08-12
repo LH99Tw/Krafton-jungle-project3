@@ -49,6 +49,11 @@ const NETWORK_ENEMY_POOL_LIMIT: Record<EnemyKind, number> = {
   gate: 8,
   boss: 2,
 };
+const UNIT_RENDER_SCALE = 2;
+const MIDBOSS_DISPLAY_SIZE = 192 * UNIT_RENDER_SCALE;
+const GATE_DISPLAY_WIDTH = 112 * UNIT_RENDER_SCALE;
+const GATE_DISPLAY_HEIGHT = 130 * UNIT_RENDER_SCALE;
+const BOSS_DISPLAY_SIZE = 250 * UNIT_RENDER_SCALE;
 
 const CRITICAL_ATTACK_COLORS: Record<HeroClassId, number> = {
   swordsman: 0xd8f6ff,
@@ -570,11 +575,11 @@ export class RoomRenderer {
           ? (hasBossBullAsset ? "enemy-boss-bull-asset" : "boss")
           : "enemy-skeleton-0";
 
-    const enemy = this.scene.physics.add.sprite(x, y, textureKey).setDepth(look.depth);
-    if (hasMidbossAsset) enemy.setDisplaySize(192, 192);
-    if (hasGateAsset) enemy.setDisplaySize(112, 130);
+    const enemy = this.scene.physics.add.sprite(x, y, textureKey).setDepth(look.depth).setScale(UNIT_RENDER_SCALE);
+    if (hasMidbossAsset) enemy.setDisplaySize(MIDBOSS_DISPLAY_SIZE, MIDBOSS_DISPLAY_SIZE);
+    if (hasGateAsset) enemy.setDisplaySize(GATE_DISPLAY_WIDTH, GATE_DISPLAY_HEIGHT);
     if (kind === "boss") {
-      enemy.setDisplaySize(250, 250);
+      enemy.setDisplaySize(BOSS_DISPLAY_SIZE, BOSS_DISPLAY_SIZE);
       if (hasBossBullAsset) this.applyBullChargeMotion(enemy);
     }
     (enemy.body as Phaser.Physics.Arcade.Body).setCircle(look.radius);
@@ -603,13 +608,14 @@ export class RoomRenderer {
       .setTexture(textureKey)
       .setPosition(x, y)
       .setDepth(ENEMY_LOOK[kind].depth)
+      .setScale(UNIT_RENDER_SCALE)
       .setAlpha(1)
       .setVisible(true)
       .setActive(true);
-    if (hasMidbossAsset) enemy.setDisplaySize(192, 192);
-    if (hasGateAsset) enemy.setDisplaySize(112, 130);
+    if (hasMidbossAsset) enemy.setDisplaySize(MIDBOSS_DISPLAY_SIZE, MIDBOSS_DISPLAY_SIZE);
+    if (hasGateAsset) enemy.setDisplaySize(GATE_DISPLAY_WIDTH, GATE_DISPLAY_HEIGHT);
     if (kind === "boss") {
-      enemy.setDisplaySize(250, 250);
+      enemy.setDisplaySize(BOSS_DISPLAY_SIZE, BOSS_DISPLAY_SIZE);
       if (hasBossBullAsset) this.applyBullChargeMotion(enemy);
     }
     this.playEnemyEmergence(enemy, kind);
@@ -651,24 +657,24 @@ export class RoomRenderer {
     const snapAngle = (Math.round(normalized / 45) * 45) % 360;
     if (kind === "hidden") {
       if (this.scene.textures.exists("enemy-demon-midboss-asset")) {
-        sprite.setTexture("enemy-demon-midboss-asset").setDisplaySize(192, 192);
+        sprite.setTexture("enemy-demon-midboss-asset").setDisplaySize(MIDBOSS_DISPLAY_SIZE, MIDBOSS_DISPLAY_SIZE);
       } else {
         sprite.setTexture(`enemy-demon-midboss-${snapAngle}`);
       }
     } else if (kind === "gate") {
       if (this.scene.textures.exists("enemy-gate-asset")) {
-        sprite.setTexture("enemy-gate-asset").setDisplaySize(112, 130);
+        sprite.setTexture("enemy-gate-asset").setDisplaySize(GATE_DISPLAY_WIDTH, GATE_DISPLAY_HEIGHT);
       }
     } else if (kind === "boss") {
       const isDragon = sprite.getData("bossPhase") === "dragon";
       if (isDragon && this.scene.textures.exists("enemy-boss-dragon-asset")) {
-        sprite.setTexture("enemy-boss-dragon-asset").setDisplaySize(250, 250);
+        sprite.setTexture("enemy-boss-dragon-asset").setDisplaySize(BOSS_DISPLAY_SIZE, BOSS_DISPLAY_SIZE);
         this.applyDragonHoverMotion(sprite);
       } else if (this.scene.textures.exists("enemy-boss-bull-asset")) {
-        sprite.setTexture("enemy-boss-bull-asset").setDisplaySize(250, 250);
+        sprite.setTexture("enemy-boss-bull-asset").setDisplaySize(BOSS_DISPLAY_SIZE, BOSS_DISPLAY_SIZE);
         this.applyBullChargeMotion(sprite);
       } else {
-        sprite.setDisplaySize(250, 250);
+        sprite.setDisplaySize(BOSS_DISPLAY_SIZE, BOSS_DISPLAY_SIZE);
       }
     } else if (kind === "static" || kind === "invader") {
       sprite.setTexture(`enemy-skeleton-${snapAngle}`);

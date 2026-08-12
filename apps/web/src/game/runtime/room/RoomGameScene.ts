@@ -769,8 +769,8 @@ export class RoomGameScene extends Phaser.Scene {
         this.localPrediction.x + (this.localCorrection?.x ?? 0) * correctionScale,
         this.localPrediction.y + (this.localCorrection?.y ?? 0) * correctionScale,
       );
-      this.player.setVisible(true).setActive(true);
-      this.roomRenderer.updateHeroPose(this.player, this.localMovementX, this.localMovementY, poseTime);
+      this.player.setVisible(localState.alive).setActive(localState.alive && localState.connected);
+      if (localState.alive) this.roomRenderer.updateHeroPose(this.player, this.localMovementX, this.localMovementY, poseTime);
       if (correctionScale === 0) this.localCorrection = null;
     }
     for (const member of snapshot.players) {
@@ -1971,12 +1971,14 @@ export class RoomGameScene extends Phaser.Scene {
         this.localPrediction = { x: member.x, y: member.y, roomId: member.roomId };
         sprite.setPosition(member.x, member.y).setVelocity(0);
       }
-      const visible = isLocal || (
+      const visible = isLocal
+        ? member.alive
+        : (
         this.sharesNetworkVisionZone(local.roomId, member.roomId)
         && shouldRenderPartyMember(member)
       );
-      sprite.setVisible(visible).setActive(member.connected);
-      sprite.setAlpha(isLocal ? (member.alive ? 1 : 0.45) : 0.82);
+      sprite.setVisible(visible).setActive(member.connected && member.alive);
+      sprite.setAlpha(isLocal ? 1 : 0.82);
       const previousAttackSequence = this.networkPlayerAttackSequence.get(member.userId);
       if (!this.options.networked && previousAttackSequence !== undefined && member.attackSequence > previousAttackSequence && visible) {
         const target = snapshot.enemies.find((enemy) => enemy.id === member.attackTargetId);

@@ -12,7 +12,7 @@ const CONCEPT_ART_PATHS: Record<HeroClassId, string> = {
   mage: "/Asset/Mage.webp",
 };
 
-export function CharacterSelectScreen({ snapshot, viewerId, launching, onSelect }: { snapshot: LobbySnapshot; viewerId: string; launching: boolean; onSelect: (heroClass: HeroClassId | null) => void }) {
+export function CharacterSelectScreen({ snapshot, viewerId, launching, curtainVisible, onSelect }: { snapshot: LobbySnapshot; viewerId: string; launching: boolean; curtainVisible: boolean; onSelect: (heroClass: HeroClassId | null) => void }) {
   const me = snapshot.players.find((player) => player.userId === viewerId);
   const allSelected = snapshot.players.length > 0 && snapshot.players.every((player) => player.heroClass);
   const readying = snapshot.launchAt > 0;
@@ -42,5 +42,6 @@ export function CharacterSelectScreen({ snapshot, viewerId, launching, onSelect 
     <footer className={`select-footer ${allSelected ? "has-all-picks" : ""}`}>
       {launchStatus ? <div className="select-launch-state" role="status" aria-live="polite"><i /><strong>{launchStatus}</strong></div> : null}
     </footer>
+    {curtainVisible ? <div className="launch-curtain" aria-live="assertive"><span>마왕 출현까지 5일</span><strong>원정 개시</strong></div> : null}
   </main>;
 }

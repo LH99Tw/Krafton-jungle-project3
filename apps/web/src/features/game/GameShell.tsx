@@ -31,6 +31,8 @@ const RESULT_FALLBACK_DELAY_MS = 1_200;
 const RESULT_PRIORITY_FALLBACK = 1;
 const RESULT_PRIORITY_MESSAGE = 2;
 const RESULT_PRIORITY_AUTHORITATIVE = 3;
+const SELECTION_HOLD_DELAY_MS = 2_000;
+const SELECTION_CURTAIN_DURATION_MS = 1_100;
 
 export type Viewer = {
   userId: string;
@@ -65,6 +67,8 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   const resultRef = useRef<GameResult | null>(null);
   const resultPriorityRef = useRef(0);
   const terminalFallbackTimerRef = useRef<number | null>(null);
+  const selectionHoldTimerRef = useRef<number | null>(null);
+  const selectionCurtainTimerRef = useRef<number | null>(null);
   const [viewer, setViewer] = useState<Viewer>(initialViewer);
   const [authUnavailable, setAuthUnavailable] = useState(sessionUnavailable);
   const [screen, setScreen] = useState<Screen>(initialScreen ?? "access");
@@ -80,6 +84,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
   const [busy, setBusy] = useState(false);
   const [surfaceError, setSurfaceError] = useState(sessionUnavailable ? "세션 저장소에 일시적으로 연결할 수 없습니다. 잠시 후 다시 시도해 주세요." : "");
   const [launching, setLaunching] = useState(false);
+  const [selectionCurtainVisible, setSelectionCurtainVisible] = useState(false);
   const [gameTransitionPhase, setGameTransitionPhase] = useState<GameTransitionPhase>("idle");
 
   const cancelTerminalFallback = useCallback(() => {
@@ -245,12 +250,20 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     lobbyLaunchStartedRef.current = true;
     pendingLobbyStartRef.current = null;
     setLaunching(true);
-    void beginRun({
-      heroClass,
-      sessionMode: event.sessionMode,
-      difficulty: event.difficulty,
-      partyMode: "coop",
-    }, event.gameRoomId);
+    setSelectionCurtainVisible(false);
+    selectionHoldTimerRef.current = window.setTimeout(() => {
+      selectionHoldTimerRef.current = null;
+      setSelectionCurtainVisible(true);
+      selectionCurtainTimerRef.current = window.setTimeout(() => {
+        selectionCurtainTimerRef.current = null;
+        void beginRun({
+          heroClass,
+          sessionMode: event.sessionMode,
+          difficulty: event.difficulty,
+          partyMode: "coop",
+        }, event.gameRoomId);
+      }, SELECTION_CURTAIN_DURATION_MS);
+    }, SELECTION_HOLD_DELAY_MS);
   }, [beginRun, viewer]);
 
   useEffect(() => {
@@ -267,7 +280,13 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
       if (!active) return;
       setSurfaceError(formatClientError(error, "게임 리소스를 불러오지 못했습니다."));
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+      if (selectionHoldTimerRef.current !== null) window.clearTimeout(selectionHoldTimerRef.current);
+      if (selectionCurtainTimerRef.current !== null) window.clearTimeout(selectionCurtainTimerRef.current);
+      selectionHoldTimerRef.current = null;
+      selectionCurtainTimerRef.current = null;
+    };
   }, [launchSelectedRun, screen]);
 
   useEffect(() => {
@@ -426,7 +445,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     clearRunRecovery();
     colyseusTransport.disconnect();
     lobbyTransport.returnFromGame();
-    setNetworkStatus("disconnected"); resetTerminalResult(); setUpgradeChoices([]); snapshotRef.current = EMPTY_SNAPSHOT; setSnapshot(EMPTY_SNAPSHOT); setActiveOptions(null); setLaunching(false);
+    setNetworkStatus("disconnected"); resetTerminalResult(); setUpgradeChoices([]); snapshotRef.current = EMPTY_SNAPSHOT; setSnapshot(EMPTY_SNAPSHOT); setActiveOptions(null); setLaunching(false); setSelectionCurtainVisible(false);
     setGameTransitionPhase("idle");
     setScreen(wasEditorPlaytest ? "editor" : viewer && gameServerUrl ? "lobby" : "access");
   }, [activeOptions?.editorMap, gameServerUrl, resetTerminalResult, viewer]);
@@ -483,7 +502,7 @@ export function GameShell({ viewer: initialViewer, gameServerUrl, publicPlaytest
     )}
   </main>;
 
-  if (screen === "selecting" && lobby && viewer) return <CharacterSelectScreen snapshot={lobby} viewerId={viewer.userId} launching={launching} onSelect={(heroClass) => lobbyTransport.selectClass(heroClass)} />;
+  if (screen === "selecting" && lobby && viewer) return <CharacterSelectScreen snapshot={lobby} viewerId={viewer.userId} launching={launching} curtainVisible={selectionCurtainVisible} onSelect={(heroClass) => lobbyTransport.selectClass(heroClass)} />;
 
   if (screen === "lobby" && viewer) return <LobbyScreen viewer={viewer} rooms={rooms} snapshot={lobby} messages={messages} busy={busy} error={surfaceError} onCreate={createLobby} onJoin={joinLobby} onLeave={leaveLobby} onReady={(ready) => lobbyTransport.ready(ready)} onStart={() => lobbyTransport.startSelection()} onSoloStart={startSoloExpedition} onChat={(message) => globalChatTransport.chat(message)} onAddAi={() => lobbyTransport.addAi()} onRemoveAi={(userId) => lobbyTransport.removeAi(userId)} onBack={() => setScreen("access")} />;
 
