@@ -273,6 +273,36 @@ test("static enemies chase, animate an attack sequence, and stay in their spawn 
   assert.equal(staticEnemy.patternPhase, "idle");
 });
 
+test("enemy aggro retains a target, switches to a threatening attacker, and drops invalid targets", () => {
+  const core = twoPlayerCore("aggro-target-selection");
+  const first = core.players.get("p1")!;
+  const second = core.players.get("p2")!;
+  const target = enemy("aggro-static", first.roomId, first.x + 260, first.y);
+  core.enemies.clear();
+  core.enemies.set(target.id, target);
+  first.x = target.x - 100;
+  first.y = target.y;
+  second.x = target.x + 180;
+  second.y = target.y;
+  first.autoAttackCooldown = 999;
+  second.autoAttackCooldown = 999;
+
+  core.update(0.1);
+  assert.equal(target.targetId, first.userId, "the nearest player should acquire initial aggro");
+
+  second.x = target.x + 90;
+  core.update(0.1);
+  assert.equal(target.targetId, first.userId, "small distance changes must not make aggro oscillate");
+
+  assert.equal(core.damageEnemy(second.userId, target.id, 1), true);
+  core.update(0.1);
+  assert.equal(target.targetId, second.userId, "an attacker with fresh threat should take aggro");
+
+  second.alive = false;
+  core.update(0.1);
+  assert.equal(target.targetId, first.userId, "a dead target must be dropped immediately");
+});
+
 test("enemy attacks use the same globally sequenced reliable combat action stream", () => {
   const core = startedCore("enemy-combat-action");
   const player = core.players.get("p1")!;
@@ -797,6 +827,49 @@ test("hidden enemies attack players from range", () => {
   const hpBefore = player.hp;
   for (let index = 0; index < 60; index += 1) core.update(0.1);
   assert.ok(player.hp < hpBefore, "hidden enemy should damage the player over time");
+});
+
+test("a damaged hidden enemy follows the player who hit it without leaving its room", () => {
+  const core = twoPlayerCore("hidden-hit-chase");
+  const attacker = core.players.get("p1")!;
+  const bystander = core.players.get("p2")!;
+  const hidden = [...core.enemies.values()].find((candidate) => candidate.kind === "hidden")!;
+  core.movePlayerToRoom(attacker.userId, hidden.roomId);
+  core.movePlayerToRoom(bystander.userId, hidden.roomId);
+  attacker.x = hidden.x + 320;
+  attacker.y = hidden.y;
+  bystander.x = hidden.x + 20;
+  bystander.y = hidden.y;
+  attacker.autoAttackCooldown = 999;
+  bystander.autoAttackCooldown = 999;
+  const spawnRoomId = hidden.spawnRoomId;
+  const distanceBefore = Math.hypot(attacker.x - hidden.x, attacker.y - hidden.y);
+
+  assert.equal(core.damageEnemy(attacker.userId, hidden.id, 1), true);
+  core.update(0.1);
+
+  assert.equal(hidden.targetId, attacker.userId, "the attacker must remain the preferred target");
+  assert.ok(Math.hypot(attacker.x - hidden.x, attacker.y - hidden.y) < distanceBefore);
+  assert.equal(hidden.roomId, spawnRoomId);
+  assert.ok(hidden.lastMoveSpeed > 0);
+});
+
+test("gate enemies use damage threat instead of blindly targeting the nearest player", () => {
+  const core = twoPlayerCore("gate-threat-target");
+  const first = core.players.get("p1")!;
+  const second = core.players.get("p2")!;
+  const gate = [...core.enemies.values()].find((candidate) => candidate.kind === "gate")!;
+  core.movePlayerToRoom(first.userId, gate.roomId, gate.x + 20, gate.y);
+  core.movePlayerToRoom(second.userId, gate.roomId, gate.x + 180, gate.y);
+  first.autoAttackCooldown = 999;
+  second.autoAttackCooldown = 999;
+
+  core.update(0.1);
+  assert.equal(gate.targetId, first.userId);
+
+  assert.equal(core.damageEnemy(second.userId, gate.id, 1), true);
+  core.update(0.1);
+  assert.equal(gate.targetId, second.userId, "fresh damage threat should override proximity for elite enemies");
 });
 
 test("boss pattern volley damages players inside the boss room", () => {

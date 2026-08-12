@@ -56,6 +56,15 @@ import { TravelDirector } from "./systems/TravelDirector";
 import type { CoreCombatStats, CoreNotice, CorePhase, CorePlayer, CoreResult, GameCoreOptions, InvaderSimulationTiers, TeamProgress } from "./types";
 
 const authoredWalkableWithoutBossCache = new WeakMap<CoreWorldDefinition, readonly WorldRect[]>();
+const ENEMY_AGGRO_MEMORY_SECONDS = 12;
+const ENEMY_AGGRO_DAMAGE_BASE = 120;
+const ENEMY_AGGRO_DAMAGE_MULTIPLIER = 2;
+const ENEMY_AGGRO_PROXIMITY_SCORE = 24;
+const ENEMY_AGGRO_CURRENT_TARGET_BONUS = 8;
+const ENEMY_AGGRO_SWITCH_RATIO = 1.25;
+const ENEMY_AGGRO_SWITCH_MARGIN = 5;
+
+type EnemyThreatEntry = { value: number; updatedAt: number };
 
 export class GameCore {
   readonly players = new Map<string, CorePlayer>();
@@ -107,6 +116,7 @@ export class GameCore {
   private readonly routeCache = new Map<string, readonly CoreRoomId[]>();
   private readonly staticEnemyIdsByRoom = new Map<CoreRoomId, string[]>();
   private readonly activeCombatRooms = new Set<CoreRoomId>();
+  private readonly enemyThreat = new Map<string, Map<string, EnemyThreatEntry>>();
   private authoredWalkableCache: { bossAccessible: boolean; rects: readonly WorldRect[] } | null = null;
   private readonly notices: CoreNotice[] = [];
   private readonly noticeCooldowns = new Map<string, number>();
@@ -383,12 +393,14 @@ export class GameCore {
       if (this.activeCombatRooms.has(roomId)) continue;
       for (const enemyId of this.staticEnemyIdsByRoom.get(roomId) ?? []) {
         const enemy = this.enemies.get(enemyId);
-        if (!enemy?.alive || enemy.kind !== "static") continue;
-        enemy.x = enemy.spawnX;
-        enemy.y = enemy.spawnY;
-        enemy.aggroed = false;
-        enemy.targetId = null;
-        enemy.lastMoveSpeed = 0;
+        if (!enemy?.alive || enemy.behavior === "invader") continue;
+        this.enemyThreat.delete(enemy.id);
+        this.clearEnemyTarget(enemy);
+        if (enemy.kind === "static") {
+          enemy.x = enemy.spawnX;
+          enemy.y = enemy.spawnY;
+          enemy.lastMoveSpeed = 0;
+        }
       }
     }
     this.updateStaticEnemies(delta);
@@ -575,9 +587,10 @@ export class GameCore {
     const damage = Math.max(1, Math.round(rawDamage ?? this.calculateAttackDamage(player, enemy)));
     enemy.hp = Math.max(0, enemy.hp - damage);
     enemy.lastHitBy = userId;
-    if (enemy.behavior === "static") {
+    if (enemy.behavior !== "invader") {
+      this.addEnemyThreat(enemy.id, userId, ENEMY_AGGRO_DAMAGE_BASE + damage * ENEMY_AGGRO_DAMAGE_MULTIPLIER);
       enemy.aggroed = true;
-      enemy.targetId = userId;
+      enemy.targetId ??= userId;
     }
     player.damage += damage;
     if (enemy.kind === "boss") player.bossDamage += damage;
@@ -1224,6 +1237,7 @@ export class GameCore {
     enemy.hp = 0;
     enemy.aggroed = false;
     enemy.targetId = null;
+    this.enemyThreat.delete(enemy.id);
     enemy.patternPhase = "idle";
     enemy.patternRemaining = 0;
     enemy.respawnRemaining = enemy.kind === "static" ? STATIC_RESPAWN_SECONDS[this.options.mode] : null;
@@ -1342,10 +1356,9 @@ export class GameCore {
     for (const enemy of this.activeStaticEnemies()) {
       if (!enemy.alive || enemy.kind !== "static") continue;
       enemy.attackCooldown = Math.max(0, enemy.attackCooldown - delta);
-      const target = this.nearestPlayerInRoom(enemy.roomId, enemy.x, enemy.y, 560);
+      const target = this.selectEnemyAggroTarget(enemy, 560, 720);
       if (!target) {
-        enemy.aggroed = false;
-        enemy.targetId = null;
+        this.clearEnemyTarget(enemy);
         this.moveEnemyToward(enemy, enemy.spawnX, enemy.spawnY, delta);
         continue;
       }
@@ -1368,15 +1381,23 @@ export class GameCore {
       const tier = enemy.kind === "boss" ? "boss" : enemy.kind === "hidden" ? "hidden" : "gate";
       const config = enemyPatternConfig(tier);
       enemy.attackCooldown = Math.max(0, enemy.attackCooldown - delta);
-      const target = this.nearestPlayerInRoom(enemy.roomId, enemy.x, enemy.y, Number.POSITIVE_INFINITY);
+      const target = this.selectEnemyAggroTarget(enemy, Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY);
       if (!target) {
-        enemy.targetId = null;
+        this.clearEnemyTarget(enemy);
         enemy.patternPhase = "idle";
         enemy.patternRemaining = 0;
+        if (enemy.kind === "hidden") this.moveEnemyToward(enemy, enemy.spawnX, enemy.spawnY, delta);
         continue;
       }
       enemy.aggroed = true;
       enemy.targetId = target.userId;
+      const targetDistance = Math.hypot(target.x - enemy.x, target.y - enemy.y);
+      if (enemy.kind === "hidden" && targetDistance > enemy.attackRange) {
+        enemy.patternPhase = "idle";
+        enemy.patternRemaining = 0;
+        this.moveEnemyToward(enemy, target.x, target.y, delta);
+        continue;
+      }
       if (enemy.patternPhase === "idle") {
         if (enemy.attackCooldown > 0) continue;
         enemy.patternKind = enemy.patternIndex % 2 === 0 ? "fan" : "floor";
@@ -1477,6 +1498,7 @@ export class GameCore {
       enemy.aggroed = false;
       enemy.targetId = null;
       enemy.lastHitBy = null;
+      this.enemyThreat.delete(enemy.id);
       enemy.attackCooldown = 0;
       enemy.patternKind = "fan";
       enemy.patternPhase = "idle";
@@ -1491,18 +1513,63 @@ export class GameCore {
     }
   }
 
-  private nearestPlayerInRoom(roomId: CoreRoomId, x: number, y: number, range: number): CorePlayer | null {
-    let best: CorePlayer | null = null;
-    let bestDistance = range;
+  private addEnemyThreat(enemyId: string, playerId: string, amount: number): void {
+    const table = this.enemyThreat.get(enemyId) ?? new Map<string, EnemyThreatEntry>();
+    const previous = table.get(playerId);
+    const retained = previous ? this.decayedEnemyThreat(previous) : 0;
+    table.set(playerId, { value: retained + Math.max(0, amount), updatedAt: this.elapsed });
+    this.enemyThreat.set(enemyId, table);
+  }
+
+  private decayedEnemyThreat(entry: EnemyThreatEntry): number {
+    const age = Math.max(0, this.elapsed - entry.updatedAt);
+    return entry.value * Math.max(0, 1 - age / ENEMY_AGGRO_MEMORY_SECONDS);
+  }
+
+  private selectEnemyAggroTarget(enemy: CoreEnemy, acquireRange: number, releaseRange: number): CorePlayer | null {
+    const table = this.enemyThreat.get(enemy.id);
+    if (table) {
+      for (const [playerId, entry] of table) {
+        const player = this.players.get(playerId);
+        if (!player?.alive || player.roomId !== enemy.roomId || this.decayedEnemyThreat(entry) <= SIMULATION_EPSILON) {
+          table.delete(playerId);
+        }
+      }
+      if (table.size === 0) this.enemyThreat.delete(enemy.id);
+    }
+
+    let best: { player: CorePlayer; score: number } | null = null;
+    let current: { player: CorePlayer; score: number } | null = null;
     for (const player of this.players.values()) {
-      if (!player.alive || player.roomId !== roomId) continue;
-      const distance = Math.hypot(player.x - x, player.y - y);
-      if (distance <= bestDistance) {
-        best = player;
-        bestDistance = distance;
+      if (!player.alive || player.roomId !== enemy.roomId) continue;
+      const isCurrent = player.userId === enemy.targetId;
+      const range = isCurrent ? releaseRange : acquireRange;
+      const distance = Math.hypot(player.x - enemy.x, player.y - enemy.y);
+      if (distance > range) continue;
+      const proximity = Number.isFinite(range)
+        ? ENEMY_AGGRO_PROXIMITY_SCORE * Math.max(0, 1 - distance / Math.max(1, range))
+        : ENEMY_AGGRO_PROXIMITY_SCORE / (1 + distance / 240);
+      const threatEntry = table?.get(player.userId);
+      const score = proximity
+        + (threatEntry ? this.decayedEnemyThreat(threatEntry) : 0)
+        + (isCurrent ? ENEMY_AGGRO_CURRENT_TARGET_BONUS : 0);
+      const candidate = { player, score };
+      if (isCurrent) current = candidate;
+      if (!best || score > best.score || (score === best.score && player.userId.localeCompare(best.player.userId) < 0)) {
+        best = candidate;
       }
     }
-    return best;
+    if (!best) return null;
+    if (current && best.player.userId !== current.player.userId) {
+      const switchThreshold = current.score * ENEMY_AGGRO_SWITCH_RATIO + ENEMY_AGGRO_SWITCH_MARGIN;
+      if (best.score < switchThreshold) return current.player;
+    }
+    return best.player;
+  }
+
+  private clearEnemyTarget(enemy: CoreEnemy): void {
+    enemy.aggroed = false;
+    enemy.targetId = null;
   }
 
   private moveEnemyToward(enemy: CoreEnemy, x: number, y: number, delta: number): void {

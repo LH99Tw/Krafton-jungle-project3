@@ -16,9 +16,6 @@ export function CharacterSelectScreen({ snapshot, viewerId, launching, curtainVi
   const me = snapshot.players.find((player) => player.userId === viewerId);
   const allSelected = snapshot.players.length > 0 && snapshot.players.every((player) => player.heroClass);
   const readying = snapshot.launchAt > 0;
-  const launchStatus = launching ? "전원 준비 완료 · 곧 원정을 시작합니다"
-    : allSelected ? "전원 선택 완료"
-      : me?.heroClass ? "동료의 선택을 기다리는 중" : "";
   return <main className={`character-select-screen ${launching ? "is-launching" : ""}`}>
     <section className="team-picks" aria-label="팀원 선택 현황">
       {snapshot.players.map((player) => <div key={player.userId} className={player.heroClass ? "has-pick" : ""} data-hero-class={player.heroClass ?? "unselected"}>
@@ -39,9 +36,7 @@ export function CharacterSelectScreen({ snapshot, viewerId, launching, curtainVi
         </button>;
       })}
     </section>
-    <footer className={`select-footer ${allSelected ? "has-all-picks" : ""}`}>
-      {launchStatus ? <div className="select-launch-state" role="status" aria-live="polite"><i /><strong>{launchStatus}</strong></div> : null}
-    </footer>
+    <footer className={`select-footer ${allSelected ? "has-all-picks" : ""}`} />
     {curtainVisible ? <div className="launch-curtain" aria-live="assertive"><span>마왕 출현까지 5일</span><strong>원정 개시</strong></div> : null}
   </main>;
 }

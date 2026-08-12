@@ -1374,6 +1374,7 @@ button {
 
 .game-settings-backdrop {
   z-index: 90;
+  pointer-events: auto;
   background: radial-gradient(circle at 50% 44%, rgba(99, 78, 35, 0.16), rgba(3, 7, 8, 0.82));
   animation: settings-veil-in 140ms ease-out both;
 }
@@ -1388,6 +1389,7 @@ button {
   flex-direction: column;
   align-items: stretch;
   text-align: center;
+  pointer-events: auto;
   background: transparent;
   border: 0;
   filter: drop-shadow(0 30px 42px rgba(0, 0, 0, .72));
@@ -1397,6 +1399,12 @@ button {
 .game-settings-modal > span { color: var(--gold); font: 8px ui-monospace, monospace; letter-spacing: 0.18em; }
 .game-settings-modal h2 { margin: 12px 0 12px; color: #eadcae; font: 500 29px Georgia, "Noto Serif KR", serif; text-shadow: 0 3px 12px #000; }
 .game-settings-modal p { margin: 0; color: #aaa395; font-size: 11px; line-height: 1.75; }
+.game-settings-volume { position:relative; z-index:2; margin-top:28px; padding:16px 0 14px; display:grid; gap:10px; border-top:1px solid rgba(218,183,101,.2); border-bottom:1px solid rgba(218,183,101,.14); text-align:left; pointer-events:auto; }
+.game-settings-volume > span { display:flex; align-items:center; justify-content:space-between; }
+.game-settings-volume b { color:#d9c99f; font:600 12px "Noto Serif KR",serif; }
+.game-settings-volume output { color:#d7b866; font:10px ui-monospace,monospace; }
+.game-settings-volume input { width:100%; height:20px; margin:0; cursor:pointer; accent-color:#c4a45b; pointer-events:auto; touch-action:none; }
+.game-settings-volume small { color:#766f63; font-size:8px; letter-spacing:.04em; }
 .game-settings-modal button {
   width: 100%;
   height: 48px;
@@ -2220,11 +2228,6 @@ button {
 .select-ready-count small { color:var(--ui-dim); font:7px ui-monospace,monospace; letter-spacing:.16em; }
 .select-ready-count b { color:var(--ui-parchment); font:500 12px var(--ui-display); }
 .select-footer.has-all-picks .select-ready-count b { color:var(--ui-brass-bright); }
-.select-launch-state { justify-self:end; min-width:0; display:flex; align-items:center; justify-content:flex-end; gap:10px; }
-.select-launch-state i { flex:0 0 auto; width:6px; height:6px; border-radius:50%; background:#665f53; box-shadow:none; transition:background .25s,box-shadow .25s; }
-.select-footer.has-all-picks .select-launch-state i { background:var(--ui-brass-bright); box-shadow:0 0 12px rgba(210,184,115,.8); animation:select-ready-pulse 1s ease-in-out infinite alternate; }
-.select-launch-state strong { overflow:hidden; color:#a99f8e; font:500 10px var(--ui-display); letter-spacing:.04em; text-overflow:ellipsis; white-space:nowrap; }
-.select-footer.has-all-picks .select-launch-state strong { color:#e0d3aa; }
 @keyframes select-ready-pulse { to { transform:scale(1.25); filter:brightness(1.3); } }
 .team-picks {
   position:relative;

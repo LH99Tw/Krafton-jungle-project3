@@ -471,7 +471,7 @@ export class RoomRenderer {
     const duration = kind === "boss" ? 680 : kind === "gate" || kind === "hidden" ? 560 : 420;
     const shadowWidth = kind === "boss" ? 92 : kind === "gate" || kind === "hidden" ? 68 : 38;
     const shadowHeight = kind === "boss" ? 22 : kind === "gate" || kind === "hidden" ? 17 : 10;
-    const reveal = { height: 1 };
+    const reveal = { width: 1, height: 1 };
     const shadow = this.scene.add.ellipse(
       enemy.x,
       enemy.y + (kind === "boss" ? 22 : 12),
@@ -486,7 +486,37 @@ export class RoomRenderer {
       .setData("hasHoverMotion", false)
       .setAlpha(0.12)
       .setTint(0x050505)
-      .setCrop(0, frameHeight - 1, frameWidth, 1);
+      .setCrop(
+        kind === "gate" ? (frameWidth - 1) / 2 : 0,
+        kind === "gate" ? (frameHeight - 1) / 2 : frameHeight - 1,
+        kind === "gate" ? 1 : frameWidth,
+        1,
+      );
+
+    if (kind === "gate") {
+      const innerPulse = this.scene.add.circle(enemy.x, enemy.y, 8, 0x8f5dff, 0.28)
+        .setStrokeStyle(3, 0xd8c3ff, 0.84)
+        .setDepth(enemy.depth - 1);
+      const outerPulse = this.scene.add.circle(enemy.x, enemy.y, 10, 0x4d287c, 0.12)
+        .setStrokeStyle(2, 0x9e72e8, 0.58)
+        .setDepth(enemy.depth - 1);
+      this.scene.tweens.add({
+        targets: innerPulse,
+        radius: 72,
+        alpha: 0,
+        duration: duration + 80,
+        ease: "Cubic.easeOut",
+        onComplete: () => innerPulse.destroy(),
+      });
+      this.scene.tweens.add({
+        targets: outerPulse,
+        radius: 112,
+        alpha: 0,
+        duration: duration + 180,
+        ease: "Quart.easeOut",
+        onComplete: () => outerPulse.destroy(),
+      });
+    }
 
     this.scene.tweens.add({
       targets: shadow,
@@ -505,13 +535,24 @@ export class RoomRenderer {
     });
     this.scene.tweens.add({
       targets: reveal,
+      width: frameWidth,
       height: frameHeight,
       duration,
       ease: "Cubic.easeOut",
       onUpdate: () => {
         if (!enemy.active) return;
         const revealedHeight = Math.max(1, Math.min(frameHeight, reveal.height));
-        enemy.setCrop(0, frameHeight - revealedHeight, frameWidth, revealedHeight);
+        if (kind === "gate") {
+          const revealedWidth = Math.max(1, Math.min(frameWidth, reveal.width));
+          enemy.setCrop(
+            (frameWidth - revealedWidth) / 2,
+            (frameHeight - revealedHeight) / 2,
+            revealedWidth,
+            revealedHeight,
+          );
+        } else {
+          enemy.setCrop(0, frameHeight - revealedHeight, frameWidth, revealedHeight);
+        }
       },
       onComplete: () => {
         if (!enemy.active) return;

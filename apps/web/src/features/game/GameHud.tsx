@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { EquipmentSummary, GameSnapshot, HeroClassId, PartyMemberSnapshot } from "@/src/game/domain/types";
 import { UpgradeDraft } from "./UpgradeDraft";
 import type { UpgradeChoice, UpgradeId } from "@/src/game/domain/types";
@@ -10,6 +10,15 @@ import { PhaseHud } from "./hud/PhaseHud";
 import { PlayerCommandBar } from "./hud/PlayerCommandBar";
 import { TeamGoldHud } from "./hud/TeamGoldHud";
 import { PartyVitalsHud } from "./hud/PartyVitalsHud";
+
+const BGM_VOLUME_STORAGE_KEY = "five-days:bgm-volume:v1";
+const DEFAULT_BGM_VOLUME = 0.38;
+
+function storedBgmVolume(): number {
+  if (typeof window === "undefined") return DEFAULT_BGM_VOLUME;
+  const value = Number(window.localStorage.getItem(BGM_VOLUME_STORAGE_KEY));
+  return Number.isFinite(value) ? Math.max(0, Math.min(1, value)) : DEFAULT_BGM_VOLUME;
+}
 
 function barStyle(value: number, max: number): React.CSSProperties {
   return { "--bar-value": `${max > 0 ? Math.max(0, Math.min(100, (value / max) * 100)) : 0}%` } as React.CSSProperties;
@@ -32,6 +41,8 @@ export function GameHud({
 }) {
   const [inventoryOpen, setInventoryOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [bgmVolume, setBgmVolume] = useState(storedBgmVolume);
+  const bgmRef = useRef<HTMLAudioElement | null>(null);
   const editorWorld = snapshot.worldMode === "editor";
   const gateGoal = editorWorld
     ? snapshot.roomMap.filter((room) => room.type === "gate").length
@@ -70,6 +81,35 @@ export function GameHud({
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
   }, [terminal]);
+
+  useEffect(() => {
+    const music = new Audio("/audio/music/expedition-tension-v1.ogg");
+    music.loop = true;
+    music.preload = "auto";
+    music.volume = bgmVolume;
+    bgmRef.current = music;
+    const play = () => { if (bgmVolume > 0) void music.play().catch(() => {}); };
+    play();
+    window.addEventListener("pointerdown", play, { once: true });
+    window.addEventListener("keydown", play, { once: true });
+    return () => {
+      window.removeEventListener("pointerdown", play);
+      window.removeEventListener("keydown", play);
+      music.pause();
+      music.src = "";
+      bgmRef.current = null;
+    };
+  // The audio element belongs to the game HUD lifetime; volume updates are handled separately below.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(BGM_VOLUME_STORAGE_KEY, String(bgmVolume));
+    const music = bgmRef.current;
+    if (music) music.volume = bgmVolume;
+    if (music && bgmVolume > 0 && music.paused) void music.play().catch(() => {});
+    if (music && bgmVolume === 0) music.pause();
+  }, [bgmVolume]);
 
   return (
     <div className="hud-root">
@@ -127,6 +167,11 @@ export function GameHud({
             <span>EXPEDITION MENU · ESC</span>
             <h2 id="game-settings-title">원정 설정</h2>
             <p>전투는 계속 진행됩니다. 퇴장하면 현재 캐릭터의 장비와 능력치를 이어받은 AI가 원정에 참전합니다.</p>
+            <label className="game-settings-volume">
+              <span><b>배경음</b><output>{Math.round(bgmVolume * 100)}%</output></span>
+              <input type="range" min="0" max="100" step="1" value={Math.round(bgmVolume * 100)} aria-label="배경음 음량" onChange={(event) => setBgmVolume(Number(event.target.value) / 100)} />
+              <small>{bgmVolume === 0 ? "음소거" : "긴박한 원정 음악"}</small>
+            </label>
             <button type="button" className="game-settings-exit" onClick={onExit}>
               <span>게임 로비로 나가기</span>
             </button>

@@ -45,6 +45,7 @@ import { resolveSharedPartyProgress } from "../../domain/sharedPartyProgress";
 import { editorThemeZone, type EditorConnection } from "../../domain/mapEditor";
 import { buildEditorCoreWorld, editorCoreRoomId } from "@/src/features/map-editor/editorCoreWorld";
 import { localCoreSession } from "@/src/features/map-editor/LocalCoreSession";
+import { selectAutoAttackTargets } from "../../domain/autoAttackTargeting";
 import { ProgressionModel } from "../../systems/ProgressionModel";
 import { HERO_SPRITE_FRAME_SIZE, HERO_SPRITE_PATHS, HERO_TOTAL_FRAME_COUNT } from "../../client/render/heroSprites";
 import { BASIC_ATTACK_SPRITES } from "../../client/render/attackEffectSprites";
@@ -1038,17 +1039,21 @@ export class RoomGameScene extends Phaser.Scene {
   }
 
   private findAimConeTargets(range: number, aimAngle: number): LocalEnemy[] {
-    return this.enemies
+    const candidates = this.enemies
       .filter((enemy) => enemy.sprite.active)
       .map((enemy) => ({
         enemy,
-        distance: Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.sprite.x, enemy.sprite.y),
-        angle: Phaser.Math.Angle.Between(this.player.x, this.player.y, enemy.sprite.x, enemy.sprite.y),
-      }))
-      .filter(({ distance, angle }) => distance <= range && Math.abs(Phaser.Math.Angle.Wrap(angle - aimAngle)) <= this.aimConeHalfAngle())
-      .filter(({ enemy }) => this.hasLineOfSight(this.player.x, this.player.y, enemy.sprite.x, enemy.sprite.y))
-      .sort((left, right) => left.distance - right.distance || left.enemy.id.localeCompare(right.enemy.id))
-      .map(({ enemy }) => enemy);
+        id: enemy.id,
+        x: enemy.sprite.x,
+        y: enemy.sprite.y,
+      }));
+    return selectAutoAttackTargets(
+      { x: this.player.x, y: this.player.y, aim: aimAngle },
+      candidates,
+      range,
+      this.aimConeHalfAngle(),
+      ({ x, y }) => this.hasLineOfSight(this.player.x, this.player.y, x, y),
+    ).map(({ enemy }) => enemy);
   }
 
   private rollAttackDamage(target: LocalEnemy): { damage: number; critical: boolean } {
