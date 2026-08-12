@@ -29,6 +29,20 @@ test("advances day phases deterministically", () => {
   assert.equal(core.phase, "night");
 });
 
+test("starts the next day immediately when night ends without a maintenance phase", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "no-standby", minimumPlayers: 1 });
+  core.addPlayer({ userId: "u1", displayName: "용사", heroClass: "swordsman" });
+  core.setReady("u1", true);
+  core.phase = "night";
+  core.phaseRemaining = 0.05;
+
+  core.update(0.1);
+
+  assert.equal(core.phase, "day");
+  assert.equal(core.day, 2);
+  assert.equal(core.phaseRemaining, 60);
+});
+
 test("night reduces the authoritative player attack range", () => {
   const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "night-range", minimumPlayers: 1 });
   core.addPlayer({ userId: "u1", displayName: "궁수", heroClass: "archer" });

@@ -447,7 +447,6 @@ export class GameCore {
     if (this.phaseRemaining > 0) return;
 
     if (this.phase === "day") this.transition("night");
-    else if (this.phase === "night") this.transition("standby");
     else {
       this.day += 1;
       if (this.day > 5) this.finish("defeat", "마왕을 제한 시간 안에 쓰러뜨리지 못했습니다.");

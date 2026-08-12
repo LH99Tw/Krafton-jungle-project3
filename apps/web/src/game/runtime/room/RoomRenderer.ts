@@ -963,15 +963,22 @@ export class RoomRenderer {
 
   private playEnemyEmergence(enemy: Phaser.GameObjects.Sprite, kind: EnemyKind): void {
     this.clearEnemyTransientObjects(enemy);
+    if (kind === "hidden") {
+      enemy
+        .setCrop()
+        .clearTint()
+        .setAlpha(1)
+        .setOrigin(0.5, 0.5)
+        .setData("isEmerging", false)
+        .setData("hasHoverMotion", false);
+      this.applyDemonHoverMotion(enemy);
+      return;
+    }
     const frameWidth = Math.max(1, enemy.frame.realWidth);
     const frameHeight = Math.max(1, enemy.frame.realHeight);
-    // Rare units (the former hidden encounter) use fully opaque source art.
-    // Their reveal is already conveyed by the crop and dark tint; fading the
-    // entire sprite from 0.12 made them look permanently ghost-like in motion.
-    const startsOpaque = kind === "hidden";
-    const duration = kind === "boss" ? 680 : kind === "gate" || kind === "hidden" ? 560 : 420;
-    const shadowWidth = kind === "boss" ? 92 : kind === "gate" || kind === "hidden" ? 68 : 38;
-    const shadowHeight = kind === "boss" ? 22 : kind === "gate" || kind === "hidden" ? 17 : 10;
+    const duration = kind === "boss" ? 680 : kind === "gate" ? 560 : 420;
+    const shadowWidth = kind === "boss" ? 92 : kind === "gate" ? 68 : 38;
+    const shadowHeight = kind === "boss" ? 22 : kind === "gate" ? 17 : 10;
     const reveal = this.trackEnemyTweenTarget(enemy, { width: 1, height: 1 });
     const shadow = this.trackEnemyTransient(enemy, this.scene.add.ellipse(
       enemy.x,
@@ -985,7 +992,7 @@ export class RoomRenderer {
     enemy
       .setData("isEmerging", true)
       .setData("hasHoverMotion", false)
-      .setAlpha(startsOpaque ? 1 : 0.12)
+      .setAlpha(0.12)
       .setTint(0x050505)
       .setCrop(
         kind === "gate" ? (frameWidth - 1) / 2 : 0,
@@ -1028,14 +1035,12 @@ export class RoomRenderer {
       ease: "Cubic.easeOut",
       onComplete: () => this.destroyEnemyTransient(enemy, shadow),
     });
-    if (!startsOpaque) {
-      this.scene.tweens.add({
-        targets: enemy,
-        alpha: 1,
-        duration: Math.min(260, duration),
-        ease: "Quad.easeOut",
-      });
-    }
+    this.scene.tweens.add({
+      targets: enemy,
+      alpha: 1,
+      duration: Math.min(260, duration),
+      ease: "Quad.easeOut",
+    });
     this.scene.tweens.add({
       targets: reveal,
       width: frameWidth,
@@ -1061,7 +1066,6 @@ export class RoomRenderer {
         this.releaseEnemyTweenTarget(enemy, reveal);
         if (!enemy.active) return;
         enemy.setCrop().clearTint().setAlpha(1).setOrigin(0.5, 0.5).setData("isEmerging", false);
-        if (kind === "hidden") this.applyDemonHoverMotion(enemy);
       },
     });
   }

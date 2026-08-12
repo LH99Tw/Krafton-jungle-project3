@@ -5,6 +5,7 @@ import sharp from "sharp";
 import {
   fieldEnemyTextureForSpawn,
   fieldEnemyTextureForZone,
+  hiddenEnemyTextureForZone,
   resolveEnemyFacingAngle,
   SKELETON_ROW_BY_ANGLE,
   usesUpgradedFieldEnemySkin,
@@ -20,6 +21,11 @@ const upgradedSources = [
   new URL("../public/Asset/sprites/frog-upgraded-8dir-walk-v1.png", import.meta.url),
   new URL("../public/Asset/sprites/golem-upgraded-8dir-walk-v1.png", import.meta.url),
   new URL("../public/Asset/sprites/succubus-upgraded-8dir-walk-v1.png", import.meta.url),
+];
+const hiddenSources = [
+  new URL("../public/Asset/sprites/hidden-ent-8dir-walk-v1.png", import.meta.url),
+  new URL("../public/Asset/sprites/hidden-stone-golem-8dir-walk-v1.png", import.meta.url),
+  new URL("../public/Asset/sprites/hidden-dullahan-8dir-walk-v1.png", import.meta.url),
 ];
 
 test("unarmed skeleton sheet is a transparent 8-direction by 8-frame grid", async () => {
@@ -67,6 +73,28 @@ test("all upgraded field enemy skins use transparent 8-direction by 8-frame shee
     assert.equal(metadata.hasAlpha, true, `upgraded zone ${index + 1} sheet alpha`);
     const corner = await sharp(input).ensureAlpha().extract({ left: 0, top: 0, width: 1, height: 1 }).raw().toBuffer();
     assert.equal(corner[3], 0, `upgraded zone ${index + 1} sheet corner must be transparent`);
+  }
+});
+
+test("hidden enemies use zone-specific transparent 8-direction sheets", async () => {
+  assert.equal(hiddenEnemyTextureForZone(1), "enemy-hidden-ent");
+  assert.equal(hiddenEnemyTextureForZone(2), "enemy-hidden-stone-golem");
+  assert.equal(hiddenEnemyTextureForZone(3), "enemy-hidden-dullahan");
+
+  for (const [index, hiddenSource] of hiddenSources.entries()) {
+    const input = readFileSync(hiddenSource);
+    const metadata = await sharp(input).metadata();
+    assert.equal(metadata.width, 1280, `hidden zone ${index + 1} sheet width`);
+    assert.equal(metadata.height, 1280, `hidden zone ${index + 1} sheet height`);
+    assert.equal(metadata.hasAlpha, true, `hidden zone ${index + 1} sheet alpha`);
+    for (let row = 0; row < 8; row += 1) {
+      for (let column = 0; column < 8; column += 1) {
+        const stats = await sharp(input)
+          .extract({ left: column * 160, top: row * 160, width: 160, height: 160 })
+          .stats();
+        assert.ok(stats.channels[3]!.max > 200, `hidden zone ${index + 1} frame ${row}:${column} visible`);
+      }
+    }
   }
 });
 

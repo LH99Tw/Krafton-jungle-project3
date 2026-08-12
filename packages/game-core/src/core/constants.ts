@@ -1,6 +1,6 @@
 export const durations = {
-  prototype: { day: 60, night: 25, standby: 5 },
-  full: { day: 120, night: 45, standby: 15 },
+  prototype: { day: 60, night: 25, standby: 0 },
+  full: { day: 120, night: 45, standby: 0 },
 } as const;
 
 export const STATIC_RESPAWN_SECONDS = { prototype: 30, full: 90 } as const;
