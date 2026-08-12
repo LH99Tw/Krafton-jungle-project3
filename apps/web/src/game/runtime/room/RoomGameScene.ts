@@ -934,6 +934,9 @@ export class RoomGameScene extends Phaser.Scene {
       const previousHp = this.networkEnemyHp.get(enemy.id);
       if (previousHp !== undefined && enemy.hp < previousHp && visible) {
         this.roomRenderer.showImpact(enemy.x, enemy.y, 30, 0xffffff);
+        if (kind === "static" || kind === "invader") {
+          this.roomRenderer.showKnockbackEffect(sprite, sprite.x, sprite.y, enemy.x, enemy.y);
+        }
       }
       this.networkEnemyHp.set(enemy.id, enemy.hp);
 
