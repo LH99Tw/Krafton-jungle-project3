@@ -47,7 +47,6 @@ export const SPECIAL_ROOM_BALANCE = {
   shrineAttack: { berserker: 1.35, giant: 1.25, doom: 1.5 },
   shrineAttackSpeed: 0.25,
   shrineCriticalChance: { assassin: 0.35, doom: 0.5 },
-  shrineCriticalDamage: 0.25,
   shrineMoveSpeed: 1.5,
   shrineCooldownReduction: 0.35,
   shrineArea: 1.5,
