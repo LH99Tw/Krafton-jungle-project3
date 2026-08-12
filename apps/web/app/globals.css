@@ -3389,6 +3389,77 @@ button {
   z-index:56;
 }
 
+/* Responsive tactical map: grow only where the center command bar leaves room. */
+@media (min-width:1600px) {
+  .exploration-reliquary { width:288px; }
+}
+@media (min-width:1201px) and (max-width:1599px) {
+  .exploration-reliquary { width:248px; }
+}
+@media (min-width:901px) and (max-width:1399px) {
+  .exploration-reliquary:not(.is-map-expanded) { bottom:210px; }
+}
+.exploration-reliquary.is-map-expanded {
+  z-index:82;
+  width:min(520px,calc(100vw - 36px));
+  max-height:calc(100vh - 36px);
+  padding:18px;
+  overflow:auto;
+  background:linear-gradient(155deg,rgba(5,8,7,.98),rgba(12,17,14,.96));
+  box-shadow:0 28px 80px rgba(0,0,0,.72),inset 0 0 42px rgba(108,136,83,.06);
+}
+.exploration-reliquary.is-map-expanded .minimap-canvas-frame { aspect-ratio:1.45; border-bottom:1px solid rgba(187,160,91,.25); }
+.minimap-expand-view {
+  position:absolute;
+  top:7px;
+  left:7px;
+  z-index:3;
+  width:27px;
+  height:27px;
+  padding:0;
+  display:grid;
+  place-items:center;
+  border:0;
+  border-radius:50%;
+  background:rgba(4,5,5,.58);
+  color:rgba(232,232,228,.78);
+  box-shadow:0 3px 8px rgba(0,0,0,.42);
+  cursor:pointer;
+}
+.minimap-expand-view:hover,.minimap-expand-view:focus-visible { color:#fff; background:rgba(5,6,6,.82); outline:1px solid rgba(255,255,255,.28); outline-offset:1px; }
+.minimap-legend { padding:9px 3px 6px; display:flex; flex-wrap:wrap; gap:7px 12px; color:#9d9b91; font:7px ui-monospace,monospace; letter-spacing:.06em; }
+.minimap-legend span { display:flex; align-items:center; gap:4px; }
+.minimap-legend i,.minimap-marker-heading i { width:8px; height:8px; display:inline-block; background:currentColor; box-shadow:0 0 6px currentColor; }
+.minimap-legend .is-resource,.minimap-marker-detail.is-resource { color:#62d6a3; }
+.minimap-legend .is-monster,.minimap-marker-detail.is-monster { color:#ef705f; }
+.minimap-legend .is-elite,.minimap-marker-detail.is-elite { color:#bd7cff; }
+.minimap-legend .is-waypoint,.minimap-marker-detail.is-waypoint { color:#75c9ff; }
+.minimap-legend .is-gate,.minimap-marker-detail.is-gate { color:#efc96f; }
+.minimap-legend .is-boss,.minimap-marker-detail.is-boss { color:#ff5478; }
+.minimap-legend .is-resource i { transform:rotate(45deg); }
+.minimap-legend .is-monster i { clip-path:polygon(50% 0,100% 100%,0 100%); }
+.minimap-legend .is-elite i { clip-path:polygon(25% 0,75% 0,100% 50%,75% 100%,25% 100%,0 50%); }
+.minimap-legend .is-waypoint i { border:2px solid currentColor; border-radius:50%; background:transparent; }
+.minimap-marker-list { max-height:84px; padding:3px 0 8px; display:flex; flex-wrap:wrap; gap:5px; overflow:auto; }
+.minimap-marker-list button { min-height:25px; padding:4px 8px; border:1px solid rgba(188,178,145,.16); background:rgba(255,255,255,.025); color:#aaa69a; font:7px "Noto Serif KR",serif; cursor:pointer; }
+.minimap-marker-list button:hover,.minimap-marker-list button:focus-visible,.minimap-marker-list button[aria-pressed="true"] { border-color:#bca765; color:#eee5cb; outline:none; background:rgba(188,167,101,.12); }
+.minimap-marker-detail { position:relative; margin-top:5px; padding:9px 34px 9px 10px; display:grid; grid-template-columns:1fr auto; gap:5px 10px; border:1px solid color-mix(in srgb,currentColor 35%,transparent); background:rgba(3,5,4,.76); }
+.minimap-marker-heading { display:flex; align-items:center; gap:6px; color:inherit; font:9px "Noto Serif KR",serif; }
+.minimap-marker-detail small { grid-column:1; color:#8d8b82; font:7px "Noto Serif KR",serif; }
+.minimap-marker-detail.is-traveling { border-color:rgba(117,201,255,.72); box-shadow:inset 0 0 18px rgba(63,163,226,.12),0 0 14px rgba(63,163,226,.1); animation:minimap-waypoint-pulse 1s ease-in-out infinite alternate; }
+.minimap-marker-detail.is-traveling small { color:#b9e5ff; }
+.minimap-travel-progress { grid-column:1 / -1; height:4px; overflow:hidden; border-radius:4px; background:rgba(117,201,255,.12); }
+.minimap-travel-progress i { display:block; height:100%; border-radius:inherit; background:linear-gradient(90deg,#4aaee9,#c4efff); box-shadow:0 0 8px rgba(117,201,255,.75); transition:width .1s linear; }
+.minimap-marker-close { position:absolute; top:3px; right:4px; width:23px; height:23px; padding:0; border:0; background:transparent; color:#777; cursor:pointer; }
+@keyframes minimap-waypoint-pulse { from { background:rgba(3,5,4,.76); } to { background:rgba(11,28,38,.9); } }
+@media (prefers-reduced-motion:reduce) { .minimap-marker-detail.is-traveling { animation:none; } }
+@media (max-width:1200px) {
+  .exploration-reliquary.is-map-expanded { width:min(440px,calc(100vw - 32px)); padding:15px; }
+}
+@media (max-width:900px) {
+  .exploration-reliquary.is-map-expanded { width:min(360px,calc(100vw - 20px)); max-height:calc(100vh - 154px); }
+}
+
 @media (max-width:680px) {
   .hud-message { top:104px; }
 }

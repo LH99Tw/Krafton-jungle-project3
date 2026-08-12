@@ -668,7 +668,13 @@ export class PartyRoom extends Room<PartyRoomState> {
     if (this.explorationAccumulatorMs >= MINIMAP_GEOMETRY_REFRESH_MS) {
       this.explorationAccumulatorMs %= MINIMAP_GEOMETRY_REFRESH_MS;
       this.exploration.update();
-      for (const init of this.exploration.takeGeometryUpdates()) this.broadcast("minimap.init", init);
+      const deltas = this.exploration.flush();
+      const geometryUpdates = this.exploration.takeGeometryUpdates();
+      if (geometryUpdates.length > 0) {
+        for (const init of geometryUpdates) this.broadcast("minimap.init", init);
+      } else {
+        for (const delta of deltas) this.broadcast("minimap.delta", delta);
+      }
     }
     if (Date.now() - this.createdAt >= 35 * 60 * 1000 && this.core.phase !== "ended") {
       this.core.finish("abandoned", "원정 최대 진행 시간 35분을 초과했습니다.");

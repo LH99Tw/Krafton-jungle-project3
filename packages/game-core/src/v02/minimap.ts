@@ -43,6 +43,29 @@ export function revealCell(mask: Uint8Array, index: number): boolean {
   return true;
 }
 
+/** Reveals every minimap cell whose center belongs to a discovered room. */
+export function revealRoomRect(
+  geometry: MiniMapGeometry,
+  mask: Uint8Array,
+  rect: Readonly<{ x: number; y: number; width: number; height: number }>,
+): number[] {
+  const minColumn = Math.max(0, Math.floor((rect.x - geometry.bounds.x) / geometry.cellSize));
+  const maxColumn = Math.min(geometry.columns - 1, Math.ceil((rect.x + rect.width - geometry.bounds.x) / geometry.cellSize) - 1);
+  const minRow = Math.max(0, Math.floor((rect.y - geometry.bounds.y) / geometry.cellSize));
+  const maxRow = Math.min(geometry.rows - 1, Math.ceil((rect.y + rect.height - geometry.bounds.y) / geometry.cellSize) - 1);
+  const revealed: number[] = [];
+  for (let row = minRow; row <= maxRow; row += 1) {
+    for (let column = minColumn; column <= maxColumn; column += 1) {
+      const index = row * geometry.columns + column;
+      const center = cellCenter(geometry, index);
+      if (center.x < rect.x || center.x > rect.x + rect.width || center.y < rect.y || center.y > rect.y + rect.height) continue;
+      if (!pointInMiniMapSurfaces(geometry.surfaces, center.x, center.y)) continue;
+      if (revealCell(mask, index)) revealed.push(index);
+    }
+  }
+  return revealed;
+}
+
 export function cellIndexAt(geometry: MiniMapGeometry, x: number, y: number): number {
   const column = Math.floor((x - geometry.bounds.x) / geometry.cellSize);
   const row = Math.floor((y - geometry.bounds.y) / geometry.cellSize);

@@ -6,15 +6,13 @@ import {
   createExplorationMask,
   createCoreViewSnapshot,
   createMiniMapGrid,
-  createWallSpatialIndex,
   equipmentPower,
   rectToMiniMapSurface,
-  revealAround,
+  revealRoomRect,
   type CorePlayer,
   type CoreWorldDefinition,
-  type WallSpatialIndex,
 } from "@five-days/game-core";
-import { NIGHT_PLAYER_VISION_RADIUS, PROTOCOL_VERSION, type InputFrame, type WorldFrame } from "@five-days/protocol";
+import { PROTOCOL_VERSION, type InputFrame, type WorldFrame } from "@five-days/protocol";
 import type {
   EquipmentSummary,
   MiniMapSnapshot,
@@ -40,8 +38,7 @@ export class LocalCoreSession {
   private accumulatorMs = 0;
   private minimap: MiniMapSnapshot | null = null;
   private minimapAccumulatorMs = 0;
-  private readonly lastRevealPositions = new Map<string, { x: number; y: number }>();
-  private minimapWallIndex: WallSpatialIndex | null = null;
+  private readonly revealedRoomIds = new Set<string>();
 
   start(world: CoreWorldDefinition, localUserId: string): NetworkWorldSnapshot {
     this.stop();
@@ -60,8 +57,8 @@ export class LocalCoreSession {
     ];
     for (const player of players) this.core.addPlayer(player);
     for (const player of players) this.core.setReady(player.userId, true);
-    this.minimap = createEditorMinimap(world);
-    this.minimapWallIndex = createWallSpatialIndex(this.minimap.geometry.wallSegments);
+    this.minimap = createEditorMinimap(world, this.core);
+    this.revealPartyExploration();
     return this.snapshot();
   }
 
@@ -74,8 +71,7 @@ export class LocalCoreSession {
     this.accumulatorMs = 0;
     this.minimap = null;
     this.minimapAccumulatorMs = 0;
-    this.lastRevealPositions.clear();
-    this.minimapWallIndex = null;
+    this.revealedRoomIds.clear();
   }
 
   tick(deltaMs: number, input: LocalCoreInput): { snapshot: NetworkWorldSnapshot; frame: WorldFrame; inputFrame: InputFrame; message?: string } {
@@ -289,15 +285,11 @@ export class LocalCoreSession {
   private revealPartyExploration(): void {
     if (!this.minimap) return;
     const core = this.requireCore();
-    const visionRadius = core.phase === "night" ? NIGHT_PLAYER_VISION_RADIUS : MINIMAP_VISION_RADIUS;
-    const wallIndex = this.minimapWallIndex ?? createWallSpatialIndex(this.minimap.geometry.wallSegments);
     let changed = false;
-    for (const player of core.players.values()) {
-      if (!player.alive) continue;
-      const previous = this.lastRevealPositions.get(player.userId);
-      if (previous && Math.hypot(player.x - previous.x, player.y - previous.y) < 4) continue;
-      this.lastRevealPositions.set(player.userId, { x: player.x, y: player.y });
-      if (revealAround(this.minimap.geometry, this.minimap.explorationMask, player.x, player.y, visionRadius, wallIndex).length > 0) changed = true;
+    for (const roomId of core.discoveredRooms) {
+      if (this.revealedRoomIds.has(roomId)) continue;
+      this.revealedRoomIds.add(roomId);
+      if (revealRoomRect(this.minimap.geometry, this.minimap.explorationMask, core.roomRectOf(roomId)).length > 0) changed = true;
     }
     if (changed) this.minimap.revision += 1;
   }
@@ -342,7 +334,7 @@ function playerSnapshot(core: GameCore, player: CorePlayer, isLocal: boolean): P
   };
 }
 
-function createEditorMinimap(world: CoreWorldDefinition): MiniMapSnapshot {
+function createEditorMinimap(world: CoreWorldDefinition, core: GameCore): MiniMapSnapshot {
   const bounds = boundsOf(world.walkable);
   const grid = createMiniMapGrid(bounds);
   const wallSegments = boundarySegments(world.walkable);
@@ -354,19 +346,33 @@ function createEditorMinimap(world: CoreWorldDefinition): MiniMapSnapshot {
     surfaces: world.walkable.map((rect, index) => rectToMiniMapSurface(rect, `editor:surface:${index}`)),
     wallSegments,
     visionRadius: MINIMAP_VISION_RADIUS,
-    markers: world.rooms.flatMap((room) => {
-      const kind: "gate" | "boss" | "waypoint" | null = room.kind === "gate"
-        ? "gate"
-        : room.kind === "boss" ? "boss" : room.kind === "start" ? "waypoint" : null;
+    markers: [
+      ...world.rooms.flatMap((room) => {
+      const kind: "resource" | "monster" | "elite" | null = room.kind === "resource"
+        ? "resource"
+        : room.kind === "static-monster" ? "monster" : room.kind === "hidden-monster" ? "elite" : null;
       return kind ? [{
-        id: `${room.id}:marker`,
+        id: `room-marker:${room.id}`,
+        roomId: room.id,
         kind,
-        label: kind === "boss" ? "마왕의 제단" : kind === "gate" ? "몬스터 게이트" : "베이스캠프",
+        label: kind === "resource" ? "자원 방" : kind === "elite" ? "정예 몬스터 방" : "몬스터 방",
         x: room.rect.x + room.rect.width / 2,
         y: room.rect.y + room.rect.height / 2,
         areaId: "editor",
+        active: true,
       }] : [];
-    }),
+      }),
+      ...[...core.waypoints.values()].map((waypoint) => ({
+        id: waypoint.id,
+        roomId: waypoint.roomId,
+        kind: waypoint.kind === "boss" ? "boss" as const : waypoint.kind === "gate" ? "gate" as const : "waypoint" as const,
+        label: waypoint.kind === "boss" ? "마왕의 제단" : waypoint.kind === "gate" ? "구역 게이트" : "웨이포인트",
+        x: waypoint.x,
+        y: waypoint.y,
+        areaId: "editor",
+        active: waypoint.active,
+      })),
+    ],
   };
   return { geometry, explorationMask: createExplorationMask(geometry), revision: 0 };
 }

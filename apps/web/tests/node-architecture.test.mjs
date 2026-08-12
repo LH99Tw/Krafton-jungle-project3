@@ -80,8 +80,8 @@ test("gates deployments on verification and repairs required production settings
   assert.match(workflow, /five-days-game-server:\$\{\{ env\.RELEASE_SHA \}\}/);
   assert.match(workflow, /upsert_env \.env\.web GUESTBOOK_ADMIN_DELETE_KEY/);
   assert.match(workflow, /upsert_env \.env\.web PUBLIC_PLAYTEST_ENABLED true/);
-  assert.match(workflow, /upsert_env \.env\.web PROTOCOL_VERSION 8/);
-  assert.match(workflow, /upsert_env \.env\.game PROTOCOL_VERSION 8/);
+  assert.match(workflow, /upsert_env \.env\.web PROTOCOL_VERSION 9/);
+  assert.match(workflow, /upsert_env \.env\.game PROTOCOL_VERSION 9/);
   assert.match(configure, /GUESTBOOK_ADMIN_DELETE_KEY/);
   assert.match(instrumentation, /required\("GUESTBOOK_ADMIN_DELETE_KEY"\)/);
 });
@@ -115,7 +115,10 @@ test("composes the in-game relic HUD from focused components", async () => {
   assert.match(partyVitals, /게이트 파괴/);
   assert.match(exploration, /className="map-tactical-footer"/);
   assert.match(exploration, /베이스 내구도/);
-  assert.match(exploration, /웨이포인트 집결/);
+  assert.match(exploration, /마왕방 이동/);
+  assert.match(minimap, /웨이포인트 위에서 사용할 수 있습니다/);
+  assert.match(minimap, /웨이포인트 이동 중/);
+  assert.match(minimap, /onWaypointTravel\?\.\(travelRequest\.sourceId, travelRequest\.destinationId\)/);
   assert.doesNotMatch(exploration, /멀티플레이 건설|build-zone-hint|equipment-strip/);
   assert.doesNotMatch(minimap, /PARTY TRAIL|지나온 길|현재 시야|minimap-status|minimap-zoom-controls/);
   assert.match(minimap, /event\.button !== 1/);

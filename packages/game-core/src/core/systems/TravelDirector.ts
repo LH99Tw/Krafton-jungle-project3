@@ -65,31 +65,30 @@ export class TravelDirector {
     const intent = this.travelIntent;
     if (!intent) return;
     const waypoint = this.core.waypoints.get(intent.waypointId);
-    const eligible = this.eligiblePlayers();
-    const holding = waypoint ? eligible.filter((player) => isPlayerOnWaypoint(player, waypoint)) : [];
-    if (!waypoint?.active || eligible.length === 0 || holding.length !== eligible.length) {
+    const requester = this.core.players.get(intent.requestedBy);
+    if (!waypoint?.active || !requester?.connected || !requester.alive || !isPlayerOnWaypoint(requester, waypoint)) {
       this.cancel();
       return;
     }
     intent.elapsed += delta;
-    waypoint.requiredPlayers = eligible.length;
-    waypoint.holdingPlayers = holding.length;
+    waypoint.requiredPlayers = 1;
+    waypoint.holdingPlayers = 1;
     waypoint.holdProgress = Math.min(1, intent.elapsed / WAYPOINT_HOLD_SECONDS);
     if (intent.elapsed + SIMULATION_EPSILON >= WAYPOINT_HOLD_SECONDS) {
       const followers = [...this.core.players.values()].filter((player) => player.alive && player.aiRole === "follower");
-      this.completeTravel(intent.destinationId, [...eligible, ...followers]);
+      this.completeTravel(intent.destinationId, [requester, ...followers]);
     }
   }
 
   private beginTravel(userId: string, waypoint: CoreWaypoint, destination: string): boolean {
-    const eligible = this.eligiblePlayers();
-    if (eligible.length === 0 || eligible.some((player) => !isPlayerOnWaypoint(player, waypoint))) return false;
+    const requester = this.core.players.get(userId);
+    if (!requester?.connected || !requester.alive || !isPlayerOnWaypoint(requester, waypoint)) return false;
 
     if (this.travelIntent?.waypointId === waypoint.id && this.travelIntent.destinationId === destination) return true;
     this.cancel();
     this.travelIntent = { requestedBy: userId, waypointId: waypoint.id, destinationId: destination, elapsed: 0 };
-    waypoint.requiredPlayers = eligible.length;
-    waypoint.holdingPlayers = eligible.length;
+    waypoint.requiredPlayers = 1;
+    waypoint.holdingPlayers = 1;
     waypoint.holdProgress = 0;
     return true;
   }
@@ -128,10 +127,6 @@ export class TravelDirector {
     this.core.discoverRoom(destination.roomId);
     if (destination.zone > this.core.currentZone) this.core.currentZone = destination.zone;
     this.cancel();
-  }
-
-  private eligiblePlayers(): CorePlayer[] {
-    return [...this.core.players.values()].filter((player) => player.connected && player.alive && !player.aiRole);
   }
 
   private isAllowedDestination(source: CoreWaypoint, destinationId: string): boolean {

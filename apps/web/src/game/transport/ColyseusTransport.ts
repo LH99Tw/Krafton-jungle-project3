@@ -2,7 +2,6 @@ import { Client, type Room } from "colyseus.js";
 import {
   PARTY_ROOM,
   PROTOCOL_VERSION,
-  NIGHT_PLAYER_VISION_RADIUS,
   combatActionEventSchema,
   fastLaneOfferSchema,
   minimapDeltaSchema,
@@ -29,7 +28,6 @@ import type {
   UpgradeId,
 } from "../domain/types";
 import { gameBridge } from "../runtime/GameBridge";
-import { ClientPartyExploration, type ExplorationActor } from "../netcode/ClientPartyExploration";
 
 export type NetworkStatus = "idle" | "connecting" | "waiting" | "connected" | "reconnecting" | "disconnected" | "error";
 
@@ -234,8 +232,6 @@ class ColyseusTransport {
   private readonly eventListeners = new Set<EventListener>();
   private latestState: NetworkWorldSnapshot | null = null;
   private readonly minimaps = new Map<string, MiniMapSnapshot>();
-  private readonly clientExploration = new ClientPartyExploration();
-  private lastExplorationPublishAt = 0;
   private localUserId = "";
   private fastLane: WebTransport | null = null;
   private fastLaneWriter: WritableStreamDefaultWriter<Uint8Array> | null = null;
@@ -360,8 +356,6 @@ class ColyseusTransport {
     room?.removeAllListeners();
     this.latestState = null;
     this.minimaps.clear();
-    this.clientExploration.clear();
-    this.lastExplorationPublishAt = 0;
     this.rendererReady = false;
     this.readySent = false;
   }
@@ -413,18 +407,7 @@ class ColyseusTransport {
         const mask = decodeMask(explorationMask, Math.ceil(geometry.columns * geometry.rows / 8));
         const current = this.minimaps.get(geometry.areaId);
         if (current?.geometry.mapRevision === geometry.mapRevision && current.revision > revision) return;
-        if (current?.geometry.mapRevision === geometry.mapRevision) {
-          for (let index = 0; index < mask.length; index += 1) mask[index] |= current.explorationMask[index] ?? 0;
-        }
         this.minimaps.set(geometry.areaId, { geometry, explorationMask: mask, revision });
-        if (this.latestState) this.revealClientParty(this.latestState.players.map((player) => ({
-          id: player.userId,
-          roomId: player.roomId,
-          x: player.x,
-          y: player.y,
-          connected: player.connected,
-          alive: player.alive,
-        })), this.latestState.phase === "night" ? NIGHT_PLAYER_VISION_RADIUS : geometry.visionRadius);
         this.publishMinimap();
       } catch {
         // Invalid masks never reach the renderer.
@@ -604,17 +587,6 @@ class ColyseusTransport {
     const parsed = worldFrameSchema.safeParse(raw);
     if (!parsed.success) return;
     const frame = parsed.data;
-    const currentRadius = this.latestState?.phase === "night" ? NIGHT_PLAYER_VISION_RADIUS : undefined;
-    const revealed = this.revealClientParty(frame.players.map((player) => ({
-      id: player.id,
-      roomId: player.roomId,
-      x: player.x,
-      y: player.y,
-    })), currentRadius);
-    if (revealed > 0 && performance.now() - this.lastExplorationPublishAt >= 120) {
-      this.lastExplorationPublishAt = performance.now();
-      this.publishMinimap();
-    }
     for (const sequence of this.pendingInputs.keys()) {
       if (sequence <= frame.ackInputSeq) this.pendingInputs.delete(sequence);
     }
@@ -730,14 +702,6 @@ class ColyseusTransport {
     }));
     const localRoomId = players.find((player) => player.isLocal)?.roomId ?? "";
     const phase = isNetworkPhase(state.phase) ? state.phase : "lobby";
-    this.revealClientParty(players.map((player) => ({
-      id: player.userId,
-      roomId: player.roomId,
-      x: player.x,
-      y: player.y,
-      connected: player.connected,
-      alive: player.alive,
-    })), phase === "night" ? NIGHT_PLAYER_VISION_RADIUS : undefined);
     const localPlayerState = collectionValues(state.players).find((player) => player.userId === this.localUserId);
     const draft = localPlayerState?.upgradeDraft;
     const localUpgradeDraft = draft?.active && draft.draftId
@@ -830,7 +794,7 @@ class ColyseusTransport {
       requiredPlayers: waypoint.requiredPlayers ?? 0,
       holdingPlayers: waypoint.holdingPlayers ?? 0,
       holdProgress: waypoint.holdProgress ?? 0,
-      holdDurationMs: waypoint.holdDurationMs ?? 5_000,
+      holdDurationMs: waypoint.holdDurationMs ?? 3_000,
     }));
     const snapshot: NetworkWorldSnapshot = {
       matchId: state.matchId ?? "",
@@ -878,21 +842,6 @@ class ColyseusTransport {
   private minimapForRoom(roomId: string): MiniMapSnapshot | null {
     const areaId = minimapAreaIdForRoom(roomId);
     return areaId ? this.minimaps.get(areaId) ?? null : null;
-  }
-
-  private revealClientParty(actors: readonly ExplorationActor[], radius?: number): number {
-    let revealed = 0;
-    for (const [areaId, minimap] of this.minimaps) {
-      const areaActors = actors.filter((actor) => minimapAreaIdForRoom(actor.roomId) === areaId);
-      if (areaActors.length === 0) continue;
-      const areaRevealed = this.clientExploration.reveal(minimap, areaActors, radius ?? minimap.geometry.visionRadius);
-      if (areaRevealed === 0) continue;
-      revealed += areaRevealed;
-      // Replace the wrapper so React/canvas consumers observe the mutated mask.
-      // revision remains the server protocol revision for backwards-compatible deltas.
-      this.minimaps.set(areaId, { ...minimap });
-    }
-    return revealed;
   }
 
   private publishMinimap(): void {

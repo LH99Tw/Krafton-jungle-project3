@@ -171,7 +171,7 @@ export class WaypointState extends Schema {
   @type("number") requiredPlayers = 0;
   @type("number") holdingPlayers = 0;
   @type("number") holdProgress = 0;
-  @type("number") holdDurationMs = 5000;
+  @type("number") holdDurationMs = 3000;
 }
 
 export class StructureState extends Schema {

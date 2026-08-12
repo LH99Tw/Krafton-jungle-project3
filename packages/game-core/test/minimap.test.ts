@@ -10,6 +10,7 @@ import {
   isExplored,
   rectToMiniMapSurface,
   revealAround,
+  revealRoomRect,
 } from "../src/v02/minimap";
 import { PLAYER_VISION_RADIUS, type MiniMapGeometry } from "@five-days/protocol";
 
@@ -36,6 +37,16 @@ test("three party paths merge into one exploration mask", () => {
   for (const [x, y] of paths) revealAround(map, mask, x, y, 180);
   for (const [x, y] of paths) assert.equal(isExplored(mask, cellIndexAt(map, x, y)), true);
   assert.ok(explorationPercent(map, mask) > 0);
+});
+
+test("entering a room reveals the complete room rectangle without revealing its neighbor", () => {
+  const map = geometry(1_000, 600);
+  const mask = createExplorationMask(map);
+  const revealed = revealRoomRect(map, mask, { x: 64, y: 64, width: 320, height: 256 });
+  assert.ok(revealed.length > 0);
+  assert.equal(isExplored(mask, cellIndexAt(map, 96, 96)), true);
+  assert.equal(isExplored(mask, cellIndexAt(map, 352, 288)), true);
+  assert.equal(isExplored(mask, cellIndexAt(map, 672, 288)), false);
 });
 
 test("wall line-of-sight prevents minimap exploration behind a closed wall", () => {

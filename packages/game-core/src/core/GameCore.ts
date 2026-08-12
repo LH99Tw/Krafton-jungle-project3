@@ -251,7 +251,7 @@ export class GameCore {
     return this.combatActionEvents.splice(0, this.combatActionEvents.length);
   }
 
-  /** @deprecated Protocol v8 consumers should use takeCombatActionEvents. */
+  /** @deprecated Protocol v9 consumers should use takeCombatActionEvents. */
   takeCombatAttackEvents(): CombatActionEvent[] {
     return this.takeCombatActionEvents();
   }

@@ -178,10 +178,10 @@ jobs:
           if [ "${#guestbook_admin_key}" -lt 32 ]; then
             guestbook_admin_key=$(openssl rand -base64 48 | tr -d '\n')
           fi
-          upsert_env .env.web PROTOCOL_VERSION 8
+          upsert_env .env.web PROTOCOL_VERSION 9
           upsert_env .env.web PUBLIC_PLAYTEST_ENABLED true
           upsert_env .env.web GUESTBOOK_ADMIN_DELETE_KEY "$guestbook_admin_key"
-          upsert_env .env.game PROTOCOL_VERSION 8
+          upsert_env .env.game PROTOCOL_VERSION 9
           upsert_env .env.game FASTLANE_ENABLED true
           upsert_env .env.game FASTLANE_HOST 0.0.0.0
           upsert_env .env.game FASTLANE_PORT 4433
