@@ -1,4 +1,4 @@
-import { WAYPOINT_HOLD_SECONDS, isPlayerOnWaypoint, waypointId, type CoreRoomId, type CoreWaypoint, type TravelIntent } from "../../v02/simulation";
+import { FAST_TRAVEL_HOLD_SECONDS, WAYPOINT_HOLD_SECONDS, isPlayerOnWaypoint, waypointId, type CoreRoomId, type CoreWaypoint, type TravelIntent } from "../../v02/simulation";
 import type { GameCore } from "../GameCore";
 import { SIMULATION_EPSILON } from "../constants";
 import type { CorePlayer } from "../types";
@@ -9,12 +9,14 @@ import type { CorePlayer } from "../types";
  * {@link GameCore}.
  */
 export class TravelDirector {
-  private travelIntent: TravelIntent | null = null;
+  private groupTravelIntent: TravelIntent | null = null;
+  private readonly personalTravelIntents = new Map<string, TravelIntent>();
 
   constructor(private readonly core: GameCore) {}
 
   get active(): Readonly<TravelIntent> | null {
-    return this.travelIntent ? { ...this.travelIntent } : null;
+    const intent = this.groupTravelIntent ?? this.personalTravelIntents.values().next().value;
+    return intent ? { ...intent } : null;
   }
 
   request(userId: string, waypointIdValue: string, destinationId?: string): boolean {
@@ -25,7 +27,7 @@ export class TravelDirector {
 
     const destination = destinationId || waypoint.destinationId;
     if (!this.isAllowedDestination(waypoint, destination)) return false;
-    return this.beginTravel(userId, waypoint, destination);
+    return this.beginTravel(userId, waypoint, destination, this.isPersonalFastTravel(waypoint, destination));
   }
 
   recall(userId: string): boolean {
@@ -37,7 +39,7 @@ export class TravelDirector {
     if (!source) return false;
     const baseWaypointId = waypointId(this.core.startRoomId(), "start");
     if (source.id === baseWaypointId) return false;
-    return this.beginTravel(userId, source, baseWaypointId);
+    return this.beginTravel(userId, source, baseWaypointId, false);
   }
 
   /** Marks the waypoint for a destroyed gate room and its destination active. */
@@ -50,44 +52,56 @@ export class TravelDirector {
   }
 
   cancel(): void {
-    if (this.travelIntent) {
-      const waypoint = this.core.waypoints.get(this.travelIntent.waypointId);
-      if (waypoint) {
-        waypoint.requiredPlayers = 0;
-        waypoint.holdingPlayers = 0;
-        waypoint.holdProgress = 0;
-      }
-    }
-    this.travelIntent = null;
+    if (this.groupTravelIntent) this.resetWaypoint(this.groupTravelIntent.waypointId);
+    for (const intent of this.personalTravelIntents.values()) this.resetWaypoint(intent.waypointId);
+    this.groupTravelIntent = null;
+    this.personalTravelIntents.clear();
   }
 
   update(delta: number): void {
-    const intent = this.travelIntent;
-    if (!intent) return;
+    if (this.groupTravelIntent) this.updateIntent(this.groupTravelIntent, delta);
+    for (const intent of [...this.personalTravelIntents.values()]) this.updateIntent(intent, delta);
+  }
+
+  private updateIntent(intent: TravelIntent, delta: number): void {
     const waypoint = this.core.waypoints.get(intent.waypointId);
-    const eligible = this.eligiblePlayers();
+    const eligible = intent.personal
+      ? [this.core.players.get(intent.requestedBy)].filter((player): player is CorePlayer => Boolean(player?.connected && player.alive))
+      : this.eligiblePlayers();
     const holding = waypoint ? eligible.filter((player) => isPlayerOnWaypoint(player, waypoint)) : [];
     if (!waypoint?.active || eligible.length === 0 || holding.length !== eligible.length) {
-      this.cancel();
+      this.cancelIntent(intent);
       return;
     }
     intent.elapsed += delta;
     waypoint.requiredPlayers = eligible.length;
     waypoint.holdingPlayers = holding.length;
-    waypoint.holdProgress = Math.min(1, intent.elapsed / WAYPOINT_HOLD_SECONDS);
-    if (intent.elapsed + SIMULATION_EPSILON >= WAYPOINT_HOLD_SECONDS) {
-      const followers = [...this.core.players.values()].filter((player) => player.alive && player.aiRole === "follower");
+    const duration = intent.personal ? FAST_TRAVEL_HOLD_SECONDS : WAYPOINT_HOLD_SECONDS;
+    waypoint.holdProgress = Math.min(1, intent.elapsed / duration);
+    if (intent.elapsed + SIMULATION_EPSILON >= duration) {
+      const followers = intent.personal ? [] : [...this.core.players.values()].filter((player) => player.alive && player.aiRole === "follower");
       this.completeTravel(intent.destinationId, [...eligible, ...followers]);
+      this.cancelIntent(intent);
     }
   }
 
-  private beginTravel(userId: string, waypoint: CoreWaypoint, destination: string): boolean {
-    const eligible = this.eligiblePlayers();
+  private beginTravel(userId: string, waypoint: CoreWaypoint, destination: string, personal: boolean): boolean {
+    const eligible = personal
+      ? [this.core.players.get(userId)].filter((player): player is CorePlayer => Boolean(player?.connected && player.alive))
+      : this.eligiblePlayers();
     if (eligible.length === 0 || eligible.some((player) => !isPlayerOnWaypoint(player, waypoint))) return false;
 
-    if (this.travelIntent?.waypointId === waypoint.id && this.travelIntent.destinationId === destination) return true;
-    this.cancel();
-    this.travelIntent = { requestedBy: userId, waypointId: waypoint.id, destinationId: destination, elapsed: 0 };
+    const existing = personal ? this.personalTravelIntents.get(userId) : this.groupTravelIntent;
+    if (existing?.waypointId === waypoint.id && existing.destinationId === destination) return true;
+    const intent = { requestedBy: userId, waypointId: waypoint.id, destinationId: destination, elapsed: 0, personal };
+    if (personal) {
+      const previous = this.personalTravelIntents.get(userId);
+      if (previous) this.cancelIntent(previous);
+      this.personalTravelIntents.set(userId, intent);
+    } else {
+      this.cancel();
+      this.groupTravelIntent = intent;
+    }
     waypoint.requiredPlayers = eligible.length;
     waypoint.holdingPlayers = eligible.length;
     waypoint.holdProgress = 0;
@@ -106,13 +120,11 @@ export class TravelDirector {
       this.core.discoverRoom(bossRoomId);
       this.core.currentZone = 3;
       this.core.enterBossEncounter();
-      this.cancel();
       return;
     }
 
     const destination = this.core.waypoints.get(destinationId);
     if (!destination?.active) {
-      this.cancel();
       return;
     }
     if (destination.zone > this.core.currentZone && this.core.hasLivingGateInZone(this.core.currentZone)) {
@@ -127,7 +139,6 @@ export class TravelDirector {
     }
     this.core.discoverRoom(destination.roomId);
     if (destination.zone > this.core.currentZone) this.core.currentZone = destination.zone;
-    this.cancel();
   }
 
   private eligiblePlayers(): CorePlayer[] {
@@ -138,5 +149,25 @@ export class TravelDirector {
     if (source.kind === "gate" || source.kind === "boss") return destinationId === source.destinationId;
     const destination = this.core.waypoints.get(destinationId);
     return Boolean(destination?.active && destination.id !== source.id);
+  }
+
+  private isPersonalFastTravel(source: CoreWaypoint, destinationId: string): boolean {
+    if (source.kind === "gate" || source.kind === "boss") return false;
+    const destination = this.core.waypoints.get(destinationId);
+    return Boolean(destination && destination.kind !== "gate" && destination.kind !== "boss");
+  }
+
+  private cancelIntent(intent: TravelIntent): void {
+    if (intent.personal) this.personalTravelIntents.delete(intent.requestedBy);
+    else if (this.groupTravelIntent === intent) this.groupTravelIntent = null;
+    this.resetWaypoint(intent.waypointId);
+  }
+
+  private resetWaypoint(waypointIdValue: string): void {
+    const waypoint = this.core.waypoints.get(waypointIdValue);
+    if (!waypoint) return;
+    waypoint.requiredPlayers = 0;
+    waypoint.holdingPlayers = 0;
+    waypoint.holdProgress = 0;
   }
 }

@@ -84,7 +84,7 @@ const ROOM_NAMES: Record<RenderableRoom["type"], string> = {
   shop: "떠돌이 상단",
   shrine: "메아리의 성소",
   trap: "몬스터 하우스",
-  checkpoint: "귀환의 마법진",
+  checkpoint: "웨이포인트 마법진",
   gamble: "운명의 도박장",
   altar: "피의 제단",
   gold: "봉인된 황금 금고",
@@ -99,7 +99,6 @@ const SPECIAL_ROOM_OBJECTS: Partial<Record<RenderableRoom["type"], Readonly<{
   shop: { texture: "special-room-shop", maxWidth: 360, maxHeight: 310, yOffset: 34 },
   shrine: { texture: "special-room-shrine", maxWidth: 300, maxHeight: 300, yOffset: 24 },
   trap: { texture: "special-room-trap", maxWidth: 350, maxHeight: 350, yOffset: 28 },
-  checkpoint: { texture: "special-room-checkpoint", maxWidth: 250, maxHeight: 310, yOffset: 24 },
   gamble: { texture: "special-room-gamble", maxWidth: 230, maxHeight: 345, yOffset: 28 },
   altar: { texture: "special-room-altar", maxWidth: 340, maxHeight: 300, yOffset: 34 },
   gold: { texture: "resource-gold-pickup", maxWidth: 180, maxHeight: 180, yOffset: 28 },
@@ -244,13 +243,16 @@ export class RoomRenderer {
       const { room, center } = entry;
       const label = room.type === "gate"
         ? room.zone === 3 ? "마왕전 진입 웨이포인트" : "다음 구역 웨이포인트"
-        : room.type === "central-waypoint" ? "중앙 귀환 웨이포인트" : "귀환 웨이포인트";
+        : room.type === "checkpoint" ? "탐색 웨이포인트"
+          : room.type === "central-waypoint" ? "중앙 웨이포인트" : "베이스 웨이포인트";
+      const circle = this.scene.add.image(center.x, center.y, "waypoint-circle").setDisplaySize(190, 190).setDepth(1).setAlpha(0.82);
+      this.scene.tweens.add({ targets: circle, alpha: { from: 0.68, to: 0.96 }, duration: 1100, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
       this.waypointObjects.push(
-        this.scene.add.circle(center.x, center.y, 42, 0x8de5c1, 0.15).setStrokeStyle(3, 0xb8f5dc, 0.92).setDepth(2),
+        circle,
         this.scene.add.text(center.x, center.y + 58, label, {
           fontFamily: "sans-serif",
           fontSize: "11px",
-          color: "#bdf5de",
+          color: "#dfc5ff",
           backgroundColor: "#13211dcc",
           padding: { x: 7, y: 4 },
         }).setOrigin(0.5).setDepth(3),

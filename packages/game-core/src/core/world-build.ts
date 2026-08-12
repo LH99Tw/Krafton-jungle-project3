@@ -3,6 +3,7 @@ import {
   doorId,
   waypointId,
   WAYPOINT_HOLD_SECONDS,
+  FAST_TRAVEL_HOLD_SECONDS,
   type CoreDoor,
   type CoreEnemy,
   type CoreRoom,
@@ -86,8 +87,28 @@ export function createAuthoredRuntimeWorld(
     requiredPlayers: 0,
     holdingPlayers: 0,
     holdProgress: 0,
-    holdDurationMs: WAYPOINT_HOLD_SECONDS * 1_000,
+    holdDurationMs: FAST_TRAVEL_HOLD_SECONDS * 1_000,
   });
+  for (const room of rooms.values()) {
+    if (room.kind !== "checkpoint") continue;
+    const center = room.rect
+      ? { x: room.rect.x + room.rect.width / 2, y: room.rect.y + room.rect.height / 2 }
+      : baseCenter;
+    const id = waypointId(room.id, "checkpoint");
+    waypoints.set(id, {
+      id,
+      roomId: room.id,
+      zone: room.zone,
+      kind: "checkpoint",
+      ...center,
+      destinationId: baseWaypointId,
+      active: false,
+      requiredPlayers: 0,
+      holdingPlayers: 0,
+      holdProgress: 0,
+      holdDurationMs: 3_000,
+    });
+  }
 
   const zones = ([1, 2, 3] as const).map((zone) => {
     const authoredRooms = definition.rooms.filter((room) => room.zone === zone && room.kind !== "boss");

@@ -945,7 +945,7 @@ function isEnemyBehavior(value: string | undefined): value is NetworkEnemySnapsh
 }
 
 function isWaypointKind(value: string | undefined): value is NetworkWorldSnapshot["waypoints"][number]["kind"] {
-  return value === "start" || value === "central" || value === "gate" || value === "boss";
+  return value === "start" || value === "central" || value === "checkpoint" || value === "gate" || value === "boss";
 }
 
 function isDropSlot(value: string | undefined): value is NetworkDropSnapshot["slot"] {

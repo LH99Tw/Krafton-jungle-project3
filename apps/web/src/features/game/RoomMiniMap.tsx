@@ -18,13 +18,15 @@ type RoomMiniMapProps = {
   minimap: MiniMapSnapshot | null;
   party: PartyMemberSnapshot[];
   embed?: boolean;
+  sourceWaypointId?: string | null;
+  onWaypointSelect?: (destinationWaypointId: string) => void;
 };
 
 export function RoomMiniMap(props: RoomMiniMapProps) {
   return <RoomMiniMapContent key={props.minimap?.geometry.areaId ?? "loading"} {...props} />;
 }
 
-function RoomMiniMapContent({ minimap, party, embed = false }: RoomMiniMapProps) {
+function RoomMiniMapContent({ minimap, party, embed = false, sourceWaypointId = null, onWaypointSelect }: RoomMiniMapProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const positionsRef = useRef(new Map<string, { x: number; y: number }>());
   const partyRef = useRef(party);
@@ -182,6 +184,23 @@ function RoomMiniMapContent({ minimap, party, embed = false }: RoomMiniMapProps)
     viewRef.current = { ...DEFAULT_VIEW };
   };
 
+  const selectWaypoint = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !minimap || !sourceWaypointId || !onWaypointSelect || isPanning) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const transform = mapTransform(rect.width, rect.height, minimap, minimapFocus(minimap, partyRef.current), viewRef.current);
+    const x = event.clientX - rect.left;
+    const y = event.clientY - rect.top;
+    const marker = minimap.geometry.markers
+      .filter((candidate) => candidate.kind === "waypoint" && candidate.id !== sourceWaypointId
+        && isExplored(minimap.explorationMask, cellIndexAt(minimap.geometry, candidate.x, candidate.y)))
+      .map((candidate) => ({ candidate, point: transform.toCanvas(candidate.x, candidate.y) }))
+      .filter(({ point }) => Math.hypot(point.x - x, point.y - y) <= 13)
+      .sort((left, right) => Math.hypot(left.point.x - x, left.point.y - y) - Math.hypot(right.point.x - x, right.point.y - y))[0]?.candidate;
+    if (marker) onWaypointSelect(marker.id);
+  };
+
   const content = <>
     <div
       className={`minimap-canvas-frame ${isPanning ? "is-panning" : ""}`}
@@ -190,9 +209,10 @@ function RoomMiniMapContent({ minimap, party, embed = false }: RoomMiniMapProps)
       onPointerMove={handlePointerMove}
       onPointerUp={finishPanning}
       onPointerCancel={finishPanning}
+      onClick={selectWaypoint}
       onAuxClick={(event) => event.preventDefault()}
       onDoubleClick={resetView}
-      title="휠 버튼 드래그: 지도 이동 · 더블클릭: 내 위치로 복귀"
+      title={sourceWaypointId ? "밝혀진 웨이포인트 클릭: 3초 후 이동 · 휠 버튼 드래그: 지도 이동" : "휠 버튼 드래그: 지도 이동 · 더블클릭: 내 위치로 복귀"}
     >
       <canvas ref={canvasRef} className="minimap-canvas" role="img" aria-label={`파티 공유 탐색 지도, ${Math.floor(percent)}% 탐색됨. 휠 버튼을 누른 채 드래그하여 다른 지역을 볼 수 있습니다.`} />
       <button
@@ -308,13 +328,16 @@ function renderStaticMap(
   for (const marker of geometry.markers) {
     if (!isExplored(explorationMask, cellIndexAt(geometry, marker.x, marker.y))) continue;
     const point = transform.toCanvas(marker.x, marker.y);
-    context.fillStyle = marker.kind === "boss" ? "#ff7899" : marker.kind === "gate" ? "#efc96f" : "#92c9ff";
+    context.fillStyle = marker.kind === "boss" ? "#ff7899" : marker.kind === "gate" ? "#efc96f" : "#c58aff";
+    context.shadowColor = marker.kind === "waypoint" ? "#a855f7" : "transparent";
+    context.shadowBlur = marker.kind === "waypoint" ? 8 : 0;
     context.strokeStyle = "rgba(0,0,0,.9)";
     context.lineWidth = 2;
     context.beginPath();
     context.arc(point.x, point.y, marker.kind === "boss" ? 5 : 4, 0, Math.PI * 2);
     context.fill();
     context.stroke();
+    context.shadowBlur = 0;
   }
 }
 

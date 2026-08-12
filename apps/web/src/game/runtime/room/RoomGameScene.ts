@@ -401,6 +401,7 @@ export class RoomGameScene extends Phaser.Scene {
     this.load.image("special-room-shrine-used", "/Asset/special-rooms/echo-shrine-used.webp");
     this.load.image("special-room-trap", "/Asset/special-rooms/trap-device.webp");
     this.load.image("special-room-checkpoint", "/Asset/special-rooms/checkpoint-runestone.webp");
+    this.load.image("waypoint-circle", "/Asset/waypoints/waypoint-circle.png");
     this.load.image("special-room-gamble", "/Asset/special-rooms/gamble-wheel.webp");
     this.load.image("special-room-altar", "/Asset/special-rooms/blood-altar.webp");
 

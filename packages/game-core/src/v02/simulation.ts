@@ -30,6 +30,7 @@ export const ROOM_HEIGHT = 720;
 export const ROOM_EDGE_INSET = 28;
 export const WAYPOINT_RADIUS = 92;
 export const WAYPOINT_HOLD_SECONDS = 5;
+export const FAST_TRAVEL_HOLD_SECONDS = 3;
 export const BOSS_ROOM_ID = "boss:arena" as const;
 
 export type AuthoredRoomId = `editor:${string}`;
@@ -40,7 +41,7 @@ export type CoreEnemyKind = "static" | "hidden" | "gate" | "invader" | "boss";
 export type CoreEnemyBehavior = "static" | "gate" | "invader" | "boss";
 export type EnemyPatternKind = "fan" | "floor";
 export type EnemyPatternPhase = "idle" | "telegraph";
-export type CoreWaypointKind = "start" | "central" | "gate" | "boss";
+export type CoreWaypointKind = "start" | "central" | "checkpoint" | "gate" | "boss";
 
 export type CoreRoom = {
   id: CoreRoomId;
@@ -206,6 +207,7 @@ export type TravelIntent = {
   waypointId: string;
   destinationId: string;
   elapsed: number;
+  personal: boolean;
 };
 
 export type ClassCombatRule = {
@@ -614,7 +616,7 @@ function createWaypoint(
     requiredPlayers: 0,
     holdingPlayers: 0,
     holdProgress: 0,
-    holdDurationMs: WAYPOINT_HOLD_SECONDS * 1_000,
+    holdDurationMs: (kind === "gate" || kind === "boss" ? WAYPOINT_HOLD_SECONDS : FAST_TRAVEL_HOLD_SECONDS) * 1_000,
   };
 }
 

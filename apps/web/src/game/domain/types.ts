@@ -204,7 +204,7 @@ export type NetworkWorldSnapshot = {
   waypoints: Array<{
     id: string;
     roomId: string;
-    kind: "start" | "central" | "gate" | "boss";
+    kind: "start" | "central" | "checkpoint" | "gate" | "boss";
     destinationId: string;
     active: boolean;
     requiredPlayers: number;

@@ -773,10 +773,8 @@ export class GameCore {
   }
 
   setCheckpoint(userId: string): boolean {
-    const player = this.players.get(userId);
-    if (!player || !this.canUseSpecialRoom(player, "checkpoint") || !this.isNearRoomCenter(player, 145)) return false;
-    player.respawnRoomId = player.roomId;
-    return true;
+    void userId;
+    return false;
   }
 
   claimGoldRoom(userId: string): number | null {
@@ -1148,7 +1146,7 @@ export class GameCore {
     }
     if (roomId === this.bossRoomId()) return;
     for (const waypoint of this.waypoints.values()) {
-      if (waypoint.roomId === roomId && (waypoint.kind === "start" || waypoint.kind === "central")) {
+      if (waypoint.roomId === roomId && (waypoint.kind === "start" || waypoint.kind === "central" || waypoint.kind === "checkpoint")) {
         waypoint.active = true;
       }
     }

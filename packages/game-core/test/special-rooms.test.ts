@@ -117,7 +117,39 @@ test("gold room awards shared gold once", () => {
   assert.equal(core.claimGoldRoom(player.userId), null);
 });
 
-test("shrine needs three seconds and checkpoint respawns after five seconds", () => {
+test("discovered checkpoint waypoints provide three-second personal fast travel", () => {
+  const { core, player } = setup("checkpoint-fast-travel");
+  const checkpointRoomId = "editor:checkpoint" as AuthoredRoomId;
+  const baseWaypoint = [...core.waypoints.values()].find((waypoint) => waypoint.kind === "start")!;
+  const checkpointWaypoint = [...core.waypoints.values()].find((waypoint) => waypoint.kind === "checkpoint")!;
+
+  assert.equal(baseWaypoint.active, true);
+  assert.equal(checkpointWaypoint.active, false);
+  assert.equal(core.requestTravel(player.userId, baseWaypoint.id, checkpointWaypoint.id), false, "unexplored destinations stay unavailable");
+
+  core.movePlayerToRoom(player.userId, checkpointRoomId);
+  assert.equal(checkpointWaypoint.active, true);
+  assert.equal(core.requestTravel(player.userId, checkpointWaypoint.id, baseWaypoint.id), true);
+  for (let index = 0; index < 29; index += 1) core.update(0.1);
+  assert.equal(player.roomId, checkpointRoomId);
+  core.update(0.1);
+  assert.equal(player.roomId, baseWaypoint.roomId);
+});
+
+test("leaving a waypoint cancels personal fast travel", () => {
+  const { core, player } = setup("checkpoint-fast-travel-cancel");
+  const checkpointWaypoint = [...core.waypoints.values()].find((waypoint) => waypoint.kind === "checkpoint")!;
+  const baseWaypoint = [...core.waypoints.values()].find((waypoint) => waypoint.kind === "start")!;
+  core.movePlayerToRoom(player.userId, checkpointWaypoint.roomId);
+  assert.equal(core.requestTravel(player.userId, checkpointWaypoint.id, baseWaypoint.id), true);
+  core.update(1);
+  player.x += 200;
+  core.update(0.1);
+  assert.equal(core.activeTravel, null);
+  assert.equal(player.roomId, checkpointWaypoint.roomId);
+});
+
+test("shrine needs three seconds and waypoint rooms no longer replace the base respawn", () => {
   const { core, player } = setup("shrine-checkpoint");
   core.movePlayerToRoom(player.userId, "editor:shrine" as AuthoredRoomId);
   assert.equal(core.claimShrine(player.userId), true);
@@ -126,11 +158,11 @@ test("shrine needs three seconds and checkpoint respawns after five seconds", ()
   core.update(0.1);
   assert.ok(player.shrineBuff);
   core.movePlayerToRoom(player.userId, "editor:checkpoint" as AuthoredRoomId);
-  assert.equal(core.setCheckpoint(player.userId), true);
+  assert.equal(core.setCheckpoint(player.userId), false);
   core.damagePlayer(player, 1_000_000);
   for (let index = 0; index < 49; index += 1) core.update(0.1);
   assert.equal(player.alive, false);
   core.update(0.1);
   assert.equal(player.alive, true);
-  assert.equal(player.roomId, "editor:checkpoint");
+  assert.equal(player.roomId, "editor:start");
 });
