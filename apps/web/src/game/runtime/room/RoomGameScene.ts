@@ -1061,16 +1061,18 @@ export class RoomGameScene extends Phaser.Scene {
       // attackSequence is state-recovery metadata; live visuals use combat.action.
       this.networkEnemyAttackSequence.set(enemy.id, enemy.attackSequence);
       sprite.setVisible(visible).setActive(enemy.alive);
-      this.roomRenderer.updateEnemyPattern(
-        enemy.id,
-        patternTier(kind),
-        enemy.patternKind,
-        enemy.patternPhase,
-        enemy.patternIndex,
-        sprite.x,
-        sprite.y,
-        visible,
-      );
+      if (kind !== "boss") {
+        this.roomRenderer.updateEnemyPattern(
+          enemy.id,
+          patternTier(kind),
+          enemy.patternKind,
+          enemy.patternPhase,
+          enemy.patternIndex,
+          sprite.x,
+          sprite.y,
+          visible,
+        );
+      }
     }
   }
 
