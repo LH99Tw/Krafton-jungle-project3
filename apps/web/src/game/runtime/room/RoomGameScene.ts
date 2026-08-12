@@ -69,7 +69,7 @@ import {
   type RenderZoneWorld,
 } from "./layout";
 import { PlayerVisionFog } from "./PlayerVisionFog";
-import { RoomRenderer } from "./RoomRenderer";
+import { RoomRenderer, type ProgressionBarrier } from "./RoomRenderer";
 import type { VisionRevealSource } from "./vision";
 
 type LocalEnemyKind = "static" | "hidden" | "gate" | "invader" | "boss";
@@ -1986,7 +1986,7 @@ export class RoomGameScene extends Phaser.Scene {
     this.roomRenderer.updateWaypoints(this.zoneWorld, waypointRooms);
   }
 
-  private lockedProgressionBarriers(snapshot: NetworkWorldSnapshot): Array<{ x: number; y: number; width: number; height: number }> {
+  private lockedProgressionBarriers(snapshot: NetworkWorldSnapshot): ProgressionBarrier[] {
     const progressionWorld = this.progressionWorld;
     if (!progressionWorld) return [];
     const roomState = new Map(snapshot.rooms.map((room) => [room.id, room]));
@@ -2021,12 +2021,14 @@ export class RoomGameScene extends Phaser.Scene {
         y: connection.trapBarrier.y + offsetY + connection.trapBarrier.height / 2,
         width: connection.trapBarrier.width,
         height: connection.trapBarrier.height,
+        kind: "trap" as const,
       };
       if (connection.lockBarrier) return {
         x: connection.lockBarrier.x + offsetX + connection.lockBarrier.width / 2,
         y: connection.lockBarrier.y + offsetY + connection.lockBarrier.height / 2,
         width: connection.lockBarrier.width,
         height: connection.lockBarrier.height,
+        kind: "progression" as const,
       };
       const segment = [...connection.floorRects].sort((left, right) => Math.max(right.width, right.height) - Math.max(left.width, left.height))[0]!;
       const horizontal = segment.width >= segment.height;
@@ -2035,6 +2037,7 @@ export class RoomGameScene extends Phaser.Scene {
         y: segment.y + offsetY + segment.height / 2,
         width: horizontal ? 18 : Math.max(44, segment.width - 18),
         height: horizontal ? Math.max(44, segment.height - 18) : 18,
+        kind: "progression" as const,
       };
     });
   }

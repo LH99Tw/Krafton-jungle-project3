@@ -36,6 +36,14 @@ const ZONE_COLORS = {
 
 type EnemyKind = "static" | "hidden" | "gate" | "invader" | "boss";
 
+export type ProgressionBarrier = Readonly<{
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  kind: "progression" | "trap";
+}>;
+
 const ENEMY_LOOK = {
   static: { texture: "enemy-skeleton-0", depth: 12, radius: 11 },
   invader: { texture: "enemy-skeleton-0", depth: 12, radius: 11 },
@@ -525,8 +533,8 @@ export class RoomRenderer {
     }
   }
 
-  updateProgressionBarriers(barriers: readonly Readonly<{ x: number; y: number; width: number; height: number }>[]): void {
-    const key = barriers.map((barrier) => `${barrier.x}:${barrier.y}:${barrier.width}:${barrier.height}`).join("|");
+  updateProgressionBarriers(barriers: readonly ProgressionBarrier[]): void {
+    const key = barriers.map((barrier) => `${barrier.kind}:${barrier.x}:${barrier.y}:${barrier.width}:${barrier.height}`).join("|");
     if (key === this.progressionBarrierKey) return;
     this.progressionBarrierKey = key;
     for (const tween of this.progressionBarrierTweens) tween.remove();
@@ -534,6 +542,10 @@ export class RoomRenderer {
     this.progressionBarrierTweens = [];
     this.progressionBarrierObjects = [];
     for (const barrier of barriers) {
+      if (barrier.kind === "trap") {
+        this.createTrapPortcullis(barrier);
+        continue;
+      }
       const glow = this.scene.add.rectangle(barrier.x, barrier.y, barrier.width + 18, barrier.height + 18, 0x75ddff, 0.12)
         .setBlendMode(Phaser.BlendModes.ADD).setDepth(24);
       const field = this.scene.add.rectangle(barrier.x, barrier.y, barrier.width, barrier.height, 0x83e4ff, 0.34)
@@ -546,6 +558,73 @@ export class RoomRenderer {
         this.scene.tweens.add({ targets: core, alpha: { from: 0.35, to: 0.95 }, duration: 430, yoyo: true, repeat: -1, ease: "Sine.easeInOut" }),
       );
     }
+  }
+
+  private createTrapPortcullis(barrier: ProgressionBarrier): void {
+    const horizontal = barrier.width >= barrier.height;
+    const longLength = horizontal ? barrier.width : barrier.height;
+    const shortLength = Math.max(30, horizontal ? barrier.height : barrier.width);
+    const railInset = Math.min(7, shortLength * 0.2);
+    const halfLong = longLength / 2;
+    const halfShort = shortLength / 2;
+    const bars = this.scene.add.graphics().setPosition(barrier.x, barrier.y).setDepth(27);
+
+    bars.fillStyle(0x08090a, 0.58);
+    bars.fillRoundedRect(
+      horizontal ? -halfLong - 7 : -halfShort - 7,
+      horizontal ? -halfShort - 7 : -halfLong - 7,
+      horizontal ? longLength + 14 : shortLength + 14,
+      horizontal ? shortLength + 14 : longLength + 14,
+      5,
+    );
+
+    const drawMetalLine = (x1: number, y1: number, x2: number, y2: number, outerWidth: number): void => {
+      bars.lineStyle(outerWidth, 0x17191b, 1);
+      bars.lineBetween(x1, y1, x2, y2);
+      bars.lineStyle(Math.max(2, outerWidth - 4), 0x625f59, 1);
+      bars.lineBetween(x1, y1, x2, y2);
+      bars.lineStyle(1, 0xaaa296, 0.72);
+      bars.lineBetween(x1 - (horizontal ? 1 : 0), y1 - (horizontal ? 0 : 1), x2 - (horizontal ? 1 : 0), y2 - (horizontal ? 0 : 1));
+    };
+
+    if (horizontal) {
+      drawMetalLine(-halfLong, -halfShort + railInset, halfLong, -halfShort + railInset, 8);
+      drawMetalLine(-halfLong, halfShort - railInset, halfLong, halfShort - railInset, 8);
+      for (let offset = -halfLong + 7; offset <= halfLong - 7; offset += 20) {
+        drawMetalLine(offset, -halfShort, offset, halfShort, 7);
+      }
+    } else {
+      drawMetalLine(-halfShort + railInset, -halfLong, -halfShort + railInset, halfLong, 8);
+      drawMetalLine(halfShort - railInset, -halfLong, halfShort - railInset, halfLong, 8);
+      for (let offset = -halfLong + 7; offset <= halfLong - 7; offset += 20) {
+        drawMetalLine(-halfShort, offset, halfShort, offset, 7);
+      }
+    }
+
+    bars.fillStyle(0x2a1d17, 1);
+    const postSize = 11;
+    const postPositions = horizontal
+      ? [[-halfLong, 0], [halfLong, 0]]
+      : [[0, -halfLong], [0, halfLong]];
+    for (const [x, y] of postPositions) {
+      bars.fillRoundedRect(x! - postSize / 2, y! - postSize / 2, postSize, postSize, 2);
+      bars.fillStyle(0x9a7b56, 0.9);
+      bars.fillCircle(x!, y!, 2.2);
+      bars.fillStyle(0x2a1d17, 1);
+    }
+
+    this.progressionBarrierObjects.push(bars);
+    bars.setAlpha(0.15);
+    if (horizontal) bars.setScale(1, 0.12);
+    else bars.setScale(0.12, 1);
+    this.progressionBarrierTweens.push(this.scene.tweens.add({
+      targets: bars,
+      alpha: 1,
+      scaleX: 1,
+      scaleY: 1,
+      duration: 260,
+      ease: "Back.easeOut",
+    }));
   }
 
   /**

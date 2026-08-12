@@ -340,6 +340,18 @@ test("compiled touching rooms keep semantic ids and receive a full shared-edge l
   assert.ok(world.rooms.find((room) => room.id === world.baseRoomId)?.connections.includes("editor:room-forest"));
 });
 
+test("an open-field trap room seals the entire shared edge with its trap barrier", () => {
+  const map = cloneEditorMap(DEFAULT_EDITOR_MAP);
+  map.rooms[0] = { ...map.rooms[0]!, width: 4 };
+  map.rooms[1] = { ...map.rooms[1]!, type: "trap" };
+  const world = buildEditorCoreWorld(map);
+  const connection = world.connections.find((candidate) => candidate.id === "path-base-forest")!;
+
+  assert.deepEqual(connection.trapBarrier, connection.lockBarrier);
+  assert.equal(connection.trapBarrier?.width, 18);
+  assert.equal(connection.trapBarrier?.height, 3 * 220);
+});
+
 test("a cross-zone open edge is fully blocked until its lower-zone gate is destroyed", () => {
   const map = cloneEditorMap(DEFAULT_EDITOR_MAP);
   map.rooms[0] = { ...map.rooms[0]!, width: 4 };
