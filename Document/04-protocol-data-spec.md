@@ -1,11 +1,11 @@
 # 《5일 뒤 마왕》 프로토콜·데이터 명세
 
-> 공용 계약 버전은 v8이다. 실제 필드 검증의 단일 원본은 `packages/protocol/src/index.ts`, Colyseus 상태의 단일 원본은 `apps/game-server/src/state.ts`, DB의 단일 원본은 `packages/db/src/schema.ts`다.
+> 공용 계약 버전은 v9다. 실제 필드 검증의 단일 원본은 `packages/protocol/src/index.ts`, Colyseus 상태의 단일 원본은 `apps/game-server/src/state.ts`, DB의 단일 원본은 `packages/db/src/schema.ts`다.
 
 ## 1. 버전과 호환성
 
-- `PROTOCOL_VERSION = 8`
-- Room 입장, 명령, 입력 frame, world frame, 미니맵 메시지는 v8 literal을 요구한다.
+- `PROTOCOL_VERSION = 9`
+- Room 입장, 명령, 입력 frame, world frame, 미니맵 메시지는 v9 literal을 요구한다.
 - 공식 맵 revision이 서버와 다르면 게임 룸 입장을 거절한다.
 - 구버전 payload를 자동 변환하지 않는다.
 - 모든 명령 객체는 strict schema이며 정의되지 않은 필드를 거절한다.
@@ -28,7 +28,7 @@
 | `sessionMode` | `prototype | full` |
 | `difficulty` | `easy | normal | hard` |
 | `partyMode` | `solo | coop` |
-| `protocolVersion` | `8` |
+| `protocolVersion` | `9` |
 | `mapRevision` | 1~96자 ID |
 
 룸 생성 옵션과 참가 옵션의 파티 모드, 세션 모드, 난이도, 맵 revision이 같아야 한다.
@@ -39,7 +39,7 @@
 
 ```ts
 {
-  v: 8;
+  v: 9;
   type: string;
   seq: number;
   clientTime: number;
@@ -58,7 +58,7 @@
 | `input.frame` | `{ v, seq, clientTime, x, y, aim, buttons }` | 구현, 실시간 주 경로 |
 | `skill.cast` | `{ skillId, targetX, targetY }` | 서버 처리 구현, 현재 웹에서 직접 호출하지 않음; Q/E는 자동 발동 |
 | `player.interact` | `{ targetId }` | 구현 |
-| `travel.request` | `{ waypointId, destinationId }` | 구현 |
+| `travel.request` | `{ waypointId, destinationId }` | 구현. `waypointId`는 현재 서 있는 출발 웨이포인트, `destinationId`는 미니맵에서 선택한 발견 목적지다. |
 | `recall.request` | `{}` | 구현 |
 | `upgrade.choose` | `{ draftId, upgradeId }` | 구현 |
 | `equipment.equip` | `{ dropId }` | 구현 |
@@ -98,6 +98,8 @@
 | `fastlane.offer` | WebTransport URL과 단기 토큰 |
 | `minimap.init` | geometry와 전체 탐색 mask |
 | `minimap.delta` | 탐색 mask 증분 |
+
+미니맵 탐색은 서버의 발견 방을 기준으로 방 전체를 개척한다. geometry 마커는 `resource`, `monster`, `elite`, `waypoint`, `gate`, `boss`를 구분하며 미발견 방의 마커는 클라이언트가 표시하지 않는다.
 
 `world.frame`은 플레이어 최대 3명, 적 최대 512개를 허용한다. transform은 `id`, `roomId`, 좌표, 속도, aim, 불연속 flag를 포함한다.
 

@@ -42,7 +42,7 @@ test("rejects out-of-range player input", () => {
   assert.equal(result.success, false);
 });
 
-test("resolves protocol v8 room party mode and rejects older versions", () => {
+test("resolves protocol v9 room party mode and rejects older versions", () => {
   const defaults = roomOptionsSchema.parse({
     heroClass: "swordsman",
     protocolVersion: PROTOCOL_VERSION,
@@ -67,7 +67,7 @@ test("resolves protocol v8 room party mode and rejects older versions", () => {
   assert.throws(() => assertOfficialMapRevision("outdated-map"), /MAP_REVISION_MISMATCH/);
 });
 
-test("accepts the v8 interaction, travel, recall, and equipment commands", () => {
+test("accepts the v9 interaction, travel, recall, and equipment commands", () => {
   const base = { v: PROTOCOL_VERSION, seq: 7, clientTime: 12.5 } as const;
   const commands = [
     { ...base, type: "player.interact", payload: { targetId: "gate-zone-1" } },
@@ -80,7 +80,7 @@ test("accepts the v8 interaction, travel, recall, and equipment commands", () =>
   for (const command of commands) assert.equal(clientCommandSchema.safeParse(command).success, true);
 });
 
-test("strictly validates protocol v8 combat action events", () => {
+test("strictly validates protocol v9 combat action events", () => {
   const event = {
     v: PROTOCOL_VERSION,
     sequence: 1,
@@ -118,7 +118,7 @@ test("strictly validates every command envelope and payload", () => {
   assert.equal(clientCommandSchema.safeParse({ ...valid, payload: { ...valid.payload, unexpected: true } }).success, false);
 });
 
-test("exposes the v8 room state graph through Colyseus schema collections", () => {
+test("exposes the v9 room state graph through Colyseus schema collections", () => {
   const state = new PartyRoomState();
   state.seed = "seed-001";
   state.currentZone = 2;
@@ -175,7 +175,7 @@ test("exposes the v8 room state graph through Colyseus schema collections", () =
   assert.equal(state.drops.size, 1);
 });
 
-test("validates v8 input and AOI world frames", () => {
+test("validates v9 input and AOI world frames", () => {
   assert.equal(inputFrameSchema.safeParse({
     v: PROTOCOL_VERSION,
     seq: 4,
@@ -238,7 +238,7 @@ test("bounds minimap geometry, masks, and delta ranges", () => {
       { x1: 0, y1: 720, x2: 0, y2: 0 },
     ],
     visionRadius: PLAYER_VISION_RADIUS,
-    markers: [{ id: "gate", kind: "gate", label: "구역 게이트", x: 1100, y: 360, areaId: "zone-1" }],
+    markers: [{ id: "gate", roomId: "gate-room", kind: "gate", label: "구역 게이트", x: 1100, y: 360, areaId: "zone-1", active: true }],
   } as const;
   assert.equal(minimapInitSchema.safeParse({ v: PROTOCOL_VERSION, geometry, revision: 0, explorationMask: "AAAA" }).success, true);
   assert.equal(minimapDeltaSchema.safeParse({ v: PROTOCOL_VERSION, mapRevision: "map-1", areaId: "zone-1", revision: 1, ranges: [[2, 4]] }).success, true);

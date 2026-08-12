@@ -27,7 +27,7 @@ export class TravelDirector {
 
     const destination = destinationId || waypoint.destinationId;
     if (!this.isAllowedDestination(waypoint, destination)) return false;
-    return this.beginTravel(userId, waypoint, destination, this.isPersonalFastTravel(waypoint, destination));
+    return this.beginTravel(userId, waypoint, destination, true);
   }
 
   recall(userId: string): boolean {
@@ -39,7 +39,7 @@ export class TravelDirector {
     if (!source) return false;
     const baseWaypointId = waypointId(this.core.startRoomId(), "start");
     if (source.id === baseWaypointId) return false;
-    return this.beginTravel(userId, source, baseWaypointId, false);
+    return this.beginTravel(userId, source, baseWaypointId, true);
   }
 
   /** Marks the waypoint for a destroyed gate room and its destination active. */
@@ -79,7 +79,7 @@ export class TravelDirector {
     const duration = intent.personal ? FAST_TRAVEL_HOLD_SECONDS : WAYPOINT_HOLD_SECONDS;
     waypoint.holdProgress = Math.min(1, intent.elapsed / duration);
     if (intent.elapsed + SIMULATION_EPSILON >= duration) {
-      const followers = intent.personal ? [] : [...this.core.players.values()].filter((player) => player.alive && player.aiRole === "follower");
+      const followers = [...this.core.players.values()].filter((player) => player.alive && player.aiRole === "follower");
       this.completeTravel(intent.destinationId, [...eligible, ...followers]);
       this.cancelIntent(intent);
     }
@@ -149,12 +149,6 @@ export class TravelDirector {
     if (source.kind === "gate" || source.kind === "boss") return destinationId === source.destinationId;
     const destination = this.core.waypoints.get(destinationId);
     return Boolean(destination?.active && destination.id !== source.id);
-  }
-
-  private isPersonalFastTravel(source: CoreWaypoint, destinationId: string): boolean {
-    if (source.kind === "gate" || source.kind === "boss") return false;
-    const destination = this.core.waypoints.get(destinationId);
-    return Boolean(destination && destination.kind !== "gate" && destination.kind !== "boss");
   }
 
   private cancelIntent(intent: TravelIntent): void {

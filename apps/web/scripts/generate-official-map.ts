@@ -42,7 +42,8 @@ const manifest = {
 const output = `${JSON.stringify(manifest, null, 2)}\n`;
 
 if (check) {
-  assert.equal(await readFile(generatedPath, "utf8"), output, "공식 맵 생성물이 최신이 아닙니다. pnpm map:generate를 실행해 주세요.");
+  const current = (await readFile(generatedPath, "utf8")).replace(/\r\n/g, "\n");
+  assert.equal(current, output, "공식 맵 생성물이 최신이 아닙니다. pnpm map:generate를 실행해 주세요.");
 } else {
   if (inputPath) await writeFile(sourcePath, `${JSON.stringify(map, null, 2)}\n`, "utf8");
   await writeFile(generatedPath, output, "utf8");

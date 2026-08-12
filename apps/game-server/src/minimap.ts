@@ -6,8 +6,10 @@ import {
   buildWorldFromRooms,
   createExplorationMask,
   createMiniMapGrid,
+  encodeCellRanges,
   encodeMask,
   rectToMiniMapSurface,
+  revealRoomRect,
   type GameCore,
   type WorldRect,
 } from "@five-days/game-core";
@@ -17,6 +19,7 @@ type AreaState = {
   geometry: MiniMapGeometry;
   mask: Uint8Array;
   revision: number;
+  pending: Set<number>;
 };
 
 const OFFICIAL_AREA_ID = "official-map";
@@ -24,6 +27,7 @@ export class PartyExploration {
   private readonly areas = new Map<string, AreaState>();
   private markerSignature = "";
   private geometryDirty = false;
+  private readonly revealedRooms = new Set<string>();
 
   constructor(private readonly core: GameCore) {
     const authored = core.options.world;
@@ -51,6 +55,7 @@ export class PartyExploration {
   }
 
   update(): void {
+    this.revealDiscoveredRooms();
     this.refreshMarkers();
   }
 
@@ -65,7 +70,20 @@ export class PartyExploration {
   }
 
   flush(): MiniMapDelta[] {
-    return [];
+    const deltas: MiniMapDelta[] = [];
+    for (const state of this.areas.values()) {
+      if (state.pending.size === 0) continue;
+      state.revision += 1;
+      deltas.push({
+        v: PROTOCOL_VERSION,
+        mapRevision: state.geometry.mapRevision,
+        areaId: state.geometry.areaId,
+        revision: state.revision,
+        ranges: encodeCellRanges(state.pending),
+      });
+      state.pending.clear();
+    }
+    return deltas;
   }
 
   takeGeometryUpdates(): MiniMapInit[] {
@@ -92,25 +110,59 @@ export class PartyExploration {
       geometry,
       mask: createExplorationMask(geometry),
       revision: 0,
+      pending: new Set<number>(),
     });
+  }
+
+  private revealDiscoveredRooms(): void {
+    for (const roomId of this.core.discoveredRooms) {
+      const areaId = this.areaIdForRoom(roomId);
+      const state = areaId ? this.areas.get(areaId) : null;
+      const key = areaId ? `${areaId}:${roomId}` : roomId;
+      if (!state || this.revealedRooms.has(key)) continue;
+      this.revealedRooms.add(key);
+      for (const index of revealRoomRect(state.geometry, state.mask, this.core.roomRectOf(roomId))) state.pending.add(index);
+    }
   }
 
   private refreshMarkers(): void {
     const markers = new Map<string, MiniMapGeometry["markers"]>();
     for (const areaId of this.areas.keys()) markers.set(areaId, []);
+    for (const room of this.core.rooms.values()) {
+      const kind = room.kind === "resource" ? "resource"
+        : room.kind === "static-monster" ? "monster"
+          : room.kind === "hidden-monster" ? "elite"
+            : null;
+      if (!kind) continue;
+      const areaId = this.areaIdForRoom(room.id);
+      const areaMarkers = areaId ? markers.get(areaId) : null;
+      if (!areaId || !areaMarkers) continue;
+      const center = this.core.roomWorldCenterOf(room.id);
+      areaMarkers.push({
+        id: `room-marker:${room.id}`,
+        roomId: room.id,
+        kind,
+        label: kind === "resource" ? "자원 방" : kind === "elite" ? "정예 몬스터 방" : "몬스터 방",
+        x: center.x,
+        y: center.y,
+        areaId,
+        active: true,
+      });
+    }
     for (const waypoint of this.core.waypoints.values()) {
-      if (!waypoint.active && waypoint.kind !== "gate" && waypoint.kind !== "boss") continue;
       const areaId = this.core.options.world ? OFFICIAL_AREA_ID : `zone-${waypoint.zone}`;
       const areaMarkers = markers.get(areaId);
       if (!areaMarkers) continue;
       const kind = waypoint.kind === "boss" ? "boss" : waypoint.kind === "gate" ? "gate" : "waypoint";
       areaMarkers.push({
         id: waypoint.id,
+        roomId: waypoint.roomId,
         kind,
         label: kind === "boss" ? "마왕의 제단" : kind === "gate" ? "구역 게이트" : "활성 웨이포인트",
         x: waypoint.x,
         y: waypoint.y,
         areaId,
+        active: waypoint.active,
       });
     }
     const signature = JSON.stringify([...markers.entries()]);

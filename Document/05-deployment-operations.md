@@ -82,7 +82,7 @@ Caddy만 HTTP/HTTPS를 공개한다. PostgreSQL은 외부에 공개하지 않는
 - `COGNITO_CLIENT_ID`, `COGNITO_CLIENT_SECRET`, `COGNITO_ISSUER`, `COGNITO_DOMAIN`, `COGNITO_REDIRECT_URI`
 - `ALLOWED_ORIGINS`
 - `GUESTBOOK_ADMIN_DELETE_KEY` 32자 이상
-- `PROTOCOL_VERSION=8`
+- `PROTOCOL_VERSION=9`
 
 Fast lane 사용 시:
 
@@ -102,7 +102,7 @@ PR과 main push는 다음을 수행한다.
 3. production audit
 4. lint, typecheck, deadcode, test, build
 
-현재 테스트 기준선은 238개다. 숫자 자체보다 모든 workspace 테스트가 0 failure인지 확인한다.
+현재 테스트 기준선은 255개다. 숫자 자체보다 모든 workspace 테스트가 0 failure인지 확인한다.
 
 ## 7. 배포
 

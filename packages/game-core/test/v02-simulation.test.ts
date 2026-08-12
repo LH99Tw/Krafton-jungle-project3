@@ -528,7 +528,7 @@ test("hidden-room kill awards deterministic personal legendary or mythic equipme
   }
 });
 
-test("destroyed gates unlock a five-second all-player travel hold", () => {
+test("destroyed gates unlock a three-second requester travel hold", () => {
   const core = twoPlayerCore("gate-travel");
   const gate = [...core.enemies.values()].find((candidate) => candidate.kind === "gate" && candidate.roomId.startsWith("zone-1:"))!;
   for (const player of core.players.values()) core.movePlayerToRoom(player.userId, gate.roomId, ROOM_WIDTH / 2, ROOM_HEIGHT / 2);
@@ -539,13 +539,17 @@ test("destroyed gates unlock a five-second all-player travel hold", () => {
   assert.equal(source.active, true);
   assert.equal(core.waypoints.get(source.destinationId)?.active, true);
   assert.equal(core.requestTravel("p1", source.id, source.destinationId), true);
-  for (let index = 0; index < 51; index += 1) core.update(0.1);
-  assert.ok([...core.players.values()].every((player) => player.roomId === core.maps.zones[1].startRoomId));
+  for (let index = 0; index < 29; index += 1) core.update(0.1);
+  assert.equal(core.players.get("p1")?.roomId, gate.roomId);
+  assert.ok(source.holdProgress > 0.95 && source.holdProgress < 1);
+  core.update(0.1);
+  assert.equal(core.players.get("p1")?.roomId, core.maps.zones[1].startRoomId);
+  assert.equal(core.players.get("p2")?.roomId, gate.roomId);
   assert.equal(core.currentZone, 2);
   assert.equal(core.activeTravel, null);
 });
 
-test("zone three gate waypoint moves the whole connected party into the boss room", () => {
+test("zone three gate waypoint moves the requesting player into the boss room", () => {
   const core = twoPlayerCore("boss-travel");
   const gate = [...core.enemies.values()].find((candidate) => candidate.kind === "gate" && candidate.roomId.startsWith("zone-3:"))!;
   for (const player of core.players.values()) core.movePlayerToRoom(player.userId, gate.roomId, ROOM_WIDTH / 2, ROOM_HEIGHT / 2);
@@ -553,9 +557,10 @@ test("zone three gate waypoint moves the whole connected party into the boss roo
   const source = [...core.waypoints.values()].find((waypoint) => waypoint.roomId === gate.roomId)!;
   assert.equal(source.destinationId, BOSS_ROOM_ID);
   assert.equal(core.requestTravel("p1", source.id, BOSS_ROOM_ID), true);
-  for (let index = 0; index < 51; index += 1) core.update(0.1);
+  for (let index = 0; index < 31; index += 1) core.update(0.1);
   assert.equal(core.phase, "boss");
-  assert.ok([...core.players.values()].every((player) => player.roomId === BOSS_ROOM_ID));
+  assert.equal(core.players.get("p1")?.roomId, BOSS_ROOM_ID);
+  assert.equal(core.players.get("p2")?.roomId, gate.roomId);
   assert.ok([...core.enemies.values()].some((candidate) => candidate.kind === "boss" && candidate.alive));
 });
 
@@ -569,7 +574,7 @@ test("defender AI does not block travel while follower AI travels with the playe
   assert.equal(core.damageEnemy(human.userId, gate.id, gate.hp), true);
   const waypoint = [...core.waypoints.values()].find((candidate) => candidate.roomId === gate.roomId)!;
   assert.equal(core.requestTravel(human.userId, waypoint.id, waypoint.destinationId), true);
-  for (let index = 0; index < 51; index += 1) core.update(0.1);
+  for (let index = 0; index < 31; index += 1) core.update(0.1);
   assert.equal(human.roomId, core.maps.zones[1].startRoomId);
   assert.equal(follower.roomId, core.maps.zones[1].startRoomId);
   assert.equal(defender.roomId, core.maps.zones[0].startRoomId);
@@ -903,7 +908,7 @@ test("hidden, gate, and boss enemies never respawn", () => {
   assert.equal(boss.respawnRemaining, null);
 });
 
-test("recall uses the active waypoint and the existing five-second all-player quorum", () => {
+test("recall uses the active waypoint and a three-second requester hold", () => {
   const core = twoPlayerCore("recall-quorum");
   const central = [...core.waypoints.values()].find((waypoint) => waypoint.zone === 1 && waypoint.kind === "central")!;
   core.movePlayerToRoom("p1", central.roomId, central.x, central.y);
@@ -911,26 +916,25 @@ test("recall uses the active waypoint and the existing five-second all-player qu
   assert.equal(central.active, true);
   assert.equal(core.recall("p1"), true);
   assert.equal(core.activeTravel?.destinationId, waypointId(core.maps.zones[0].startRoomId, "start"));
-  for (let index = 0; index < 49; index += 1) core.update(0.1);
+  for (let index = 0; index < 29; index += 1) core.update(0.1);
   assert.ok([...core.players.values()].every((player) => player.roomId === central.roomId));
   core.update(0.1);
-  assert.ok([...core.players.values()].every((player) => player.roomId === core.maps.zones[0].startRoomId));
+  assert.equal(core.players.get("p1")?.roomId, core.maps.zones[0].startRoomId);
+  assert.equal(core.players.get("p2")?.roomId, central.roomId);
 });
 
-test("recall rejects a split quorum and allows returning from an unlocked gate waypoint", () => {
+test("recall allows the requester to return while the party is split", () => {
   const core = twoPlayerCore("recall-gate");
   const gate = [...core.enemies.values()].find((candidate) => candidate.kind === "gate" && candidate.roomId.startsWith("zone-1:"))!;
   core.movePlayerToRoom("p1", gate.roomId, ROOM_WIDTH / 2, ROOM_HEIGHT / 2);
   core.movePlayerToRoom("p2", gate.roomId, ROOM_WIDTH / 2, ROOM_HEIGHT / 2);
   core.damageEnemy("p1", gate.id, gate.hp);
-  const gateWaypoint = [...core.waypoints.values()].find((waypoint) => waypoint.roomId === gate.roomId)!;
   core.movePlayerToRoom("p2", core.maps.zones[0].startRoomId);
-  assert.equal(core.recall("p1"), false, "every connected alive player must occupy the same waypoint");
-  core.movePlayerToRoom("p2", gate.roomId, gateWaypoint.x, gateWaypoint.y);
   assert.equal(core.recall("p1"), true);
   assert.equal(core.activeTravel?.destinationId, waypointId(core.maps.zones[0].startRoomId, "start"));
-  for (let index = 0; index < 50; index += 1) core.update(0.1);
-  assert.ok([...core.players.values()].every((player) => player.roomId === core.maps.zones[0].startRoomId));
+  for (let index = 0; index < 30; index += 1) core.update(0.1);
+  assert.equal(core.players.get("p1")?.roomId, core.maps.zones[0].startRoomId);
+  assert.equal(core.players.get("p2")?.roomId, core.maps.zones[0].startRoomId);
 });
 
 test("hidden enemies attack players from range", () => {

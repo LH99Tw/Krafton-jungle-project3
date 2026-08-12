@@ -139,15 +139,11 @@ export type EquipmentSummary = {
   power: number;
 };
 
-type WaypointSnapshot = {
+export type WaypointSnapshot = {
   nearby: boolean;
   id: string | null;
-  label: string;
-  destinationLabel: string;
   destinationId: string;
   holdProgress: number;
-  requiredPlayers: number;
-  presentPlayers: number;
 };
 
 export type NetworkEnemySnapshot = {
@@ -357,11 +353,7 @@ export const EMPTY_SNAPSHOT: GameSnapshot = {
   waypoint: {
     nearby: true,
     id: "zone-1:0,4-waypoint",
-    label: "베이스 웨이포인트",
-    destinationLabel: "현재 구역",
     destinationId: "",
     holdProgress: 0,
-    requiredPlayers: 1,
-    presentPlayers: 1,
   },
 };

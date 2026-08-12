@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 export const PLAYER_VISION_RADIUS = 800;
 export const NIGHT_PLAYER_VISION_RADIUS = 420;
 export const NIGHT_ATTACK_RANGE_MULTIPLIER = 0.65;
@@ -152,11 +152,13 @@ export const minimapSurfaceSchema = z.object({
 }).strict();
 export const minimapMarkerSchema = z.object({
   id: networkIdSchema,
-  kind: z.enum(["gate", "waypoint", "boss"]),
+  roomId: networkIdSchema,
+  kind: z.enum(["gate", "waypoint", "boss", "resource", "monster", "elite"]),
   label: publicText(1, 48),
   x: minimapCoordinate,
   y: minimapCoordinate,
   areaId: networkIdSchema,
+  active: z.boolean(),
 }).strict();
 export const minimapGeometrySchema = z.object({
   mapRevision: networkIdSchema,

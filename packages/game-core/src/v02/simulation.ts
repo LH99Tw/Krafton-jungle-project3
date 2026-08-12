@@ -29,7 +29,7 @@ export const ROOM_WIDTH = 1_280;
 export const ROOM_HEIGHT = 720;
 export const ROOM_EDGE_INSET = 28;
 export const WAYPOINT_RADIUS = 92;
-export const WAYPOINT_HOLD_SECONDS = 5;
+export const WAYPOINT_HOLD_SECONDS = 3;
 export const FAST_TRAVEL_HOLD_SECONDS = 3;
 export const BOSS_ROOM_ID = "boss:arena" as const;
 

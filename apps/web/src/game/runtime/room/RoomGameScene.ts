@@ -189,7 +189,7 @@ const SESSION_DURATIONS = {
   full: { day: 210, night: 75, standby: 15 },
 } as const;
 
-const WAYPOINT_HOLD_SECONDS = 5;
+const WAYPOINT_HOLD_SECONDS = 3;
 const BASE_MAX_HP = 900;
 const NETWORK_ENEMY_SPAWN_BUDGET_MS = 3;
 const NETWORK_ENEMY_SPAWN_LIMIT = 12;
@@ -1925,8 +1925,8 @@ export class RoomGameScene extends Phaser.Scene {
     this.waypointAction = action;
     this.travelProgress = 0;
     this.message = action === "advance"
-      ? "다음 구역 웨이포인트 점유 중 · 5초 동안 자리를 지키세요."
-      : "귀환 웨이포인트 점유 중 · 5초 동안 자리를 지키세요.";
+      ? "다음 구역 웨이포인트 이동 중 · 3초 동안 자리를 지키세요."
+      : "귀환 웨이포인트 이동 중 · 3초 동안 자리를 지키세요.";
   }
 
   private recallToBase(): void {
@@ -2497,15 +2497,8 @@ export class RoomGameScene extends Phaser.Scene {
       waypoint: {
         nearby: waypointNearby,
         id: waypointNearby ? `${this.currentRoomId}:waypoint` : null,
-        label: currentRoom?.type === "gate" ? "게이트 웨이포인트"
-          : currentRoom?.type === "central-waypoint" ? "중앙 웨이포인트" : "베이스 웨이포인트",
-        destinationLabel: advancesZone
-          ? this.currentZone === 3 ? "마왕의 제단" : `구역 ${this.currentZone + 1}`
-          : "베이스캠프",
         destinationId,
         holdProgress: this.travelProgress,
-        requiredPlayers: 1,
-        presentPlayers: waypointNearby ? 1 : 0,
       },
     };
   }
@@ -2525,13 +2518,6 @@ export class RoomGameScene extends Phaser.Scene {
     const waypointCenter = activeWaypoint ? this.waypointWorldCenter(activeWaypoint.roomId) : undefined;
     const waypointNearby = Boolean(activeWaypoint && local && waypointCenter
       && Phaser.Math.Distance.Between(local.x, local.y, waypointCenter.x, waypointCenter.y) <= 95);
-    const destinationWaypoint = state?.waypoints.find((waypoint) => waypoint.id === activeWaypoint?.destinationId);
-    const destinationRoomId = destinationWaypoint?.roomId ?? activeWaypoint?.destinationId;
-    const waypointDestination = roomMap.find((room) => room.id === destinationRoomId);
-    const connectedAlivePlayers = state?.players.filter((member) => member.connected && member.alive).length ?? 1;
-    const requiredPlayers = activeWaypoint && activeWaypoint.requiredPlayers > 0
-      ? activeWaypoint.requiredPlayers
-      : this.options.partyMode === "solo" ? 1 : Math.max(1, connectedAlivePlayers);
     const shared = resolveSharedPartyProgress({
       baseHp: state?.baseHp ?? 0,
       baseMaxHp: state?.baseMaxHp ?? BASE_MAX_HP,
@@ -2592,15 +2578,8 @@ export class RoomGameScene extends Phaser.Scene {
       waypoint: {
         nearby: waypointNearby,
         id: waypointNearby ? activeWaypoint?.id ?? null : null,
-        label: activeWaypoint?.kind === "gate" ? "게이트 웨이포인트"
-          : activeWaypoint?.kind === "central" ? "중앙 웨이포인트"
-            : activeWaypoint?.kind === "boss" ? "마왕전 웨이포인트" : "베이스 웨이포인트",
-        destinationLabel: activeWaypoint?.destinationId === "boss:arena" || activeWaypoint?.destinationId === "boss" ? "마왕의 제단"
-          : waypointDestination ? `구역 ${waypointDestination.zone}` : "베이스캠프",
         destinationId: activeWaypoint?.destinationId ?? "",
         holdProgress: activeWaypoint?.holdProgress ?? state?.waypointHoldProgress ?? 0,
-        requiredPlayers,
-        presentPlayers: activeWaypoint?.holdingPlayers ?? 0,
       },
       specialRoom: currentRoom && ["shop", "shrine", "trap", "checkpoint", "gamble", "altar", "gold"].includes(currentRoom.type) ? {
         kind: currentRoom.type,
