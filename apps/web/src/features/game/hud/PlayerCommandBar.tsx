@@ -45,9 +45,8 @@ export function PlayerCommandBar({ snapshot, heroClass, upgradeDraftOpen }: {
           <div className="xp-line"><span>EXP</span><i style={barStyle(snapshot.xp, snapshot.xpToNext)} /><b>{snapshot.xp} / {snapshot.xpToNext}</b></div>
         </div>
         <div className="command-skill-row">
-          <SkillSlot heroClass={heroClass} keyName="Q" name={definition.skills[0].name} cooldown={snapshot.qCooldown} cooldownMs={definition.skills[0].cooldownMs} />
-          <SkillSlot heroClass={heroClass} keyName="E" name={definition.skills[1].name} cooldown={snapshot.eCooldown} cooldownMs={definition.skills[1].cooldownMs} />
-          <DashSlot cooldown={snapshot.dashCooldown} />
+          <SkillSlot heroClass={heroClass} keyName="Q" name={definition.skills[0].name} cooldown={snapshot.qCooldown} />
+          <SkillSlot heroClass={heroClass} keyName="E" name={definition.skills[1].name} cooldown={snapshot.eCooldown} />
         </div>
         <button type="button" className={`stats-toggle ${statsOpen ? "is-open" : ""}`} aria-label="개인 스탯" aria-expanded={statsOpen} onClick={() => setStatsOpen((open) => !open)}>
           <span className="stats-toggle-icon"><Image src="/images/ui/hud/skills/stats.png" alt="" width={58} height={58} /><i>C</i></span>
@@ -57,28 +56,12 @@ export function PlayerCommandBar({ snapshot, heroClass, upgradeDraftOpen }: {
   );
 }
 
-function SkillSlot({ heroClass, keyName, name, cooldown, cooldownMs }: { heroClass: HeroClassId; keyName: "Q" | "E"; name: string; cooldown: number; cooldownMs: number }) {
+function SkillSlot({ heroClass, keyName, name, cooldown }: { heroClass: HeroClassId; keyName: "Q" | "E"; name: string; cooldown: number }) {
   const ready = cooldown <= 0;
-  const cooldownRatio = Math.max(0, Math.min(1, cooldown / Math.max(0.001, cooldownMs / 1000)));
-  const cooldownStyle = { "--cooldown-ratio": `${cooldownRatio * 100}%` } as React.CSSProperties;
   return (
-    <span className={`command-skill ${ready ? "is-ready" : "is-cooling"}`} style={cooldownStyle} title={`${keyName} · ${name}`} aria-label={`${keyName} ${name}${ready ? " 사용 가능" : ` 재사용 대기 ${cooldown.toFixed(1)}초`}`}>
+    <span className={`command-skill ${ready ? "is-ready" : "is-cooling"}`} title={`${keyName} · ${name}`} aria-label={`${keyName} ${name}${ready ? " 사용 가능" : ` 재사용 대기 ${cooldown.toFixed(1)}초`}`}>
       <Image className="command-skill-icon" src={`/images/ui/hud/skills/${heroClass}-${keyName.toLowerCase()}.png`} alt="" width={72} height={72} />
-      {!ready && <span className="command-skill-cooldown-mask" aria-hidden="true" />}
       <i>{keyName}</i>{!ready && <small>{cooldown.toFixed(1)}</small>}
-    </span>
-  );
-}
-
-function DashSlot({ cooldown }: { cooldown: number }) {
-  const ready = cooldown <= 0;
-  const cooldownRatio = Math.max(0, Math.min(1, cooldown / 5));
-  const cooldownStyle = { "--cooldown-ratio": `${cooldownRatio * 100}%` } as React.CSSProperties;
-  return (
-    <span className={`command-skill is-dash ${ready ? "is-ready" : "is-cooling"}`} style={cooldownStyle} title={`SPACE · 회피${ready ? " 사용 가능" : ` 재사용 대기 ${cooldown.toFixed(1)}초`}`} aria-label={`SPACE 회피${ready ? " 사용 가능" : ` 재사용 대기 ${cooldown.toFixed(1)}초`}`}>
-      <b className="command-skill-icon is-dash-glyph" aria-hidden="true">≫</b>
-      {!ready && <span className="command-skill-cooldown-mask" aria-hidden="true" />}
-      <i>SPACE</i>{!ready && <small>{cooldown.toFixed(1)}</small>}
     </span>
   );
 }

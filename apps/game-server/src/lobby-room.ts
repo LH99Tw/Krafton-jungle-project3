@@ -29,13 +29,10 @@ type LobbyMetadata = {
   partySize: number;
 };
 
-const CHARACTER_SELECTION_LAUNCH_DELAY_MS = 2_000;
-
 export class GameLobbyRoom extends Room<LobbyRoomState, LobbyMetadata> {
   maxClients = 3;
   patchRate = 100;
   private gameStarting = false;
-  private selectionLaunchTimer: { clear(): void } | null = null;
   private readonly messageWindows = new Map<string, { startedAt: number; count: number }>();
 
   static async onAuth(token: string, _options: unknown, context: AuthContext): Promise<GameTicketClaims> {
@@ -137,34 +134,13 @@ export class GameLobbyRoom extends Room<LobbyRoomState, LobbyMetadata> {
 
   private selectClass(client: Client, raw: unknown): void {
     if (this.state.phase !== "selecting") return this.error(client, "NOT_SELECTING", "현재 캐릭터를 선택할 수 없습니다.");
-    if (this.state.launchAt > 0) return this.error(client, "SELECTION_LOCKED", "출전 준비가 시작되어 캐릭터 선택이 확정되었습니다.");
     const parsed = lobbyClassSelectSchema.safeParse(raw);
     const player = this.playerFor(client);
     if (!parsed.success || !player) return this.error(client, "INVALID_CLASS", "캐릭터 선택을 확인할 수 없습니다.");
     player.heroClass = parsed.data.heroClass ?? "";
     this.assignAiClasses();
     const players = [...this.state.players.values()];
-    if (players.length === 3 && players.every((item) => item.heroClass)) this.scheduleGameStart();
-  }
-
-  private scheduleGameStart(): void {
-    if (this.selectionLaunchTimer || this.gameStarting || this.state.phase !== "selecting") return;
-    this.state.launchAt = Date.now() + CHARACTER_SELECTION_LAUNCH_DELAY_MS;
-    this.selectionLaunchTimer = this.clock.setTimeout(() => {
-      this.selectionLaunchTimer = null;
-      const players = [...this.state.players.values()];
-      if (this.state.phase !== "selecting" || players.length !== 3 || players.some((player) => !player.heroClass)) {
-        this.state.launchAt = 0;
-        return;
-      }
-      void this.startGame();
-    }, CHARACTER_SELECTION_LAUNCH_DELAY_MS);
-  }
-
-  private cancelScheduledGameStart(): void {
-    this.selectionLaunchTimer?.clear();
-    this.selectionLaunchTimer = null;
-    this.state.launchAt = 0;
+    if (players.length === 3 && players.every((item) => item.heroClass)) void this.startGame();
   }
 
   private async startGame(): Promise<void> {
@@ -189,7 +165,6 @@ export class GameLobbyRoom extends Room<LobbyRoomState, LobbyMetadata> {
         lobbyRoomId: this.roomId,
       });
       this.state.phase = "in_game";
-      this.state.launchAt = 0;
       for (const player of players) player.inGame = true;
       const payload: LobbyGameStart = {
         gameRoomId: room.roomId,
@@ -252,7 +227,6 @@ export class GameLobbyRoom extends Room<LobbyRoomState, LobbyMetadata> {
   }
 
   private resetToWaiting(): void {
-    this.cancelScheduledGameStart();
     this.state.phase = "waiting";
     for (const player of this.state.players.values()) {
       player.ready = false;

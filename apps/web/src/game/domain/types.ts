@@ -74,7 +74,7 @@ export type PartyMemberSnapshot = {
   ready: boolean;
   connected: boolean;
   alive: boolean;
-  respawnRemaining: number;
+  respawnRemaining?: number;
   roomId: string;
   x: number;
   y: number;

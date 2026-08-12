@@ -2008,7 +2008,7 @@ export class RoomGameScene extends Phaser.Scene {
       }
       this.networkPlayerSkillSequence.set(member.userId, member.skillSequence ?? 0);
     }
-    this.updateDeathPresentation(local.alive, local.respawnRemaining);
+    this.updateDeathPresentation(local.alive, local.respawnRemaining ?? 0);
   }
 
   private receiveNetworkCombatAction(action: CombatActionEvent): void {

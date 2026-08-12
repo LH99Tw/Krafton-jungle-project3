@@ -126,10 +126,9 @@ test("composes the in-game relic HUD from focused components", async () => {
   assert.match(minimap, /미니맵을 내 위치 중심의 기본 보기로 되돌리기/);
   assert.match(styles, /\/\* Notices sit directly below[\s\S]*?\.hud-message \{[\s\S]*?top:clamp\(108px,9vw,132px\)/);
   assert.match(styles, /\/\* Center the combat-stat ledger[\s\S]*?\.player-stats-panel \{[\s\S]*?padding:76px 34px 48px/);
-  assert.doesNotMatch(commandBar, /AUTO|TEAM POWER/);
+  assert.doesNotMatch(commandBar, /AUTO|TEAM POWER|SPACE/);
   assert.match(commandBar, /keyName="Q"/);
   assert.match(commandBar, /keyName="E"/);
-  assert.match(commandBar, /DashSlot cooldown=\{snapshot\.dashCooldown\}/);
   assert.match(commandBar, /개인 전투 스탯/);
   assert.match(phase, /phase-day\.png/);
   assert.match(phase, /phase-night\.png/);
@@ -236,7 +235,6 @@ test("keeps the party creation dialog centered above the lobby", async () => {
 test("reuses generated navigation chrome across lobby and character selection", async () => {
   const characterSelect = await readFile(new URL("src/features/lobby/CharacterSelectScreen.tsx", root), "utf8");
   const gameShell = await readFile(new URL("src/features/game/GameShell.tsx", root), "utf8");
-  const lobbyRoom = await readFile(new URL("../game-server/src/lobby-room.ts", root), "utf8");
   const gamePreloader = await readFile(new URL("src/game/client/preloadGameClient.ts", root), "utf8");
   const styles = await readFile(new URL("app/globals.css", root), "utf8");
   const navigationAssets = ["top-bar.webp", "bottom-floor.webp", "team-status-strip-v2.png"];
@@ -254,13 +252,9 @@ test("reuses generated navigation chrome across lobby and character selection", 
   assert.match(styles, /\.class-slashes \{[^}]*width:calc\(100% - 40px\)[^}]*gap:12px/s);
   assert.doesNotMatch(characterSelect, /select-loading|FIELD ASSETS|전장 자원 준비 중/);
   assert.doesNotMatch(characterSelect, /출전 직업을 선택하세요|select-ready-count/);
-  assert.doesNotMatch(characterSelect, /selection-ready-stage/);
-  assert.match(characterSelect, /className="launch-curtain"/);
-  assert.match(characterSelect, /curtainVisible \? <div className="launch-curtain"/);
-  assert.match(lobbyRoom, /CHARACTER_SELECTION_LAUNCH_DELAY_MS = 2_000/);
-  assert.match(lobbyRoom, /SELECTION_LOCKED/);
+  assert.match(gameShell, /SELECTION_LAUNCH_DELAY_MS = 2_000/);
   assert.match(gameShell, /selectionPreloadReadyRef\.current\) launchSelectedRun\(event\)/);
-  assert.doesNotMatch(gameShell, /SELECTION_LAUNCH_DELAY_MS/);
+  assert.match(gameShell, /window\.setTimeout\([\s\S]*SELECTION_LAUNCH_DELAY_MS/);
   assert.match(gamePreloader, /GAMEPLAY_IMAGE_ASSETS\.map\(loadImage\)/);
   assert.match(gamePreloader, /image\.decode\(\)/);
 
