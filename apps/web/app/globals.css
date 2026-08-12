@@ -93,6 +93,11 @@ body {
 .map-library-open span { color:#555b54; font:7px ui-monospace,monospace; letter-spacing:.04em; }
 .map-library-list > div.active .map-library-open strong { color:#ead69f; }
 .map-library-list > div.active .map-library-open span { color:#827654; }
+.map-library-list > div.map-library-bundled { border-color:rgba(133,182,136,.38); background:linear-gradient(90deg,rgba(49,85,52,.3),#0b0d0b 68%); box-shadow:inset 2px 0 #79a978; }
+.map-library-list > div.map-library-bundled:hover { border-color:rgba(144,205,147,.62); background:linear-gradient(90deg,rgba(55,101,59,.4),#11140f 72%); }
+.map-library-bundled .map-library-open strong { color:#c8dfbd; }
+.map-library-bundled .map-library-open span { color:#729074; }
+.map-library-bundled-mark { display:grid; place-items:center; border-left:1px solid rgba(143,194,145,.16); color:#83ad80; font-size:9px; text-shadow:0 0 10px rgba(118,177,119,.5); }
 .map-library-delete { border:0; border-left:1px solid rgba(221,212,189,.06); background:transparent; color:#4f504b; cursor:pointer; font-size:15px; }
 .map-library-delete:hover,.map-library-delete:focus-visible { color:#d1867e; background:rgba(117,40,35,.12); }
 .map-library-count { color:#56584f; font:7px ui-monospace,monospace; letter-spacing:.08em; text-align:right; }

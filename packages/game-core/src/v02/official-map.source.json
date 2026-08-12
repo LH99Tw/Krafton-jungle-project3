@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "title": "임시 맵",
+  "title": "현재 기본맵 · 2/3/3 게이트",
   "rooms": [
     {
       "id": "room-base",
@@ -83,26 +83,6 @@
       "height": 3
     },
     {
-      "id": "room-local-9",
-      "name": "자원 방",
-      "type": "resource",
-      "asset": "forest",
-      "x": 2,
-      "y": -5,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "room-local-10",
-      "name": "자원 방",
-      "type": "resource",
-      "asset": "forest",
-      "x": 7,
-      "y": 11,
-      "width": 3,
-      "height": 3
-    },
-    {
       "id": "room-local-11",
       "name": "숨겨진 몬스터 방",
       "type": "hidden-monster",
@@ -153,26 +133,6 @@
       "height": 3
     },
     {
-      "id": "room-local-16",
-      "name": "자원 방",
-      "type": "resource",
-      "asset": "forest",
-      "x": 8,
-      "y": -1,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "room-local-17",
-      "name": "일반 방",
-      "type": "empty",
-      "asset": "marsh",
-      "x": 14,
-      "y": -5,
-      "width": 3,
-      "height": 3
-    },
-    {
       "id": "room-local-18",
       "name": "일반 방",
       "type": "empty",
@@ -198,17 +158,7 @@
       "type": "hidden-monster",
       "asset": "marsh",
       "x": 11,
-      "y": -10,
-      "width": 3,
-      "height": 3
-    },
-    {
-      "id": "room-local-21",
-      "name": "자원 방",
-      "type": "resource",
-      "asset": "marsh",
-      "x": 19,
-      "y": -12,
+      "y": -11,
       "width": 3,
       "height": 3
     },
@@ -273,21 +223,11 @@
       "height": 3
     },
     {
-      "id": "room-local-28",
-      "name": "자원 방",
-      "type": "resource",
-      "asset": "marsh",
-      "x": 24,
-      "y": 4,
-      "width": 3,
-      "height": 3
-    },
-    {
       "id": "room-local-29",
       "name": "숨겨진 몬스터 방",
       "type": "hidden-monster",
       "asset": "marsh",
-      "x": 24,
+      "x": 25,
       "y": -4,
       "width": 3,
       "height": 3
@@ -321,16 +261,6 @@
       "y": -4,
       "width": 3,
       "height": 3
-    },
-    {
-      "id": "room-local-33",
-      "name": "자원 방",
-      "type": "resource",
-      "asset": "marsh",
-      "x": 29,
-      "y": 0,
-      "width": 2,
-      "height": 2
     },
     {
       "id": "room-local-34",
@@ -373,34 +303,14 @@
       "height": 3
     },
     {
-      "id": "room-local-38",
-      "name": "자원 방",
-      "type": "resource",
-      "asset": "marsh",
-      "x": 13,
-      "y": -15,
-      "width": 2,
-      "height": 2
-    },
-    {
-      "id": "room-local-39",
-      "name": "일반 방",
-      "type": "empty",
-      "asset": "wastes",
-      "x": 27,
-      "y": -12,
-      "width": 3,
-      "height": 3
-    },
-    {
       "id": "room-local-40",
       "name": "몬스터 방",
       "type": "static-monster",
       "asset": "wastes",
-      "x": 27,
-      "y": -16,
-      "width": 3,
-      "height": 3
+      "x": 30,
+      "y": -14,
+      "width": 2,
+      "height": 2
     },
     {
       "id": "room-local-41",
@@ -437,7 +347,7 @@
       "name": "자원 방",
       "type": "resource",
       "asset": "wastes",
-      "x": 31,
+      "x": 32,
       "y": -19,
       "width": 3,
       "height": 3
@@ -447,8 +357,8 @@
       "name": "숨겨진 몬스터 방",
       "type": "hidden-monster",
       "asset": "wastes",
-      "x": 27,
-      "y": -20,
+      "x": 28,
+      "y": -19,
       "width": 3,
       "height": 3
     },
@@ -457,8 +367,8 @@
       "name": "몬스터 게이트",
       "type": "gate",
       "asset": "wastes",
-      "x": 23,
-      "y": -20,
+      "x": 24,
+      "y": -19,
       "width": 3,
       "height": 3
     },
@@ -489,8 +399,8 @@
       "asset": "wastes",
       "x": 36,
       "y": -6,
-      "width": 3,
-      "height": 3
+      "width": 5,
+      "height": 4
     },
     {
       "id": "room-local-50",
@@ -498,7 +408,7 @@
       "type": "gate",
       "asset": "wastes",
       "x": 34,
-      "y": -2,
+      "y": -1,
       "width": 3,
       "height": 3
     },
@@ -508,7 +418,7 @@
       "type": "gate",
       "asset": "wastes",
       "x": 38,
-      "y": -2,
+      "y": -1,
       "width": 3,
       "height": 3
     },
@@ -527,10 +437,50 @@
       "name": "보스룸",
       "type": "boss",
       "asset": "wastes",
-      "x": 41,
-      "y": -8,
+      "x": 42,
+      "y": -4,
       "width": 5,
       "height": 5
+    },
+    {
+      "id": "room-local-54",
+      "name": "체크포인트",
+      "type": "checkpoint",
+      "asset": "marsh",
+      "x": 14,
+      "y": -5,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-55",
+      "name": "몬스터 방",
+      "type": "static-monster",
+      "asset": "marsh",
+      "x": 19,
+      "y": -12,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-56",
+      "name": "체크포인트",
+      "type": "checkpoint",
+      "asset": "wastes",
+      "x": 27,
+      "y": -12,
+      "width": 3,
+      "height": 3
+    },
+    {
+      "id": "room-local-57",
+      "name": "몬스터 방",
+      "type": "static-monster",
+      "asset": "forest",
+      "x": 2,
+      "y": -5,
+      "width": 3,
+      "height": 3
     }
   ],
   "connections": [
@@ -545,20 +495,8 @@
       "toPort": {
         "side": "west",
         "offset": 1
-      }
-    },
-    {
-      "id": "path-local-2",
-      "from": "room-base",
-      "to": "room-local-3",
-      "fromPort": {
-        "side": "north",
-        "offset": 1
       },
-      "toPort": {
-        "side": "south",
-        "offset": 1
-      }
+      "width": 2
     },
     {
       "id": "path-local-4",
@@ -571,7 +509,8 @@
       "toPort": {
         "side": "west",
         "offset": 1
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-5",
@@ -584,7 +523,8 @@
       "toPort": {
         "side": "west",
         "offset": 0
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-6",
@@ -610,7 +550,8 @@
       "toPort": {
         "side": "west",
         "offset": 0
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-8",
@@ -623,33 +564,8 @@
       "toPort": {
         "side": "north",
         "offset": 1
-      }
-    },
-    {
-      "id": "path-local-9",
-      "from": "room-local-8",
-      "to": "room-local-9",
-      "fromPort": {
-        "side": "east",
-        "offset": 1
       },
-      "toPort": {
-        "side": "west",
-        "offset": 1
-      }
-    },
-    {
-      "id": "path-local-10",
-      "from": "room-forest",
-      "to": "room-local-10",
-      "fromPort": {
-        "side": "south",
-        "offset": 2
-      },
-      "toPort": {
-        "side": "north",
-        "offset": 0
-      }
+      "width": 2
     },
     {
       "id": "path-local-11",
@@ -662,7 +578,8 @@
       "toPort": {
         "side": "north",
         "offset": 0
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-12",
@@ -691,19 +608,6 @@
       }
     },
     {
-      "id": "path-local-14",
-      "from": "room-local-9",
-      "to": "room-local-14",
-      "fromPort": {
-        "side": "east",
-        "offset": 1
-      },
-      "toPort": {
-        "side": "west",
-        "offset": 1
-      }
-    },
-    {
       "id": "path-local-15",
       "from": "room-local-14",
       "to": "room-local-15",
@@ -714,7 +618,8 @@
       "toPort": {
         "side": "west",
         "offset": 1
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-16",
@@ -722,51 +627,13 @@
       "to": "room-local-13",
       "fromPort": {
         "side": "south",
-        "offset": 2
-      },
-      "toPort": {
-        "side": "west",
-        "offset": 0
-      }
-    },
-    {
-      "id": "path-local-17",
-      "from": "room-local-16",
-      "to": "room-local-15",
-      "fromPort": {
-        "side": "north",
-        "offset": 2
-      },
-      "toPort": {
-        "side": "south",
-        "offset": 0
-      }
-    },
-    {
-      "id": "path-local-18",
-      "from": "room-local-15",
-      "to": "room-local-17",
-      "fromPort": {
-        "side": "east",
         "offset": 1
       },
       "toPort": {
         "side": "west",
-        "offset": 1
-      }
-    },
-    {
-      "id": "path-local-19",
-      "from": "room-local-18",
-      "to": "room-local-17",
-      "fromPort": {
-        "side": "south",
         "offset": 0
       },
-      "toPort": {
-        "side": "north",
-        "offset": 1
-      }
+      "width": 2
     },
     {
       "id": "path-local-20",
@@ -779,7 +646,8 @@
       "toPort": {
         "side": "north",
         "offset": 0
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-21",
@@ -791,34 +659,9 @@
       },
       "toPort": {
         "side": "west",
-        "offset": 2
-      }
-    },
-    {
-      "id": "path-local-22",
-      "from": "room-local-19",
-      "to": "room-local-21",
-      "fromPort": {
-        "side": "east",
         "offset": 1
       },
-      "toPort": {
-        "side": "west",
-        "offset": 1
-      }
-    },
-    {
-      "id": "path-local-23",
-      "from": "room-local-22",
-      "to": "room-local-21",
-      "fromPort": {
-        "side": "north",
-        "offset": 1
-      },
-      "toPort": {
-        "side": "south",
-        "offset": 1
-      }
+      "width": 2
     },
     {
       "id": "path-local-24",
@@ -831,7 +674,8 @@
       "toPort": {
         "side": "north",
         "offset": 0
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-25",
@@ -844,7 +688,8 @@
       "toPort": {
         "side": "north",
         "offset": 0
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-26",
@@ -857,7 +702,8 @@
       "toPort": {
         "side": "west",
         "offset": 0
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-27",
@@ -870,7 +716,8 @@
       "toPort": {
         "side": "north",
         "offset": 0
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-28",
@@ -886,45 +733,6 @@
       }
     },
     {
-      "id": "path-local-29",
-      "from": "room-local-27",
-      "to": "room-local-28",
-      "fromPort": {
-        "side": "south",
-        "offset": 1
-      },
-      "toPort": {
-        "side": "north",
-        "offset": 2
-      }
-    },
-    {
-      "id": "path-local-30",
-      "from": "room-local-29",
-      "to": "room-local-27",
-      "fromPort": {
-        "side": "east",
-        "offset": 2
-      },
-      "toPort": {
-        "side": "north",
-        "offset": 2
-      }
-    },
-    {
-      "id": "path-local-31",
-      "from": "room-local-30",
-      "to": "room-local-29",
-      "fromPort": {
-        "side": "south",
-        "offset": 0
-      },
-      "toPort": {
-        "side": "north",
-        "offset": 0
-      }
-    },
-    {
       "id": "path-local-32",
       "from": "room-local-30",
       "to": "room-local-31",
@@ -935,7 +743,8 @@
       "toPort": {
         "side": "west",
         "offset": 1
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-33",
@@ -948,20 +757,8 @@
       "toPort": {
         "side": "north",
         "offset": 0
-      }
-    },
-    {
-      "id": "path-local-34",
-      "from": "room-local-33",
-      "to": "room-local-32",
-      "fromPort": {
-        "side": "north",
-        "offset": 0
       },
-      "toPort": {
-        "side": "south",
-        "offset": 0
-      }
+      "width": 2
     },
     {
       "id": "path-local-35",
@@ -974,7 +771,8 @@
       "toPort": {
         "side": "south",
         "offset": 0
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-36",
@@ -987,7 +785,8 @@
       "toPort": {
         "side": "north",
         "offset": 0
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-37",
@@ -1008,64 +807,13 @@
       "to": "room-local-36",
       "fromPort": {
         "side": "east",
-        "offset": 2
-      },
-      "toPort": {
-        "side": "west",
-        "offset": 2
-      }
-    },
-    {
-      "id": "path-local-39",
-      "from": "room-local-38",
-      "to": "room-local-37",
-      "fromPort": {
-        "side": "east",
         "offset": 1
       },
       "toPort": {
         "side": "west",
-        "offset": 2
-      }
-    },
-    {
-      "id": "path-local-40",
-      "from": "room-local-30",
-      "to": "room-local-39",
-      "fromPort": {
-        "side": "north",
-        "offset": 2
+        "offset": 1
       },
-      "toPort": {
-        "side": "west",
-        "offset": 2
-      }
-    },
-    {
-      "id": "path-local-41",
-      "from": "room-local-39",
-      "to": "room-local-40",
-      "fromPort": {
-        "side": "north",
-        "offset": 2
-      },
-      "toPort": {
-        "side": "south",
-        "offset": 2
-      }
-    },
-    {
-      "id": "path-local-42",
-      "from": "room-local-39",
-      "to": "room-local-41",
-      "fromPort": {
-        "side": "east",
-        "offset": 0
-      },
-      "toPort": {
-        "side": "west",
-        "offset": 0
-      }
+      "width": 2
     },
     {
       "id": "path-local-43",
@@ -1073,11 +821,11 @@
       "to": "room-local-42",
       "fromPort": {
         "side": "south",
-        "offset": 1
+        "offset": 2
       },
       "toPort": {
         "side": "north",
-        "offset": 0
+        "offset": 1
       }
     },
     {
@@ -1086,11 +834,11 @@
       "to": "room-local-41",
       "fromPort": {
         "side": "east",
-        "offset": 2
+        "offset": 1
       },
       "toPort": {
         "side": "north",
-        "offset": 0
+        "offset": 1
       }
     },
     {
@@ -1112,12 +860,13 @@
       "to": "room-local-43",
       "fromPort": {
         "side": "south",
-        "offset": 2
+        "offset": 1
       },
       "toPort": {
         "side": "north",
         "offset": 0
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-47",
@@ -1125,12 +874,13 @@
       "to": "room-local-45",
       "fromPort": {
         "side": "east",
-        "offset": 2
+        "offset": 1
       },
       "toPort": {
         "side": "west",
-        "offset": 2
-      }
+        "offset": 1
+      },
+      "width": 2
     },
     {
       "id": "path-local-48",
@@ -1138,12 +888,13 @@
       "to": "room-local-44",
       "fromPort": {
         "side": "east",
-        "offset": 2
+        "offset": 1
       },
       "toPort": {
         "side": "west",
         "offset": 1
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-49",
@@ -1169,7 +920,8 @@
       "toPort": {
         "side": "south",
         "offset": 1
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-51",
@@ -1182,7 +934,8 @@
       "toPort": {
         "side": "north",
         "offset": 1
-      }
+      },
+      "width": 2
     },
     {
       "id": "path-local-52",
@@ -1248,6 +1001,157 @@
         "side": "east",
         "offset": 1
       }
+    },
+    {
+      "id": "path-local-57",
+      "from": "room-local-3",
+      "to": "room-base",
+      "fromPort": {
+        "side": "south",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 0
+      },
+      "width": 2
+    },
+    {
+      "id": "path-local-58",
+      "from": "room-local-15",
+      "to": "room-local-54",
+      "fromPort": {
+        "side": "east",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-59",
+      "from": "room-local-18",
+      "to": "room-local-54",
+      "fromPort": {
+        "side": "south",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 1
+      },
+      "width": 2
+    },
+    {
+      "id": "path-local-60",
+      "from": "room-local-19",
+      "to": "room-local-55",
+      "fromPort": {
+        "side": "east",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 1
+      },
+      "width": 2
+    },
+    {
+      "id": "path-local-61",
+      "from": "room-local-55",
+      "to": "room-local-22",
+      "fromPort": {
+        "side": "south",
+        "offset": 0
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-62",
+      "from": "room-local-30",
+      "to": "room-local-29",
+      "fromPort": {
+        "side": "south",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 0
+      },
+      "width": 2
+    },
+    {
+      "id": "path-local-63",
+      "from": "room-local-29",
+      "to": "room-local-27",
+      "fromPort": {
+        "side": "south",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 1
+      },
+      "width": 2
+    },
+    {
+      "id": "path-local-64",
+      "from": "room-local-56",
+      "to": "room-local-31",
+      "fromPort": {
+        "side": "south",
+        "offset": 2
+      },
+      "toPort": {
+        "side": "north",
+        "offset": 1
+      }
+    },
+    {
+      "id": "path-local-65",
+      "from": "room-local-56",
+      "to": "room-local-41",
+      "fromPort": {
+        "side": "east",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 1
+      },
+      "width": 2
+    },
+    {
+      "id": "path-local-66",
+      "from": "room-local-8",
+      "to": "room-local-57",
+      "fromPort": {
+        "side": "east",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 1
+      },
+      "width": 2
+    },
+    {
+      "id": "path-local-67",
+      "from": "room-local-57",
+      "to": "room-local-14",
+      "fromPort": {
+        "side": "east",
+        "offset": 1
+      },
+      "toPort": {
+        "side": "west",
+        "offset": 1
+      },
+      "width": 2
     }
   ]
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { OFFICIAL_MAP_COMPILER_VERSION, officialMapRevisionPayload } from "@five-days/game-core";
+import { OFFICIAL_MAP_COMPILER_VERSION, OFFICIAL_MAP_MANIFEST, officialMapRevisionPayload } from "@five-days/game-core";
 import {
   clampEditorPort,
   cloneEditorMap,
@@ -61,6 +61,20 @@ const THEMES: Array<{ id: EditorAssetTheme; label: string; image: string }> = [
   { id: "marsh", label: "침수 습지", image: "/Asset/zone-2-vegetation.png" },
   { id: "wastes", label: "마력 황무지", image: "/Asset/zone-3-vegetation.png" },
 ];
+
+function bundledOfficialEditorMap(): EditorMapDefinition {
+  const authored = OFFICIAL_MAP_MANIFEST.map;
+  return {
+    version: 1,
+    title: "현재 기본맵 · 2/3/3 게이트",
+    rooms: authored.rooms.map((room) => ({ ...room })),
+    connections: authored.connections.map((connection) => ({
+      ...connection,
+      fromPort: connection.fromPort ? { ...connection.fromPort } : undefined,
+      toPort: connection.toPort ? { ...connection.toPort } : undefined,
+    })),
+  };
+}
 
 type Tool = "select" | "room" | "connect";
 type PortSelection = { roomId: string; port: EditorConnectionPort };
@@ -458,6 +472,18 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
     resetEditorSelection(nextMap);
   };
 
+  const openBundledOfficialMap = () => {
+    const withCurrentSaved = upsertStoredEditorMap(savedMaps, activeMapId, map);
+    const nextMap = bundledOfficialEditorMap();
+    const id = createLocalMapId();
+    const updated = [createStoredEditorMap(id, nextMap), ...withCurrentSaved];
+    setSavedMaps(updated);
+    setActiveMapId(id);
+    setMap(nextMap);
+    persistMapLibrary(updated, id, nextMap);
+    resetEditorSelection(nextMap);
+  };
+
   const removeSavedMap = (id: string) => {
     const target = savedMaps.find((record) => record.id === id);
     if (!target || !window.confirm(`“${target.map.title}” 맵을 삭제할까요? 이 작업은 되돌릴 수 없습니다.`)) return;
@@ -506,6 +532,13 @@ export function MapEditorScreen({ onBack, onPlay }: { onBack: () => void; onPlay
           <button type="button" onClick={saveCurrentMap}>저장</button>
         </div>
         <div className="map-library-list" role="list" aria-label="저장된 로컬 맵">
+          <div className="map-library-bundled" role="listitem">
+            <button type="button" className="map-library-open" onClick={openBundledOfficialMap}>
+              <strong>현재 기본맵</strong>
+              <span>{OFFICIAL_MAP_MANIFEST.map.rooms.length} ROOMS · GATES 2/3/3</span>
+            </button>
+            <span className="map-library-bundled-mark" aria-label="내장 프리셋">◆</span>
+          </div>
           {savedMaps.map((record) => {
             const isActive = record.id === activeMapId;
             const displayedMap = isActive ? map : record.map;
