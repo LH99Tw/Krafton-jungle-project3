@@ -88,7 +88,7 @@ export type CorePlayer = {
   aiRole?: "follower" | "defender";
 };
 
-export type CoreAltarStat = "attack" | "attackSpeed" | "maxHp" | "moveSpeed" | "skillPower";
+export type CoreAltarStat = "attack" | "attackSpeed" | "maxHp" | "moveSpeed" | "criticalDamage";
 export type CoreAltarMultipliers = Record<CoreAltarStat, number>;
 export type CoreShrineKind = "berserker" | "assassin" | "giant" | "wind" | "infinity" | "doom";
 export type CoreShrineBuff = Readonly<{ kind: CoreShrineKind; expiresAt: number }>;

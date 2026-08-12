@@ -7,8 +7,6 @@ import {
   augmentEffectValue,
   createAugmentDraft,
   xpRequiredForNextLevel,
-  CRITICAL_DAMAGE_MULTIPLIER,
-  CRITICAL_OVERFLOW_TO_ATTACK,
   type AugmentId,
 } from "../v02/progression";
 import {
@@ -294,7 +292,7 @@ export class GameCore {
       inventory: Array.from({ length: PERSONAL_INVENTORY_SIZE }, () => null),
       respawnRoomId: startRoomId,
       altarAttempts: 0,
-      altarMultipliers: { attack: 1, attackSpeed: 1, maxHp: 1, moveSpeed: 1, skillPower: 1 },
+      altarMultipliers: { attack: 1, attackSpeed: 1, maxHp: 1, moveSpeed: 1, criticalDamage: 1 },
       shrineBuff: null,
       upgrades: {},
       upgradeDraft: null,
@@ -513,11 +511,16 @@ export class GameCore {
     const equipmentHaste = equipmentBonuses(player.equipment).attackSpeedBonus / 100;
     const trapRate = this.trapDebuff(player) === "attack-speed" ? 0.5 : 1;
     player.autoAttackCooldown = Math.max(0.12, rules.attackInterval / ((1 + haste + equipmentHaste) * player.altarMultipliers.attackSpeed * trapRate));
-    const bonusHits = this.bonusHitMultipliers(player);
-    const attackTargetCount = Math.min(targets.length, 1 + bonusHits.length);
+    let additionalTargets = player.heroClass === "swordsman" ? 0 : augmentEffectValue(player.upgrades, "multishot", "projectileCount");
+    if (player.heroClass === "archer") {
+      additionalTargets += augmentEffectValue(player.upgrades, "archer-volley", "additionalProjectiles")
+        + augmentEffectValue(player.upgrades, "archer-piercing", "count")
+        + augmentEffectValue(player.upgrades, "archer-ricochet", "targets");
+    } else if (player.heroClass === "mage") additionalTargets += augmentEffectValue(player.upgrades, "mage-chain", "targets");
+    const attackTargetCount = Math.min(targets.length, 1 + additionalTargets);
     for (let index = 0; index < attackTargetCount; index += 1) {
       const candidate = targets[index]!;
-      const secondaryMultiplier = index === 0 ? 1 : bonusHits[index - 1] ?? 0.65;
+      const secondaryMultiplier = index === 0 ? 1 : player.heroClass === "mage" ? 0.6 : 0.65;
       this.damageEnemy(userId, candidate.id, this.calculateAttackDamage(player, candidate) * secondaryMultiplier);
     }
     this.combatActionEvents.push({
@@ -578,6 +581,7 @@ export class GameCore {
     const cooldownReduction = Math.min(0.7, shrineReduction + augmentEffectValue(player.upgrades, "skill-haste", "percent") / 100
       + (player.heroClass === "mage" ? augmentEffectValue(player.upgrades, "mage-tempo", "percent") / 100 : 0));
     player[cooldownKey] = definition.cooldownSeconds * (1 - cooldownReduction);
+    const skillPower = 1 + augmentEffectValue(player.upgrades, "skill-power", "percent") / 100;
     const areaMultiplier = 1 + augmentEffectValue(player.upgrades, "area-power", "percent") / 100
       + (player.heroClass === "mage" ? augmentEffectValue(player.upgrades, "mage-nova", "percent") / 100 : 0);
     const shrineAreaMultiplier = this.activeShrine(player) === "giant" ? SPECIAL_ROOM_BALANCE.shrineArea : 1;
@@ -605,7 +609,7 @@ export class GameCore {
     player.skillTargetY = targetY;
     player.skillRadius = radius;
     const baseDamage = (CLASS_COMBAT_RULES[player.heroClass].attackDamage + equipmentBonuses(player.equipment).attackBonus + augmentAttackBonus(player.upgrades))
-      * definition.damageMultiplier * this.skillDamageMultiplier(player) * this.allDamageMultiplier(player) * player.altarMultipliers.skillPower;
+      * definition.damageMultiplier * skillPower;
     for (const target of targets) {
       this.damageEnemy(userId, target.id, baseDamage);
       if (player.heroClass === "swordsman" && player.upgrades["swordsman-rupture"]) {
@@ -732,7 +736,7 @@ export class GameCore {
   rerollAltar(userId: string): Readonly<{ increased: CoreAltarStat; decreased: CoreAltarStat }> | null {
     const player = this.players.get(userId);
     if (!player || !this.canUseSpecialRoom(player, "altar") || player.altarAttempts >= 3) return null;
-    const stats: CoreAltarStat[] = ["attack", "attackSpeed", "maxHp", "moveSpeed", "skillPower"];
+    const stats: CoreAltarStat[] = ["attack", "attackSpeed", "maxHp", "moveSpeed", "criticalDamage"];
     const random = createSeededRandom(`altar:${this.options.seed}:${player.roomId}:${userId}:${player.altarAttempts}`);
     const increased = random.pick(stats);
     const decreased = random.pick(stats.filter((stat) => stat !== increased));
@@ -896,15 +900,13 @@ export class GameCore {
     const rangeMultiplier = 1 + augmentEffectValue(player.upgrades, "area-power", "percent") / 100
       + (player.heroClass === "swordsman" ? augmentEffectValue(player.upgrades, "multishot", "meleeRangePercent") / 100 : 0);
     const bladeRange = player.heroClass === "swordsman" ? augmentEffectValue(player.upgrades, "swordsman-blade", "range") : 0;
-    const rawCriticalChance = BASE_CRITICAL_CHANCE + augmentEffectValue(player.upgrades, "precision", "points") / 100
-      + augmentEffectValue(player.upgrades, "crit-loop", "points") / 100
-      + this.shrineCriticalChance(shrine);
     return {
       attackDamage: (rules.attackDamage + equipment.attackBonus + augmentAttackBonus(player.upgrades))
-        * player.altarMultipliers.attack * this.shrineAttackMultiplier(shrine) * (1 + Math.max(0, rawCriticalChance - 1) * CRITICAL_OVERFLOW_TO_ATTACK),
+        * player.altarMultipliers.attack * this.shrineAttackMultiplier(shrine),
       defense: equipment.defenseBonus,
-      criticalChance: 100 * Math.min(1, rawCriticalChance),
-      criticalDamage: 100 * CRITICAL_DAMAGE_MULTIPLIER,
+      criticalChance: 100 * Math.min(1, BASE_CRITICAL_CHANCE + augmentEffectValue(player.upgrades, "precision", "points") / 100 + this.shrineCriticalChance(shrine)),
+      criticalDamage: (150 + augmentEffectValue(player.upgrades, "ferocity", "percent")
+        + (shrine === "assassin" ? SPECIAL_ROOM_BALANCE.shrineCriticalDamage * 100 : 0)) * player.altarMultipliers.criticalDamage,
       attacksPerSecond: (1 + haste) / rules.attackInterval,
       attackRange: this.playerAttackRange(Math.max(rules.attackRange * rangeMultiplier, bladeRange)),
       moveSpeed: this.effectiveMoveSpeed(player),
@@ -1338,22 +1340,16 @@ export class GameCore {
   private calculateAttackDamage(player: CorePlayer, enemy: CoreEnemy): number {
     const rules = CLASS_COMBAT_RULES[player.heroClass];
     const shrine = this.activeShrine(player);
-    const rawCriticalChance = BASE_CRITICAL_CHANCE + augmentEffectValue(player.upgrades, "precision", "points") / 100
-      + augmentEffectValue(player.upgrades, "crit-loop", "points") / 100
-      + this.shrineCriticalChance(shrine);
-    const effectiveCriticalChance = Math.min(1, rawCriticalChance);
-    const excessCritical = Math.max(0, rawCriticalChance - 1);
-    const criticalOverflowAttack = 1 + excessCritical * CRITICAL_OVERFLOW_TO_ATTACK;
     let damage = (rules.attackDamage + equipmentBonuses(player.equipment).attackBonus + augmentAttackBonus(player.upgrades))
-      * player.altarMultipliers.attack * this.shrineAttackMultiplier(shrine) * criticalOverflowAttack * this.allDamageMultiplier(player);
+      * player.altarMultipliers.attack * this.shrineAttackMultiplier(shrine);
     if (this.trapDebuff(player) === "attack") damage *= 0.5;
-    const critical = deterministicCombatRoll(this.options.seed, player.userId, player.attackCount) < effectiveCriticalChance;
+    const criticalChance = Math.min(1, BASE_CRITICAL_CHANCE + augmentEffectValue(player.upgrades, "precision", "points") / 100 + this.shrineCriticalChance(shrine));
+    const critical = deterministicCombatRoll(this.options.seed, player.userId, player.attackCount) < criticalChance;
     player.lastAttackCritical = critical;
     if (critical) {
-      damage *= CRITICAL_DAMAGE_MULTIPLIER;
-      this.reduceCooldownsOnCrit(player);
+      damage *= (1.5 + augmentEffectValue(player.upgrades, "ferocity", "percent") / 100
+        + (shrine === "assassin" ? SPECIAL_ROOM_BALANCE.shrineCriticalDamage : 0)) * player.altarMultipliers.criticalDamage;
     }
-    damage *= this.basicDamageMultiplier(player);
     const momentumStacks = player.upgrades.momentum ?? 0;
     if (momentumStacks > 0) damage *= 1 + Math.min(
       augmentEffectValue(player.upgrades, "momentum", "maxPercent") / 100,
@@ -1363,12 +1359,6 @@ export class GameCore {
     if (player.heroClass === "swordsman" && player.upgrades["swordsman-execution"]
       && enemy.hp / enemy.maxHp <= augmentEffectValue(player.upgrades, "swordsman-execution", "hpThresholdPercent") / 100) {
       damage *= 1 + augmentEffectValue(player.upgrades, "swordsman-execution", "damagePercent") / 100;
-    }
-    if (player.heroClass === "swordsman" && player.upgrades["swordsman-blade"]) {
-      const baseRange = augmentEffectValue(player.upgrades, "swordsman-blade", "baseRange");
-      const falloff = augmentEffectValue(player.upgrades, "swordsman-blade", "falloffDamagePercent") / 100;
-      const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
-      if (distance > baseRange) damage *= falloff;
     }
     if (player.heroClass === "archer" && player.upgrades["archer-sniper"]) {
       const distance = Math.hypot(enemy.x - player.x, enemy.y - player.y);
@@ -1381,10 +1371,6 @@ export class GameCore {
     if (player.heroClass === "swordsman" && comboAttack > 0 && player.attackCount % comboAttack === 0) {
       damage *= 1 + augmentEffectValue(player.upgrades, "swordsman-combo", "damagePercent") / 100;
     }
-    const rhythmAttack = augmentEffectValue(player.upgrades, "combat-rhythm", "attackNumber");
-    if (rhythmAttack > 0 && player.attackCount % rhythmAttack === 0) {
-      damage *= 1 + augmentEffectValue(player.upgrades, "combat-rhythm", "damagePercent") / 100;
-    }
     const overchargeAttack = augmentEffectValue(player.upgrades, "mage-overcharge", "attackNumber");
     if (player.heroClass === "mage" && overchargeAttack > 0 && player.attackCount % overchargeAttack === 0) {
       damage *= 1 + augmentEffectValue(player.upgrades, "mage-overcharge", "damagePercent") / 100;
@@ -1396,65 +1382,6 @@ export class GameCore {
       damage *= 1 + augmentEffectValue(player.upgrades, "archer-mark", "autoAttackDamagePercent") / 100;
     }
     return Math.max(1, Math.round(damage));
-  }
-
-  /** Bonus cone-target multipliers contributed by split/projectile/chain augments. */
-  private bonusHitMultipliers(player: CorePlayer): number[] {
-    const s = player.upgrades;
-    const list: number[] = [];
-    if (player.heroClass === "swordsman") {
-      const split = augmentEffectValue(s, "multishot", "projectileCount");
-      for (let index = 0; index < split; index += 1) list.push(augmentEffectValue(s, "multishot", "projectileDamagePercent") / 100);
-      return list;
-    }
-    if (player.heroClass === "archer") {
-      const split = augmentEffectValue(s, "multishot", "projectileCount");
-      for (let index = 0; index < split; index += 1) list.push(augmentEffectValue(s, "multishot", "projectileDamagePercent") / 100);
-      const volley = augmentEffectValue(s, "archer-volley", "additionalProjectiles");
-      for (let index = 0; index < volley; index += 1) list.push(augmentEffectValue(s, "archer-volley", "projectileDamagePercent") / 100);
-      const pierce = augmentEffectValue(s, "archer-piercing", "count");
-      const pierceFirst = augmentEffectValue(s, "archer-piercing", "damagePercent") / 100;
-      const pierceNext = augmentEffectValue(s, "archer-piercing", "secondaryDamagePercent") / 100;
-      for (let index = 0; index < pierce; index += 1) list.push(index === 0 ? pierceFirst : pierceNext);
-      const ricochet = augmentEffectValue(s, "archer-ricochet", "targets");
-      for (let index = 0; index < ricochet; index += 1) list.push(augmentEffectValue(s, "archer-ricochet", "damagePercent") / 100);
-      return list;
-    }
-    const split = augmentEffectValue(s, "multishot", "projectileCount");
-    for (let index = 0; index < split; index += 1) list.push(augmentEffectValue(s, "multishot", "projectileDamagePercent") / 100);
-    const chain = augmentEffectValue(s, "mage-chain", "targets");
-    for (let index = 0; index < chain; index += 1) list.push(augmentEffectValue(s, "mage-chain", "damagePercent") / 100);
-    return list;
-  }
-
-  /** Every-source all-damage bonus (epic range augments stay relevant on bosses). */
-  private allDamageMultiplier(player: CorePlayer): number {
-    const percent = augmentEffectValue(player.upgrades, "area-power", "allDamagePercent")
-      + augmentEffectValue(player.upgrades, "chain-explosion", "allDamagePercent");
-    return 1 + percent / 100;
-  }
-
-  /** Basic-attack specific bonus from epic/milestone augments. */
-  private basicDamageMultiplier(player: CorePlayer): number {
-    const percent = augmentEffectValue(player.upgrades, "multishot", "damagePercent")
-      + augmentEffectValue(player.upgrades, "swordsman-blade", "damagePercent")
-      + augmentEffectValue(player.upgrades, "swordsman-whirlwind", "damagePercent")
-      + augmentEffectValue(player.upgrades, "archer-volley", "damagePercent");
-    return 1 + percent / 100;
-  }
-
-  /** Skill-specific damage bonus from general and milestone augments. */
-  private skillDamageMultiplier(player: CorePlayer): number {
-    const percent = augmentEffectValue(player.upgrades, "skill-power", "percent")
-      + augmentEffectValue(player.upgrades, "mage-nova", "skillDamagePercent");
-    return 1 + percent / 100;
-  }
-
-  private reduceCooldownsOnCrit(player: CorePlayer): void {
-    const reduction = augmentEffectValue(player.upgrades, "crit-loop", "cooldownReduction");
-    if (reduction <= 0) return;
-    player.qCooldown = Math.max(0, player.qCooldown - reduction);
-    player.eCooldown = Math.max(0, player.eCooldown - reduction);
   }
 
   private enemiesInAttackCone(player: CorePlayer, range: number, coneHalfAngle: number): CoreEnemy[] {
@@ -1492,23 +1419,6 @@ export class GameCore {
     );
   }
 
-  /** 파열 연쇄: 처치 시 반경 내 다른 적에게 공격력 비례 폭발 피해. */
-  private resolveChainExplosion(killer: CorePlayer, slain: CoreEnemy): void {
-    const radius = augmentEffectValue(killer.upgrades, "chain-explosion", "radius");
-    const damagePercent = augmentEffectValue(killer.upgrades, "chain-explosion", "damagePercent") / 100;
-    const attack = CLASS_COMBAT_RULES[killer.heroClass].attackDamage
-      + equipmentBonuses(killer.equipment).attackBonus
-      + augmentAttackBonus(killer.upgrades);
-    const baseDamage = attack * damagePercent * this.allDamageMultiplier(killer);
-    const radiusSquared = radius * radius;
-    for (const enemy of this.enemies.values()) {
-      if (!enemy.alive || enemy.id === slain.id || enemy.roomId !== slain.roomId) continue;
-      if ((enemy.x - slain.x) ** 2 + (enemy.y - slain.y) ** 2 > radiusSquared) continue;
-      if (!this.hasPlayerLineOfSight(killer, enemy)) continue;
-      this.damageEnemy(killer.userId, enemy.id, baseDamage);
-    }
-  }
-
   private killEnemy(killer: CorePlayer, enemy: CoreEnemy): void {
     enemy.alive = false;
     enemy.hp = 0;
@@ -1519,7 +1429,6 @@ export class GameCore {
     enemy.patternRemaining = 0;
     enemy.respawnRemaining = enemy.kind === "static" && !this.trapEnemyRooms.has(enemy.id) ? STATIC_RESPAWN_SECONDS[this.options.mode] : null;
     killer.kills += 1;
-    if (killer.upgrades["chain-explosion"]) this.resolveChainExplosion(killer, enemy);
     const xpReward = enemy.xpReward;
     enemy.xpReward = 0;
     if (xpReward > 0) this.addTeamExperience(xpReward);

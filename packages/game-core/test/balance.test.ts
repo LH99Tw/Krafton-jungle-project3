@@ -24,8 +24,6 @@ import {
   invaderXp,
   partyHpMultiplier,
   waveTotal,
-  CRITICAL_DAMAGE_MULTIPLIER,
-  CRITICAL_OVERFLOW_TO_ATTACK,
   GameCore,
   type PersonalHiddenDrop,
   type AugmentStacks,
@@ -184,42 +182,30 @@ test("one thousand deterministic builds stay inside the level 25 and level 30 DP
 
   const level25 = partyDps(25);
   const level30 = partyDps(30);
-  assert.ok(level25[499]! >= 530 && level25[499]! <= 580, `level 25 median DPS was ${level25[499]}`);
-  assert.ok(level30[899]! <= 820, `level 30 p90 DPS was ${level30[899]}`);
-  assert.ok(level30[999]! <= 920, `level 30 max DPS was ${level30[999]}`);
+  assert.ok(level25[499]! >= 315 && level25[499]! <= 330, `level 25 median DPS was ${level25[499]}`);
+  assert.ok(level30[899]! <= 405, `level 30 p90 DPS was ${level30[899]}`);
   const normalTtk = createBossEnemy("ttk-normal", "normal", 3).maxHp / level25[499]!;
   const hardTtk = createBossEnemy("ttk-hard", "hard", 3).maxHp / level25[499]!;
-  assert.ok(normalTtk >= 17 && normalTtk <= 19, `normal boss basic-attack TTK was ${normalTtk}`);
-  assert.ok(hardTtk >= 26 && hardTtk <= 28, `hard boss basic-attack TTK was ${hardTtk}`);
+  assert.ok(normalTtk >= 30 && normalTtk <= 33, `normal boss basic-attack TTK was ${normalTtk}`);
+  assert.ok(hardTtk >= 45 && hardTtk <= 49, `hard boss basic-attack TTK was ${hardTtk}`);
 });
 
 function expectedBossBasicDps(heroClass: "swordsman" | "archer" | "mage", stacks: AugmentStacks): number {
   const rules = CLASS_COMBAT_RULES[heroClass];
-  const rawCriticalChance = BASE_CRITICAL_CHANCE + augmentEffectValue(stacks, "precision", "points") / 100
-    + augmentEffectValue(stacks, "crit-loop", "points") / 100;
-  const effectiveCriticalChance = Math.min(1, rawCriticalChance);
-  const excessCritical = Math.max(0, rawCriticalChance - 1);
-  const attack = (rules.attackDamage + 8 + augmentEffectValue(stacks, "power", "amount"))
-    * (1 + excessCritical * CRITICAL_OVERFLOW_TO_ATTACK);
+  const attack = rules.attackDamage + 8 + augmentEffectValue(stacks, "power", "amount");
   const attacksPerSecond = (1 + 0.17 + augmentEffectValue(stacks, "haste", "percent") / 100) / rules.attackInterval;
-  const criticalExpected = 1 + effectiveCriticalChance * (CRITICAL_DAMAGE_MULTIPLIER - 1);
-  const allDamage = 1 + augmentEffectValue(stacks, "area-power", "allDamagePercent") / 100
-    + augmentEffectValue(stacks, "chain-explosion", "allDamagePercent") / 100;
-  const basicDamage = 1 + augmentEffectValue(stacks, "multishot", "damagePercent") / 100
-    + augmentEffectValue(stacks, "swordsman-blade", "damagePercent") / 100
-    + augmentEffectValue(stacks, "swordsman-whirlwind", "damagePercent") / 100
-    + augmentEffectValue(stacks, "archer-volley", "damagePercent") / 100;
+  const criticalChance = BASE_CRITICAL_CHANCE + augmentEffectValue(stacks, "precision", "points") / 100;
+  const criticalMultiplier = 1.5 + augmentEffectValue(stacks, "ferocity", "percent") / 100;
   const momentum = 1 + augmentEffectValue(stacks, "momentum", "maxPercent") / 100;
   const bossHunter = 1 + augmentEffectValue(stacks, "boss-hunter", "percent") / 100;
-  const rhythm = 1 + augmentEffectValue(stacks, "combat-rhythm", "damagePercent") / 400;
   let classMultiplier = 1;
   if (heroClass === "swordsman") {
-    classMultiplier = (1 + augmentEffectValue(stacks, "swordsman-execution", "damagePercent") / 400)
+    classMultiplier = (1 + 0.3 * augmentEffectValue(stacks, "swordsman-execution", "damagePercent") / 100)
       * (1 + augmentEffectValue(stacks, "swordsman-combo", "damagePercent") / 300);
   } else if (heroClass === "archer") {
     classMultiplier = 1 + augmentEffectValue(stacks, "archer-sniper", "maxPercent") / 100;
   } else {
     classMultiplier = 1 + augmentEffectValue(stacks, "mage-overcharge", "damagePercent") / 400;
   }
-  return attack * attacksPerSecond * criticalExpected * allDamage * basicDamage * momentum * bossHunter * rhythm * classMultiplier;
+  return attack * attacksPerSecond * (1 + criticalChance * (criticalMultiplier - 1)) * momentum * bossHunter * classMultiplier;
 }

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  AUGMENT_DEFINITIONS,
   GENERAL_AUGMENTS,
   MAX_LEVEL,
   MILESTONE_AUGMENTS,
@@ -9,9 +8,7 @@ import {
   addAugmentStack,
   addExperience,
   createAugmentDraft,
-  describeAugment,
   isMilestoneLevel,
-  migrateAugmentStacks,
   xpRequiredForNextLevel,
   type AugmentId,
   type AugmentStacks,
@@ -47,42 +44,29 @@ test("caps progression at level 30 and reports every crossed level", () => {
 });
 
 test("general pool is attack-only and has enough capacity for 26 regular choices", () => {
-  assert.equal(GENERAL_AUGMENTS.reduce((sum, augment) => sum + augment.maxStacks, 0), 33);
-  assert.equal(GENERAL_AUGMENTS.length, 12);
+  assert.equal(GENERAL_AUGMENTS.reduce((sum, augment) => sum + augment.maxStacks, 0), 37);
+  assert.equal(GENERAL_AUGMENTS.length, 10);
   assert.ok(GENERAL_AUGMENTS.every((augment) => augment.pool === "general"));
-  assert.ok(GENERAL_AUGMENTS.every((augment) => augment.maxStacks >= 1));
+  assert.ok(GENERAL_AUGMENTS.every((augment) => augment.maxStacks >= 2));
   assert.ok(GENERAL_AUGMENTS.every((augment) => [
     "attack-flat",
     "attack-speed-percent",
+    "class-adaptive-multishot",
     "skill-power-percent",
     "critical-chance-points",
+    "critical-damage-percent",
     "major-target-damage-percent",
     "skill-cooldown-reduction-percent",
+    "attack-area-percent",
     "consecutive-hit-damage",
-    "nth-attack-damage",
-    "crit-loop",
-    "area-power",
-    "split-attack",
-    "chain-explosion",
   ].includes(augment.effect.kind)));
 });
 
-test("range augments are all epic and carry direct damage so they stay relevant on bosses", () => {
-  const rangeKinds = new Set(["area-power", "split-attack"]);
-  const rangeAugments = GENERAL_AUGMENTS.filter((augment) => rangeKinds.has(augment.effect.kind));
-  assert.equal(rangeAugments.length, 2);
-  assert.ok(rangeAugments.every((augment) => augment.rarity === "epic"));
-  for (const augment of rangeAugments) {
-    const values = Object.values(augment.effect.values);
-    assert.ok(values.some((value) => (augment.effect.kind === "area-power" ? value > 0 : value > 0)), `${augment.id} should keep a direct damage component`);
-  }
-});
-
-test("each class has five one-time milestone augments, all epic", () => {
+test("each class has five one-time milestone augments", () => {
   for (const heroClass of ["swordsman", "archer", "mage"] as const) {
     const definitions = MILESTONE_AUGMENTS.filter((augment) => augment.classId === heroClass);
     assert.equal(definitions.length, 5);
-    assert.ok(definitions.every((augment) => augment.pool === "milestone" && augment.maxStacks === 1 && augment.rarity === "epic"));
+    assert.ok(definitions.every((augment) => augment.pool === "milestone" && augment.maxStacks === 1));
   }
 });
 
@@ -140,7 +124,7 @@ test("rejects illegal levels and stacking past the definition maximum", () => {
   assert.throws(() => createAugmentDraft({ ...input, level: 31 }), RangeError);
 
   let stacks: AugmentStacks = {};
-  for (let index = 0; index < 5; index += 1) stacks = addAugmentStack(stacks, "power");
+  for (let index = 0; index < 4; index += 1) stacks = addAugmentStack(stacks, "power");
   assert.throws(() => addAugmentStack(stacks, "power"), RangeError);
 });
 
@@ -157,16 +141,4 @@ test("level 30 still issues the third milestone choice", () => {
   });
   assert.equal(draft.length, 3);
   assert.ok(draft.every((augment) => augment.classId === "archer" && !chosen.includes(augment.id)));
-});
-
-test("every description is auto-generated and non-empty", () => {
-  for (const augment of AUGMENT_DEFINITIONS) {
-    assert.equal(augment.description, describeAugment(augment));
-    assert.ok((augment.description ?? "").length > 0, `${augment.id} description must not be empty`);
-  }
-});
-
-test("legacy ferocity stacks migrate 1:1 into crit-loop, capped at its max", () => {
-  const migrated = migrateAugmentStacks({ ferocity: 3, power: 2, unknown: 4 });
-  assert.deepEqual(migrated, { "crit-loop": 2, power: 2 });
 });
