@@ -8,7 +8,7 @@ export type Phase = "day" | "night" | "standby" | "boss" | "ended";
 export type BuildMode = "turret" | "wall" | "upgrade" | null;
 type ResultState = "victory" | "defeat";
 
-export type HeroStats = {
+type HeroStats = {
   maxHp: number;
   hp: number;
   attack: number;
@@ -39,7 +39,7 @@ export type ClassDefinition = {
 
 export type UpgradeId = AugmentId;
 
-export type UpgradeDefinition = {
+type UpgradeDefinition = {
   id: UpgradeId;
   name: string;
   description: string;
@@ -221,7 +221,7 @@ export type NetworkWorldSnapshot = {
 };
 
 export type GameSnapshot = {
-  worldMode: "procedural" | "editor" | "official";
+  worldMode: "editor" | "official";
   running: boolean;
   phase: Phase;
   phaseLabel: string;
@@ -278,8 +278,7 @@ export type GameStartOptions = {
   sessionMode: SessionMode;
   difficulty: "easy" | "normal" | "hard";
   partyMode: PartyMode;
-  networked?: boolean;
-  runtimeMode?: "server" | "legacy-local" | "editor-core";
+  runtimeMode?: "server" | "editor-core";
   userId?: string;
   editorMap?: EditorMapDefinition;
 };
@@ -295,7 +294,7 @@ export type GameResult = {
 };
 
 export const EMPTY_SNAPSHOT: GameSnapshot = {
-  worldMode: "procedural",
+  worldMode: "official",
   running: false,
   phase: "day",
   phaseLabel: "낮",

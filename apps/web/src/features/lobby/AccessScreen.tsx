@@ -5,6 +5,8 @@ import { AccessSidebar } from "./AccessSidebar";
 import { FantasyButton } from "@/src/components/ui/FantasyButton";
 import { Guestbook } from "../guestbook/Guestbook";
 
+const LOCAL_DEVELOPMENT_TOOLS_ENABLED = process.env.NODE_ENV !== "production";
+
 export function AccessScreen({
   viewer,
   busy,
@@ -13,6 +15,7 @@ export function AccessScreen({
   onLogout,
   onStart,
   onOpenEditor,
+  onOpenLab,
   editorEnabled,
 }: {
   viewer: Viewer;
@@ -22,6 +25,7 @@ export function AccessScreen({
   onLogout: () => Promise<void>;
   onStart: () => void;
   onOpenEditor: () => void;
+  onOpenLab?: () => void;
   editorEnabled: boolean;
 }) {
   return (
@@ -32,20 +36,30 @@ export function AccessScreen({
         <div className="access-main-art" aria-hidden="true" />
         <Guestbook viewer={viewer} />
         <div className="access-launch">
+          <p>{viewer
+            ? "함께 탐험할 원정대를 찾으세요."
+            : LOCAL_DEVELOPMENT_TOOLS_ENABLED
+              ? "로그인 후 개발 도구와 원정대 로비를 이용해 보세요."
+              : "로그인 후 함께 탐험할 원정대를 찾아보세요."}</p>
           <div className="access-launch-actions">
-            {editorEnabled && (
+            {LOCAL_DEVELOPMENT_TOOLS_ENABLED && editorEnabled && (
               <FantasyButton variant="quiet" size="large" type="button" onClick={onOpenEditor}>
-                맵 빌더
+                로컬 맵 빌더
+              </FantasyButton>
+            )}
+            {LOCAL_DEVELOPMENT_TOOLS_ENABLED && onOpenLab && (
+              <FantasyButton variant="quiet" size="large" type="button" onClick={onOpenLab}>
+                🧪 증강 밸런스 실험실
               </FantasyButton>
             )}
             <FantasyButton
-              variant="primary"
+              variant={LOCAL_DEVELOPMENT_TOOLS_ENABLED ? "secondary" : "primary"}
               size="large"
               type="button"
               onClick={onStart}
               disabled={!viewer || busy}
             >
-              시작하기
+              🛡️ 원정대 찾기 (로비)
             </FantasyButton>
           </div>
         </div>

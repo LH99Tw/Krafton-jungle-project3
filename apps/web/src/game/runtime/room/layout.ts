@@ -20,8 +20,6 @@ export const ROOM_VIEW = {
   bottom: 668,
 } as const;
 
-export const BASE_CORE = { x: 220, y: 535 } as const;
-
 export const BUILD_BOUNDS = {
   minX: 82,
   maxX: 486,
@@ -128,16 +126,6 @@ export function buildEditorRenderWorld(
     bounds,
     bossRect: bossRoom?.rect ?? { x: bounds.x, y: bounds.y, width: 1280, height: 720 },
   };
-}
-
-/** True when `x,y` fall inside the base-camp build plot. */
-export function isInsideBuildBounds(x: number, y: number): boolean {
-  return x >= BUILD_BOUNDS.minX && x <= BUILD_BOUNDS.maxX && y >= BUILD_BOUNDS.minY && y <= BUILD_BOUNDS.maxY;
-}
-
-/** Snaps a coordinate onto the build grid. */
-export function snapToBuildGrid(value: number): number {
-  return Math.round(value / BUILD_BOUNDS.gridSize) * BUILD_BOUNDS.gridSize;
 }
 
 /**
