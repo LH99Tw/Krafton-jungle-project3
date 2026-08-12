@@ -10,6 +10,7 @@ import {
   basicAttackSpriteForLevel,
   swordsmanSlashAnimationDirectionForAim,
 } from "../../client/render/attackEffectSprites";
+import { SKILL_EFFECT_ALL_SPRITES, SKILL_EFFECT_SPRITES } from "../../client/render/skillEffectSprites";
 import {
   DEFAULT_HERO_FACING,
   HERO_SPRITE_SCALE,
@@ -20,9 +21,14 @@ import {
   type HeroFacingDirection,
 } from "../../client/render/heroSprites";
 import {
+  FIELD_ENEMY_TEXTURE_BY_ZONE,
+  fieldEnemyTextureForSpawn,
+  HIDDEN_ENEMY_TEXTURE_BY_ZONE,
+  hiddenEnemyTextureForZone,
   resolveEnemyFacingAngle,
   SKELETON_FRAME_COUNT,
   SKELETON_ROW_BY_ANGLE,
+  UPGRADED_FIELD_ENEMY_TEXTURE_BY_ZONE,
 } from "../../client/render/enemySprites";
 import {
   ROOM_VIEW,
@@ -64,7 +70,7 @@ const NETWORK_ENEMY_POOL_LIMIT: Record<EnemyKind, number> = {
   boss: 2,
 };
 const UNIT_RENDER_SCALE = 1.3;
-const MIDBOSS_DISPLAY_SIZE = 192 * UNIT_RENDER_SCALE;
+const MIDBOSS_DISPLAY_SIZE = 208 * UNIT_RENDER_SCALE;
 const GATE_DISPLAY_WIDTH = 112 * UNIT_RENDER_SCALE;
 const GATE_DISPLAY_HEIGHT = 130 * UNIT_RENDER_SCALE;
 const BOSS_DISPLAY_SIZE = 250 * UNIT_RENDER_SCALE;
@@ -155,7 +161,8 @@ export class RoomRenderer {
   create(): void {
     createGameTextures(this.scene);
     this.createBasicAttackAnimations();
-    this.createSkeletonAnimations();
+    this.createSkillEffectAnimations();
+    this.createFieldEnemyAnimations();
     this.createVegetationFrames();
     this.createEnvironmentFrames();
     this.createCrosshairTexture();
@@ -163,20 +170,26 @@ export class RoomRenderer {
     this.scene.game.canvas.style.cursor = "none";
   }
 
-  private createSkeletonAnimations(): void {
-    if (!this.scene.textures.exists("enemy-skeleton-unarmed")) return;
-    for (const [angleText, row] of Object.entries(SKELETON_ROW_BY_ANGLE)) {
-      const key = `enemy-skeleton-walk-${angleText}`;
-      if (this.scene.anims.exists(key)) continue;
-      this.scene.anims.create({
-        key,
-        frames: this.scene.anims.generateFrameNumbers("enemy-skeleton-unarmed", {
-          start: row * SKELETON_FRAME_COUNT,
-          end: (row + 1) * SKELETON_FRAME_COUNT - 1,
-        }),
-        frameRate: 10,
-        repeat: -1,
-      });
+  private createFieldEnemyAnimations(): void {
+    for (const texture of [
+      ...Object.values(FIELD_ENEMY_TEXTURE_BY_ZONE),
+      ...Object.values(UPGRADED_FIELD_ENEMY_TEXTURE_BY_ZONE),
+      ...Object.values(HIDDEN_ENEMY_TEXTURE_BY_ZONE),
+    ]) {
+      if (!this.scene.textures.exists(texture)) continue;
+      for (const [angleText, row] of Object.entries(SKELETON_ROW_BY_ANGLE)) {
+        const key = `${texture}-walk-${angleText}`;
+        if (this.scene.anims.exists(key)) continue;
+        this.scene.anims.create({
+          key,
+          frames: this.scene.anims.generateFrameNumbers(texture, {
+            start: row * SKELETON_FRAME_COUNT,
+            end: (row + 1) * SKELETON_FRAME_COUNT - 1,
+          }),
+          frameRate: 10,
+          repeat: -1,
+        });
+      }
     }
   }
 
@@ -209,6 +222,21 @@ export class RoomRenderer {
           repeat: sprite.repeat,
         });
       }
+    }
+  }
+
+  private createSkillEffectAnimations(): void {
+    for (const sprite of SKILL_EFFECT_ALL_SPRITES) {
+      if (this.scene.anims.exists(sprite.animationKey)) continue;
+      this.scene.anims.create({
+        key: sprite.animationKey,
+        frames: this.scene.anims.generateFrameNumbers(sprite.textureKey, {
+          start: 0,
+          end: sprite.frameCount - 1,
+        }),
+        frameRate: sprite.frameRate,
+        repeat: 0,
+      });
     }
   }
 
@@ -1032,6 +1060,10 @@ export class RoomRenderer {
     this.clearEnemyTransientObjects(enemy);
     const frameWidth = Math.max(1, enemy.frame.realWidth);
     const frameHeight = Math.max(1, enemy.frame.realHeight);
+    // Rare units (the former hidden encounter) use fully opaque source art.
+    // Their reveal is already conveyed by the crop and dark tint; fading the
+    // entire sprite from 0.12 made them look permanently ghost-like in motion.
+    const startsOpaque = kind === "hidden";
     const duration = kind === "boss" ? 680 : kind === "gate" || kind === "hidden" ? 560 : 420;
     const shadowWidth = kind === "boss" ? 92 : kind === "gate" || kind === "hidden" ? 68 : 38;
     const shadowHeight = kind === "boss" ? 22 : kind === "gate" || kind === "hidden" ? 17 : 10;
@@ -1048,7 +1080,7 @@ export class RoomRenderer {
     enemy
       .setData("isEmerging", true)
       .setData("hasHoverMotion", false)
-      .setAlpha(0.12)
+      .setAlpha(startsOpaque ? 1 : 0.12)
       .setTint(0x050505)
       .setCrop(
         kind === "gate" ? (frameWidth - 1) / 2 : 0,
@@ -1091,12 +1123,14 @@ export class RoomRenderer {
       ease: "Cubic.easeOut",
       onComplete: () => this.destroyEnemyTransient(enemy, shadow),
     });
-    this.scene.tweens.add({
-      targets: enemy,
-      alpha: 1,
-      duration: Math.min(260, duration),
-      ease: "Quad.easeOut",
-    });
+    if (!startsOpaque) {
+      this.scene.tweens.add({
+        targets: enemy,
+        alpha: 1,
+        duration: Math.min(260, duration),
+        ease: "Quad.easeOut",
+      });
+    }
     this.scene.tweens.add({
       targets: reveal,
       width: frameWidth,
@@ -1167,21 +1201,16 @@ export class RoomRenderer {
     });
   }
 
-  private resolveMidbossTextureKey(): string {
-    const zone = (this.scene as unknown as { currentZone?: number }).currentZone ?? 1;
-    if (zone === 1 && this.scene.textures.exists("enemy-tree-midboss-asset")) {
-      return "enemy-tree-midboss-asset";
-    }
-    if (this.scene.textures.exists("enemy-demon-midboss-asset")) {
-      return "enemy-demon-midboss-asset";
-    }
-    return "enemy-demon-midboss-0";
+  private resolveMidbossTextureKey(zone: number): string {
+    const texture = hiddenEnemyTextureForZone(zone);
+    return this.scene.textures.exists(texture) ? texture : "enemy-demon-midboss-0";
   }
 
   createEnemy(kind: EnemyKind, x: number, y: number): Phaser.Physics.Arcade.Sprite {
     const look = ENEMY_LOOK[kind];
-    const midbossKey = this.resolveMidbossTextureKey();
-    const hasMidbossAsset = kind === "hidden" && (this.scene.textures.exists("enemy-tree-midboss-asset") || this.scene.textures.exists("enemy-demon-midboss-asset"));
+    const zone = (this.scene as unknown as { currentZone?: number }).currentZone ?? 1;
+    const midbossKey = this.resolveMidbossTextureKey(zone);
+    const hasMidbossAsset = kind === "hidden" && midbossKey !== "enemy-demon-midboss-0";
     const hasGateAsset = kind === "gate" && this.scene.textures.exists("enemy-gate-asset");
     const hasBossBullAsset = kind === "boss" && this.scene.textures.exists("enemy-boss-bull-asset");
 
@@ -1194,6 +1223,7 @@ export class RoomRenderer {
           : this.scene.textures.exists("enemy-skeleton-unarmed") ? "enemy-skeleton-unarmed" : "enemy-skeleton-0";
 
     const enemy = this.scene.physics.add.sprite(x, y, textureKey).setDepth(look.depth).setScale(UNIT_RENDER_SCALE);
+    if (kind === "hidden") enemy.setData("hiddenEnemyTexture", midbossKey);
     if (hasMidbossAsset) enemy.setDisplaySize(MIDBOSS_DISPLAY_SIZE, MIDBOSS_DISPLAY_SIZE);
     if (hasGateAsset) enemy.setDisplaySize(GATE_DISPLAY_WIDTH, GATE_DISPLAY_HEIGHT);
     if ((kind === "static" || kind === "invader") && this.scene.textures.exists("enemy-skeleton-unarmed")) enemy.setDisplaySize(SKELETON_DISPLAY_SIZE, SKELETON_DISPLAY_SIZE);
@@ -1208,21 +1238,22 @@ export class RoomRenderer {
   }
 
   /** Network enemies are server-authoritative and do not need an Arcade body. */
-  acquireNetworkEnemy(kind: EnemyKind, x: number, y: number): Phaser.GameObjects.Sprite {
+  acquireNetworkEnemy(kind: EnemyKind, x: number, y: number, zone = 3, enemyId = ""): Phaser.GameObjects.Sprite {
     const pool = this.networkEnemyPool.get(kind);
     const enemy = pool?.pop() ?? this.scene.add.sprite(x, y, ENEMY_LOOK[kind].texture);
-    const midbossKey = this.resolveMidbossTextureKey();
-    const hasMidbossAsset = kind === "hidden" && (this.scene.textures.exists("enemy-tree-midboss-asset") || this.scene.textures.exists("enemy-demon-midboss-asset"));
+    const midbossKey = this.resolveMidbossTextureKey(zone);
+    const hasMidbossAsset = kind === "hidden" && midbossKey !== "enemy-demon-midboss-0";
     const hasGateAsset = kind === "gate" && this.scene.textures.exists("enemy-gate-asset");
     const hasBossBullAsset = kind === "boss" && this.scene.textures.exists("enemy-boss-bull-asset");
 
+    const fieldEnemyTexture = fieldEnemyTextureForSpawn(zone, enemyId);
     const textureKey = kind === "gate"
       ? (hasGateAsset ? "enemy-gate-asset" : "gate")
       : kind === "hidden"
         ? midbossKey
         : kind === "boss"
           ? (hasBossBullAsset ? "enemy-boss-bull-asset" : "boss")
-          : this.scene.textures.exists("enemy-skeleton-unarmed") ? "enemy-skeleton-unarmed" : "enemy-skeleton-0";
+          : this.scene.textures.exists(fieldEnemyTexture) ? fieldEnemyTexture : "enemy-skeleton-0";
 
     enemy
       .setTexture(textureKey)
@@ -1232,9 +1263,11 @@ export class RoomRenderer {
       .setAlpha(1)
       .setVisible(true)
       .setActive(true);
+    enemy.setData("fieldEnemyTexture", fieldEnemyTexture);
+    enemy.setData("hiddenEnemyTexture", midbossKey);
     if (hasMidbossAsset) enemy.setDisplaySize(MIDBOSS_DISPLAY_SIZE, MIDBOSS_DISPLAY_SIZE);
     if (hasGateAsset) enemy.setDisplaySize(GATE_DISPLAY_WIDTH, GATE_DISPLAY_HEIGHT);
-    if ((kind === "static" || kind === "invader") && this.scene.textures.exists("enemy-skeleton-unarmed")) enemy.setDisplaySize(SKELETON_DISPLAY_SIZE, SKELETON_DISPLAY_SIZE);
+    if ((kind === "static" || kind === "invader") && this.scene.textures.exists(fieldEnemyTexture)) enemy.setDisplaySize(SKELETON_DISPLAY_SIZE, SKELETON_DISPLAY_SIZE);
     if (kind === "boss") {
       enemy.setDisplaySize(BOSS_DISPLAY_SIZE, BOSS_DISPLAY_SIZE);
       if (hasBossBullAsset) this.applyBullChargeMotion(enemy);
@@ -1303,10 +1336,15 @@ export class RoomRenderer {
     });
     sprite.setData("enemyFacingAngle", snapAngle);
     if (kind === "hidden") {
-      const midbossKey = this.resolveMidbossTextureKey();
+      const midbossKey = sprite.getData("hiddenEnemyTexture") as string | undefined ?? "enemy-demon-midboss-0";
       if (midbossKey !== "enemy-demon-midboss-0") {
-        sprite.setTexture(midbossKey).setDisplaySize(MIDBOSS_DISPLAY_SIZE, MIDBOSS_DISPLAY_SIZE);
-        if (!sprite.getData("isEmerging")) this.applyDemonHoverMotion(sprite);
+        const row = SKELETON_ROW_BY_ANGLE[snapAngle] ?? 0;
+        if (speedSq > 4) sprite.play(`${midbossKey}-walk-${snapAngle}`, true);
+        else {
+          sprite.stop();
+          sprite.setTexture(midbossKey, row * SKELETON_FRAME_COUNT);
+        }
+        sprite.setDisplaySize(MIDBOSS_DISPLAY_SIZE, MIDBOSS_DISPLAY_SIZE);
       } else {
         sprite.setTexture(`enemy-demon-midboss-${snapAngle}`);
       }
@@ -1326,12 +1364,13 @@ export class RoomRenderer {
         sprite.setDisplaySize(BOSS_DISPLAY_SIZE, BOSS_DISPLAY_SIZE);
       }
     } else if (kind === "static" || kind === "invader") {
-      if (this.scene.textures.exists("enemy-skeleton-unarmed")) {
+      const texture = sprite.getData("fieldEnemyTexture") as string | undefined ?? "enemy-skeleton-unarmed";
+      if (this.scene.textures.exists(texture)) {
         const row = SKELETON_ROW_BY_ANGLE[snapAngle] ?? 0;
-        if (speedSq > 4) sprite.play(`enemy-skeleton-walk-${snapAngle}`, true);
+        if (speedSq > 4) sprite.play(`${texture}-walk-${snapAngle}`, true);
         else {
           sprite.stop();
-          sprite.setTexture("enemy-skeleton-unarmed", row * SKELETON_FRAME_COUNT);
+          sprite.setTexture(texture, row * SKELETON_FRAME_COUNT);
         }
         sprite.setDisplaySize(SKELETON_DISPLAY_SIZE, SKELETON_DISPLAY_SIZE);
       } else {
@@ -1475,41 +1514,36 @@ export class RoomRenderer {
 
   showAutoSkill(classId: HeroClassId, skillId: "q" | "e", attacker: Phaser.GameObjects.Sprite, targetX: number, targetY: number, radius: number): void {
     this.playCombatSound(classId, skillId, attacker.x, attacker.y);
-    const color = classColor(classId);
     const angle = Phaser.Math.Angle.Between(attacker.x, attacker.y, targetX, targetY);
     attacker.setData("attackPoseUntil", this.scene.time.now + 180);
     this.scene.tweens.add({ targets: attacker, scaleX: attacker.scaleX * 1.12, scaleY: attacker.scaleY * 0.88, duration: 80, yoyo: true });
-    if (classId === "swordsman") {
-      const arc = this.scene.add.arc(attacker.x, attacker.y, skillId === "q" ? radius : 48,
-        Phaser.Math.RadToDeg(angle) - (skillId === "q" ? 120 : 35),
-        Phaser.Math.RadToDeg(angle) + (skillId === "q" ? 120 : 35), false)
-        .setStrokeStyle(skillId === "q" ? 14 : 9, 0xfff4b0, 0.92).setDepth(32);
-      this.scene.tweens.add({ targets: arc, scale: 1.2, alpha: 0, duration: 260, onComplete: () => arc.destroy() });
-      if (skillId === "e") this.showAttack(attacker.x, attacker.y, targetX, targetY, color);
-    } else if (classId === "archer") {
-      if (skillId === "q") {
-        for (const offset of [-0.08, 0, 0.08]) {
-          const arrow = this.scene.add.rectangle(attacker.x, attacker.y, 34, 5, 0xd9ffe2, 1).setRotation(angle + offset).setDepth(32);
-          this.scene.tweens.add({ targets: arrow, x: targetX, y: targetY, duration: 180, ease: "Quad.easeIn", onComplete: () => arrow.destroy() });
-        }
-      } else {
-        const rain = this.scene.add.circle(targetX, targetY, radius, color, 0.1).setStrokeStyle(4, color, 0.85).setDepth(30);
-        this.scene.tweens.add({ targets: rain, scale: 1.12, alpha: 0, duration: 420, onComplete: () => rain.destroy() });
-        for (let index = 0; index < 5; index += 1) {
-          const x = targetX + Math.cos(index * 1.7) * radius * 0.65;
-          const y = targetY + Math.sin(index * 1.7) * radius * 0.65;
-          const arrow = this.scene.add.rectangle(x, y - 70, 4, 24, 0xd9ffe2, 0.88).setDepth(32);
-          this.scene.tweens.add({ targets: arrow, y: y, duration: 180 + index * 24, onComplete: () => { this.showImpact(x, y, 20, color); arrow.destroy(); } });
-        }
-      }
-    } else if (skillId === "q") {
-      const orb = this.scene.add.circle(attacker.x, attacker.y, 16, 0xe6c8ff, 0.95).setStrokeStyle(4, 0xffffff, 0.9).setDepth(32);
-      this.scene.tweens.add({ targets: orb, x: targetX, y: targetY, scale: 1.35, duration: 220, ease: "Sine.easeIn", onComplete: () => { this.showImpact(targetX, targetY, 42, color); orb.destroy(); } });
+    const spec = SKILL_EFFECT_SPRITES[classId][skillId];
+    const areaEffect = (classId === "swordsman" && skillId === "q") || (classId !== "swordsman" && skillId === "e");
+    const originX = classId === "swordsman" && skillId === "q" ? attacker.x : areaEffect ? targetX : attacker.x;
+    const originY = classId === "swordsman" && skillId === "q" ? attacker.y : areaEffect ? targetY : attacker.y;
+    const effect = this.scene.add.sprite(originX, originY, spec.textureKey)
+      .setDepth(32)
+      .setBlendMode(Phaser.BlendModes.ADD);
+    if (areaEffect) {
+      const diameter = Math.max(210, radius * 2.35);
+      effect.setDisplaySize(diameter, diameter);
     } else {
-      const rune = this.scene.add.circle(targetX, targetY, radius * 0.45, color, 0.1).setStrokeStyle(4, 0xdcc4ff, 0.9).setDepth(30);
-      this.scene.tweens.add({ targets: rune, scale: 2.1, angle: 180, alpha: 0, duration: 460, onComplete: () => rune.destroy() });
-      this.showImpact(targetX, targetY, radius, color);
+      const size = classId === "archer"
+        ? { width: 300, height: 138 }
+        : classId === "swordsman"
+          ? { width: 280, height: 132 }
+          : { width: 220, height: 104 };
+      effect.setDisplaySize(size.width, size.height).setRotation(angle);
+      this.scene.tweens.add({
+        targets: effect,
+        x: targetX,
+        y: targetY,
+        duration: classId === "archer" ? 180 : 220,
+        ease: classId === "archer" ? "Quad.easeIn" : "Sine.easeIn",
+      });
     }
+    effect.once(Phaser.Animations.Events.ANIMATION_COMPLETE, () => effect.destroy());
+    effect.play(spec.animationKey);
   }
 
   private playCombatSound(classId: HeroClassId, action: CombatSoundAction, x: number, y: number): void {

@@ -88,6 +88,17 @@ test("new enemies emerge from a client-rendered black floor shadow", () => {
   assert.match(renderer, /releaseNetworkEnemy[\s\S]*?clearEnemyTransientObjects\(enemy\)/);
 });
 
+test("rare units remain opaque while their cropped emergence reveal plays", () => {
+  const renderer = readFileSync(new URL("../src/game/runtime/room/RoomRenderer.ts", import.meta.url), "utf8");
+  const emergence = renderer.slice(
+    renderer.indexOf("  private playEnemyEmergence("),
+    renderer.indexOf("  applyBullChargeMotion("),
+  );
+  assert.match(emergence, /const startsOpaque = kind === "hidden"/);
+  assert.match(emergence, /setAlpha\(startsOpaque \? 1 : 0\.12\)/);
+  assert.match(emergence, /if \(!startsOpaque\) \{[\s\S]*?targets: enemy,[\s\S]*?alpha: 1/);
+});
+
 test("moving enemy telegraphs and hidden units do not leave detached visuals behind", () => {
   const scene = readFileSync(new URL("../src/game/runtime/room/RoomGameScene.ts", import.meta.url), "utf8");
   const renderer = readFileSync(new URL("../src/game/runtime/room/RoomRenderer.ts", import.meta.url), "utf8");

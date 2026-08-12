@@ -8,6 +8,7 @@ import {
   swordsmanSlashAnimationDirectionForAim,
   swordsmanSlashDirectionForAim,
 } from "../src/game/client/render/attackEffectSprites";
+import { SKILL_EFFECT_ALL_SPRITES, SKILL_EFFECT_SPRITES } from "../src/game/client/render/skillEffectSprites";
 
 test("basic attacks use independent RGBA sprite sheets with complete frame grids", () => {
   const textureKeys = new Set<string>();
@@ -23,6 +24,21 @@ test("basic attacks use independent RGBA sprite sheets with complete frame grids
     textureKeys.add(sprite.textureKey);
     animationKeys.add(sprite.animationKey);
   }
+});
+
+test("all six class skills use six-frame transparent sprite sheets", () => {
+  assert.equal(SKILL_EFFECT_ALL_SPRITES.length, 6);
+  for (const sprite of SKILL_EFFECT_ALL_SPRITES) {
+    const png = readFileSync(new URL(`../public${sprite.path}`, import.meta.url));
+    assert.equal(png.readUInt32BE(16), sprite.frameWidth * sprite.frameCount);
+    assert.equal(png.readUInt32BE(20), sprite.frameHeight);
+    assert.equal(png[25], 6, `${sprite.path} must use RGBA color data`);
+  }
+});
+
+test("arrow rain keeps its visual on screen longer without changing combat rules", () => {
+  assert.equal(SKILL_EFFECT_SPRITES.archer.e.frameRate, 10);
+  assert.equal(SKILL_EFFECT_SPRITES.archer.q.frameRate, 20);
 });
 
 test("basic attack sprites advance at levels 10, 20, and 30", () => {

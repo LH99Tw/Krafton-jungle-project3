@@ -216,6 +216,14 @@ jobs:
                curl --fail --silent "https://$WEB_HOST/Asset/waypoints/waypoint-circle-zone-2.png" >/dev/null && \
                curl --fail --silent "https://$WEB_HOST/Asset/waypoints/waypoint-circle-zone-3.png" >/dev/null && \
                curl --fail --silent "https://$WEB_HOST/Asset/environment/expedition-base-house-v1.png" >/dev/null && \
+               curl --fail --silent "https://$WEB_HOST/Asset/sprites/goblin-unarmed-8dir-walk-v1.png" >/dev/null && \
+               curl --fail --silent "https://$WEB_HOST/Asset/sprites/demon-unarmed-8dir-walk-v1.png" >/dev/null && \
+               curl --fail --silent "https://$WEB_HOST/Asset/sprites/frog-upgraded-8dir-walk-v1.png" >/dev/null && \
+               curl --fail --silent "https://$WEB_HOST/Asset/sprites/succubus-upgraded-8dir-walk-v1.png" >/dev/null && \
+               curl --fail --silent "https://$WEB_HOST/Asset/sprites/golem-upgraded-8dir-walk-v1.png" >/dev/null && \
+               curl --fail --silent "https://$WEB_HOST/Asset/sprites/hidden-ent-8dir-walk-v1.png" >/dev/null && \
+               curl --fail --silent "https://$WEB_HOST/Asset/sprites/hidden-stone-golem-8dir-walk-v1.png" >/dev/null && \
+               curl --fail --silent "https://$WEB_HOST/Asset/sprites/hidden-dullahan-8dir-walk-v1.png" >/dev/null && \
                curl --fail --silent "https://$WEB_HOST/Asset/sprites/skeleton-unarmed-8dir-walk-v1.png" >/dev/null && \
                curl --fail --silent "https://$GAME_HOST/health/ready" >/dev/null && \
                printf '%s' "$game_live" | grep -q '"fastLane":{"state":"ready"'; then

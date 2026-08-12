@@ -21,7 +21,20 @@ import { buildEditorCoreWorld, editorCoreRoomId } from "@/src/features/map-edito
 import { localCoreSession } from "@/src/features/map-editor/LocalCoreSession";
 import { HERO_SPRITE_FRAME_SIZE, HERO_SPRITE_PATHS, HERO_TOTAL_FRAME_COUNT } from "../../client/render/heroSprites";
 import { BASIC_ATTACK_ALL_SPRITES } from "../../client/render/attackEffectSprites";
-import { SKELETON_FRAME_COUNT, SKELETON_FRAME_SIZE, SKELETON_SPRITE_PATH } from "../../client/render/enemySprites";
+import { SKILL_EFFECT_ALL_SPRITES } from "../../client/render/skillEffectSprites";
+import {
+  DEMON_SPRITE_PATH,
+  FROG_UPGRADED_SPRITE_PATH,
+  GOBLIN_SPRITE_PATH,
+  GOLEM_UPGRADED_SPRITE_PATH,
+  HIDDEN_DULLAHAN_SPRITE_PATH,
+  HIDDEN_ENT_SPRITE_PATH,
+  HIDDEN_STONE_GOLEM_SPRITE_PATH,
+  SKELETON_FRAME_COUNT,
+  SKELETON_FRAME_SIZE,
+  SKELETON_SPRITE_PATH,
+  SUCCUBUS_UPGRADED_SPRITE_PATH,
+} from "../../client/render/enemySprites";
 import { COMBAT_SOUND_PATHS } from "../../client/audio/combatSounds";
 import { colyseusTransport } from "../../transport/ColyseusTransport";
 import { areAuthoredBossGatesCleared, predictPlayerTransform, RealtimeTransformBuffer, shouldRenderPartyMember } from "../../netcode/RealtimeBuffer";
@@ -256,11 +269,58 @@ export class RoomGameScene extends Phaser.Scene {
       frameHeight: SKELETON_FRAME_SIZE,
       endFrame: SKELETON_FRAME_COUNT * 8 - 1,
     });
+    this.load.spritesheet("enemy-goblin-unarmed", GOBLIN_SPRITE_PATH, {
+      frameWidth: SKELETON_FRAME_SIZE,
+      frameHeight: SKELETON_FRAME_SIZE,
+      endFrame: SKELETON_FRAME_COUNT * 8 - 1,
+    });
+    this.load.spritesheet("enemy-lesser-demon-unarmed", DEMON_SPRITE_PATH, {
+      frameWidth: SKELETON_FRAME_SIZE,
+      frameHeight: SKELETON_FRAME_SIZE,
+      endFrame: SKELETON_FRAME_COUNT * 8 - 1,
+    });
+    this.load.spritesheet("enemy-frog-upgraded", FROG_UPGRADED_SPRITE_PATH, {
+      frameWidth: SKELETON_FRAME_SIZE,
+      frameHeight: SKELETON_FRAME_SIZE,
+      endFrame: SKELETON_FRAME_COUNT * 8 - 1,
+    });
+    this.load.spritesheet("enemy-succubus-upgraded", SUCCUBUS_UPGRADED_SPRITE_PATH, {
+      frameWidth: SKELETON_FRAME_SIZE,
+      frameHeight: SKELETON_FRAME_SIZE,
+      endFrame: SKELETON_FRAME_COUNT * 8 - 1,
+    });
+    this.load.spritesheet("enemy-golem-upgraded", GOLEM_UPGRADED_SPRITE_PATH, {
+      frameWidth: SKELETON_FRAME_SIZE,
+      frameHeight: SKELETON_FRAME_SIZE,
+      endFrame: SKELETON_FRAME_COUNT * 8 - 1,
+    });
+    this.load.spritesheet("enemy-hidden-ent", HIDDEN_ENT_SPRITE_PATH, {
+      frameWidth: SKELETON_FRAME_SIZE,
+      frameHeight: SKELETON_FRAME_SIZE,
+      endFrame: SKELETON_FRAME_COUNT * 8 - 1,
+    });
+    this.load.spritesheet("enemy-hidden-stone-golem", HIDDEN_STONE_GOLEM_SPRITE_PATH, {
+      frameWidth: SKELETON_FRAME_SIZE,
+      frameHeight: SKELETON_FRAME_SIZE,
+      endFrame: SKELETON_FRAME_COUNT * 8 - 1,
+    });
+    this.load.spritesheet("enemy-hidden-dullahan", HIDDEN_DULLAHAN_SPRITE_PATH, {
+      frameWidth: SKELETON_FRAME_SIZE,
+      frameHeight: SKELETON_FRAME_SIZE,
+      endFrame: SKELETON_FRAME_COUNT * 8 - 1,
+    });
     for (const sprite of BASIC_ATTACK_ALL_SPRITES) {
       this.load.spritesheet(sprite.textureKey, sprite.path, {
         frameWidth: sprite.frameWidth,
         frameHeight: sprite.frameHeight,
         endFrame: sprite.frameCount * (sprite.rows ?? 1) - 1,
+      });
+    }
+    for (const sprite of SKILL_EFFECT_ALL_SPRITES) {
+      this.load.spritesheet(sprite.textureKey, sprite.path, {
+        frameWidth: sprite.frameWidth,
+        frameHeight: sprite.frameHeight,
+        endFrame: sprite.frameCount - 1,
       });
     }
     for (const [key, path] of Object.entries(COMBAT_SOUND_PATHS)) this.load.audio(key, path);
@@ -1148,7 +1208,8 @@ export class RoomGameScene extends Phaser.Scene {
         : enemy.kind === "gate" || enemy.behavior === "gate" ? "gate"
           : enemy.kind === "hidden" || enemy.kind === "hidden-ranged" || enemy.behavior === "hidden" ? "hidden"
             : enemy.kind === "invader" || enemy.behavior === "invader" ? "invader" : "static";
-      const sprite = this.roomRenderer.acquireNetworkEnemy(kind, enemy.x, enemy.y);
+      const zone = snapshot.rooms.find((room) => room.id === enemy.roomId)?.zone ?? snapshot.currentZone;
+      const sprite = this.roomRenderer.acquireNetworkEnemy(kind, enemy.x, enemy.y, zone, enemy.id);
       this.networkEnemies.set(id, sprite);
       this.networkEnemyKinds.set(id, kind);
       this.networkEnemyHp.set(id, enemy.hp);

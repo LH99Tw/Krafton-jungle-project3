@@ -1,5 +1,6 @@
 import { HERO_SPRITE_PATHS } from "./render/heroSprites";
 import { BASIC_ATTACK_SPRITE_PATHS } from "./render/attackEffectSprites";
+import { SKILL_EFFECT_SPRITE_PATHS } from "./render/skillEffectSprites";
 
 const GAMEPLAY_IMAGE_ASSETS = [
   ...Object.values(HERO_SPRITE_PATHS),
@@ -17,7 +18,16 @@ const GAMEPLAY_IMAGE_ASSETS = [
   "/Asset/waypoints/waypoint-circle-zone-3.png",
   "/Asset/environment/expedition-base-house-v1.png",
   "/Asset/sprites/skeleton-unarmed-8dir-walk-v1.png",
+  "/Asset/sprites/goblin-unarmed-8dir-walk-v1.png",
+  "/Asset/sprites/demon-unarmed-8dir-walk-v1.png",
+  "/Asset/sprites/frog-upgraded-8dir-walk-v1.png",
+  "/Asset/sprites/succubus-upgraded-8dir-walk-v1.png",
+  "/Asset/sprites/golem-upgraded-8dir-walk-v1.png",
+  "/Asset/sprites/hidden-ent-8dir-walk-v1.png",
+  "/Asset/sprites/hidden-stone-golem-8dir-walk-v1.png",
+  "/Asset/sprites/hidden-dullahan-8dir-walk-v1.png",
   ...BASIC_ATTACK_SPRITE_PATHS,
+  ...SKILL_EFFECT_SPRITE_PATHS,
   "/Asset/ui/augment-cards/augment-card-normal.webp",
   "/Asset/ui/augment-cards/augment-card-rare.webp",
   "/Asset/ui/augment-cards/augment-card-epic.webp",

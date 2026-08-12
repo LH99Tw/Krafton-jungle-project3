@@ -1,6 +1,57 @@
 export const SKELETON_SPRITE_PATH = "/Asset/sprites/skeleton-unarmed-8dir-walk-v1.png";
+export const GOBLIN_SPRITE_PATH = "/Asset/sprites/goblin-unarmed-8dir-walk-v1.png";
+export const DEMON_SPRITE_PATH = "/Asset/sprites/demon-unarmed-8dir-walk-v1.png";
+export const FROG_UPGRADED_SPRITE_PATH = "/Asset/sprites/frog-upgraded-8dir-walk-v1.png";
+export const SUCCUBUS_UPGRADED_SPRITE_PATH = "/Asset/sprites/succubus-upgraded-8dir-walk-v1.png";
+export const GOLEM_UPGRADED_SPRITE_PATH = "/Asset/sprites/golem-upgraded-8dir-walk-v1.png";
+export const HIDDEN_ENT_SPRITE_PATH = "/Asset/sprites/hidden-ent-8dir-walk-v1.png";
+export const HIDDEN_STONE_GOLEM_SPRITE_PATH = "/Asset/sprites/hidden-stone-golem-8dir-walk-v1.png";
+export const HIDDEN_DULLAHAN_SPRITE_PATH = "/Asset/sprites/hidden-dullahan-8dir-walk-v1.png";
 export const SKELETON_FRAME_SIZE = 160;
 export const SKELETON_FRAME_COUNT = 8;
+
+export const FIELD_ENEMY_TEXTURE_BY_ZONE: Readonly<Record<number, string>> = {
+  1: "enemy-goblin-unarmed",
+  2: "enemy-skeleton-unarmed",
+  3: "enemy-lesser-demon-unarmed",
+};
+
+export const UPGRADED_FIELD_ENEMY_TEXTURE_BY_ZONE: Readonly<Record<number, string>> = {
+  1: "enemy-frog-upgraded",
+  2: "enemy-golem-upgraded",
+  3: "enemy-succubus-upgraded",
+};
+
+export const HIDDEN_ENEMY_TEXTURE_BY_ZONE: Readonly<Record<number, string>> = {
+  1: "enemy-hidden-ent",
+  2: "enemy-hidden-stone-golem",
+  3: "enemy-hidden-dullahan",
+};
+
+export function hiddenEnemyTextureForZone(zone: number): string {
+  return HIDDEN_ENEMY_TEXTURE_BY_ZONE[zone] ?? HIDDEN_ENEMY_TEXTURE_BY_ZONE[3]!;
+}
+
+export function fieldEnemyTextureForZone(zone: number): string {
+  return FIELD_ENEMY_TEXTURE_BY_ZONE[zone] ?? FIELD_ENEMY_TEXTURE_BY_ZONE[3]!;
+}
+
+export function usesUpgradedFieldEnemySkin(enemyId: string): boolean {
+  return stableEnemyHash(enemyId) % 30 === 0;
+}
+
+export function fieldEnemyTextureForSpawn(zone: number, enemyId: string): string {
+  if (!usesUpgradedFieldEnemySkin(enemyId)) return fieldEnemyTextureForZone(zone);
+  return UPGRADED_FIELD_ENEMY_TEXTURE_BY_ZONE[zone] ?? UPGRADED_FIELD_ENEMY_TEXTURE_BY_ZONE[3]!;
+}
+
+function stableEnemyHash(value: string): number {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = Math.imul(hash ^ value.charCodeAt(index), 16777619);
+  }
+  return hash >>> 0;
+}
 
 const ENEMY_MOVEMENT_FACING_THRESHOLD_SQ = 4;
 
