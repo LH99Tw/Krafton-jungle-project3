@@ -351,6 +351,36 @@ test("schema sync removes retired enemies and their transform caches", () => {
   assert.equal((harness.schemaRoomIds as Map<string, unknown>).has(`enemy:${invader.id}`), false);
 });
 
+test("schema sync removes dead respawnable enemies until they are alive again", () => {
+  const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "schema-corpse-cleanup", minimumPlayers: 1 });
+  const enemy = [...core.enemies.values()].find((candidate) => candidate.kind === "static");
+  assert.ok(enemy);
+  core.discoveredRooms.add(enemy.roomId);
+  const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
+  harness.core = core;
+  harness.state = new PartyRoomState();
+  harness.clients = [];
+  harness.visibleEnemies = new Map();
+  harness.schemaRoomIds = new Map();
+  harness.previousTransforms = new Map();
+  harness.lastEnemyFramePositions = new Map();
+  harness.enemySchemaSnapshots = new Map();
+  harness.lastKeyframeAt = 0;
+  const syncState = (PartyRoom.prototype as unknown as { syncState(this: PartyRoom, force?: boolean): void }).syncState;
+
+  syncState.call(harness as unknown as PartyRoom, true);
+  assert.equal((harness.state as PartyRoomState).enemies.has(enemy.id), true);
+  enemy.alive = false;
+  enemy.hp = 0;
+  syncState.call(harness as unknown as PartyRoom, true);
+  assert.equal((harness.state as PartyRoomState).enemies.has(enemy.id), false);
+
+  enemy.alive = true;
+  enemy.hp = enemy.maxHp;
+  syncState.call(harness as unknown as PartyRoom, true);
+  assert.equal((harness.state as PartyRoomState).enemies.has(enemy.id), true);
+});
+
 test("party room keeps simulation at 60Hz while schema work is limited to 10Hz", () => {
   const harness = Object.create(PartyRoom.prototype) as Record<string, unknown>;
   let updates = 0;

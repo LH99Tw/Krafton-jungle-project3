@@ -2213,7 +2213,10 @@ export class RoomGameScene extends Phaser.Scene {
 
   private syncNetworkEnemies(snapshot: NetworkWorldSnapshot, local: PartyMemberSnapshot): void {
     const enemies = snapshot.enemies;
-    const activeIds = new Set(enemies.map((enemy) => enemy.id));
+    // Dead records remain server-side for static respawns, but their render
+    // objects must be reclaimed immediately so emergence/hover tweens cannot
+    // leave a corpse visible until the next spawn.
+    const activeIds = new Set(enemies.filter((enemy) => enemy.alive).map((enemy) => enemy.id));
     for (const [id, sprite] of this.networkEnemies) {
       if (!activeIds.has(id)) {
         this.roomRenderer.updateEnemyPattern(id, "hidden", "fan", "idle", 0, 0, 0, false);

@@ -919,7 +919,7 @@ export class PartyRoom extends Room<PartyRoomState> {
 
     this.state.enemies.forEach((state, id) => {
       const enemy = this.core.enemies.get(id);
-      if (enemy && this.core.discoveredRooms.has(enemy.roomId)) return;
+      if (enemy?.alive && this.core.discoveredRooms.has(enemy.roomId)) return;
       for (const client of this.clients) {
         if (this.visibleEnemies.get(client.sessionId)?.delete(id)) client.view?.remove(state);
       }
@@ -932,6 +932,7 @@ export class PartyRoom extends Room<PartyRoomState> {
     });
 
     for (const enemy of view.enemies) {
+      if (!enemy.alive) continue;
       let state = this.state.enemies.get(enemy.id);
       const isNew = !state;
       if (!state) {

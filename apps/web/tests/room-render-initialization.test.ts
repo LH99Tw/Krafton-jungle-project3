@@ -45,6 +45,8 @@ test("network enemies use a bounded render queue without client physics bodies",
   assert.match(scene, /NETWORK_ENEMY_SPAWN_BUDGET_MS = 3/);
   assert.match(scene, /NETWORK_ENEMY_SPAWN_LIMIT = 12/);
   assert.match(scene, /materializePendingNetworkEnemies\(\)/);
+  assert.match(scene, /new Set\(enemies\.filter\(\(enemy\) => enemy\.alive\)\.map\(\(enemy\) => enemy\.id\)\)/);
+  assert.match(scene, /releaseNetworkEnemy\(this\.networkEnemyKinds\.get\(id\) \?\? "static", sprite\)/);
   assert.match(renderer, /acquireNetworkEnemy[\s\S]*?this\.scene\.add\.sprite/);
   assert.doesNotMatch(renderer, /acquireNetworkEnemy[\s\S]*?physics\.add\.sprite/);
 });
