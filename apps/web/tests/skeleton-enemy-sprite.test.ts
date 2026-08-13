@@ -152,9 +152,9 @@ test("all upgraded field enemy skins use transparent 8-direction by 8-frame shee
 
 test("hidden enemies use zone-specific transparent 8-direction sheets", async () => {
   assert.equal(HIDDEN_ENEMY_FRAME_COUNT, 7);
-  assert.equal(hiddenEnemyTextureForZone(1), "enemy-hidden-ent");
-  assert.equal(hiddenEnemyTextureForZone(2), "enemy-hidden-stone-golem");
-  assert.equal(hiddenEnemyTextureForZone(3), "enemy-hidden-dullahan");
+  assert.equal(hiddenEnemyTextureForZone(1), "enemy-hidden-ent-v2");
+  assert.equal(hiddenEnemyTextureForZone(2), "enemy-hidden-stone-golem-v2");
+  assert.equal(hiddenEnemyTextureForZone(3), "enemy-hidden-dullahan-v2");
 
   for (const [index, hiddenSource] of hiddenSources.entries()) {
     const input = readFileSync(hiddenSource);

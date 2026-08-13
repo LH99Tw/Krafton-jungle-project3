@@ -78,6 +78,10 @@ const GATE_DISPLAY_HEIGHT = 130 * UNIT_RENDER_SCALE;
 const BOSS_DISPLAY_SIZE = 250 * UNIT_RENDER_SCALE;
 const SKELETON_DISPLAY_SIZE = 100;
 
+function enemyWalkAnimationKey(texture: string, angle: number, frameCount: number): string {
+  return `${texture}-walk-${angle}-${frameCount}f`;
+}
+
 const CRITICAL_ATTACK_COLORS: Record<HeroClassId, number> = {
   swordsman: 0xd8f6ff,
   archer: 0xff9d2e,
@@ -172,8 +176,13 @@ export class RoomRenderer {
     ]) {
       if (!this.scene.textures.exists(texture)) continue;
       const frameCount = hiddenTextures.has(texture) ? HIDDEN_ENEMY_FRAME_COUNT : SKELETON_FRAME_COUNT;
-      for (const [angleText, row] of Object.entries(SKELETON_ROW_BY_ANGLE)) {
-        const key = `${texture}-walk-${angleText}`;
+      for (const angleText of Object.keys(SKELETON_ROW_BY_ANGLE)) {
+        const angle = Number(angleText);
+        const row = enemyFrameRow(texture, angle);
+        // Include the frame layout in the animation key. Otherwise a Phaser
+        // animation created before HMR can keep the obsolete 8-frame ranges
+        // and sample across rows of a replacement 7-frame hidden sheet.
+        const key = enemyWalkAnimationKey(texture, angle, frameCount);
         if (this.scene.anims.exists(key)) continue;
         this.scene.anims.create({
           key,
@@ -1249,7 +1258,7 @@ export class RoomRenderer {
       const midbossKey = sprite.getData("hiddenEnemyTexture") as string | undefined ?? "enemy-demon-midboss-0";
       if (midbossKey !== "enemy-demon-midboss-0") {
         const row = enemyFrameRow(midbossKey, snapAngle);
-        if (speedSq > 4) sprite.play(`${midbossKey}-walk-${snapAngle}`, true);
+        if (speedSq > 4) sprite.play(enemyWalkAnimationKey(midbossKey, snapAngle, HIDDEN_ENEMY_FRAME_COUNT), true);
         else {
           sprite.stop();
           sprite.setTexture(midbossKey, row * HIDDEN_ENEMY_FRAME_COUNT);
@@ -1277,7 +1286,7 @@ export class RoomRenderer {
       const texture = sprite.getData("fieldEnemyTexture") as string | undefined ?? "enemy-skeleton-unarmed";
       if (this.scene.textures.exists(texture)) {
         const row = enemyFrameRow(texture, snapAngle);
-        if (speedSq > 4) sprite.play(`${texture}-walk-${snapAngle}`, true);
+        if (speedSq > 4) sprite.play(enemyWalkAnimationKey(texture, snapAngle, SKELETON_FRAME_COUNT), true);
         else {
           sprite.stop();
           sprite.setTexture(texture, row * SKELETON_FRAME_COUNT);

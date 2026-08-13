@@ -211,6 +211,7 @@ jobs:
           docker compose up -d --remove-orphans
           for attempt in $(seq 1 60); do
             game_live=$(curl --fail --silent "https://$GAME_HOST/health/live" 2>/dev/null || true)
+            sprite_cache_control=$(curl --fail --silent --head "https://$WEB_HOST/Asset/sprites/hidden-stone-golem-7frame-8dir-walk-v2.png" 2>/dev/null | tr -d '\r' | awk -F': ' 'tolower($1) == "cache-control" { print tolower($2); exit }')
             if curl --fail --silent "https://$WEB_HOST/api/health/ready" >/dev/null && \
                curl --fail --silent "https://$WEB_HOST/Asset/waypoints/waypoint-circle-zone-1.png" >/dev/null && \
                curl --fail --silent "https://$WEB_HOST/Asset/waypoints/waypoint-circle-zone-2.png" >/dev/null && \
@@ -225,6 +226,8 @@ jobs:
                curl --fail --silent "https://$WEB_HOST/Asset/sprites/hidden-stone-golem-7frame-8dir-walk-v2.png" >/dev/null && \
                curl --fail --silent "https://$WEB_HOST/Asset/sprites/hidden-dullahan-7frame-8dir-walk-v2.png" >/dev/null && \
                curl --fail --silent "https://$WEB_HOST/Asset/sprites/skeleton-unarmed-8dir-walk-v1.png" >/dev/null && \
+               printf '%s' "$sprite_cache_control" | grep -q 'max-age=0' && \
+               printf '%s' "$sprite_cache_control" | grep -q 'must-revalidate' && \
                curl --fail --silent "https://$GAME_HOST/health/ready" >/dev/null && \
                printf '%s' "$game_live" | grep -q '"fastLane":{"state":"ready"'; then
               exit 0

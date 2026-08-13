@@ -294,17 +294,17 @@ export class RoomGameScene extends Phaser.Scene {
       frameHeight: SKELETON_FRAME_SIZE,
       endFrame: SKELETON_FRAME_COUNT * 8 - 1,
     });
-    this.load.spritesheet("enemy-hidden-ent", HIDDEN_ENT_SPRITE_PATH, {
+    this.load.spritesheet("enemy-hidden-ent-v2", HIDDEN_ENT_SPRITE_PATH, {
       frameWidth: SKELETON_FRAME_SIZE,
       frameHeight: SKELETON_FRAME_SIZE,
       endFrame: HIDDEN_ENEMY_FRAME_COUNT * 8 - 1,
     });
-    this.load.spritesheet("enemy-hidden-stone-golem", HIDDEN_STONE_GOLEM_SPRITE_PATH, {
+    this.load.spritesheet("enemy-hidden-stone-golem-v2", HIDDEN_STONE_GOLEM_SPRITE_PATH, {
       frameWidth: SKELETON_FRAME_SIZE,
       frameHeight: SKELETON_FRAME_SIZE,
       endFrame: HIDDEN_ENEMY_FRAME_COUNT * 8 - 1,
     });
-    this.load.spritesheet("enemy-hidden-dullahan", HIDDEN_DULLAHAN_SPRITE_PATH, {
+    this.load.spritesheet("enemy-hidden-dullahan-v2", HIDDEN_DULLAHAN_SPRITE_PATH, {
       frameWidth: SKELETON_FRAME_SIZE,
       frameHeight: SKELETON_FRAME_SIZE,
       endFrame: HIDDEN_ENEMY_FRAME_COUNT * 8 - 1,

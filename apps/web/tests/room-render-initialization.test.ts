@@ -76,6 +76,16 @@ test("network enemies use a bounded render queue without client physics bodies",
   assert.doesNotMatch(renderer, /acquireNetworkEnemy[\s\S]*?physics\.add\.sprite/);
 });
 
+test("hidden enemy animations cannot reuse stale eight-frame HMR ranges", () => {
+  const scene = readFileSync(new URL("../src/game/runtime/room/RoomGameScene.ts", import.meta.url), "utf8");
+  const renderer = readFileSync(new URL("../src/game/runtime/room/RoomRenderer.ts", import.meta.url), "utf8");
+  assert.match(scene, /spritesheet\("enemy-hidden-stone-golem-v2"/);
+  assert.match(scene, /spritesheet\("enemy-hidden-dullahan-v2"/);
+  assert.match(renderer, /enemyWalkAnimationKey\(texture, angle, frameCount\)/);
+  assert.match(renderer, /const row = enemyFrameRow\(texture, angle\)/);
+  assert.match(renderer, /`\$\{texture\}-walk-\$\{angle\}-\$\{frameCount\}f`/);
+});
+
 test("new enemies emerge from a client-rendered black floor shadow", () => {
   const renderer = readFileSync(new URL("../src/game/runtime/room/RoomRenderer.ts", import.meta.url), "utf8");
   assert.match(renderer, /playEnemyEmergence/);

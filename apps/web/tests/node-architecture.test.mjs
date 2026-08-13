@@ -86,6 +86,13 @@ test("gates deployments on verification and repairs required production settings
   assert.match(instrumentation, /GUESTBOOK_MASTER_KEY is required in production/);
 });
 
+test("deployment-facing public game assets are revalidated instead of served stale", async () => {
+  const config = await readFile(new URL("next.config.ts", root), "utf8");
+  assert.match(config, /public, max-age=0, must-revalidate/);
+  assert.match(config, /"\/Asset\/:path\*", "\/images\/:path\*", "\/audio\/:path\*"/);
+  assert.doesNotMatch(config, /max-age=86400|stale-while-revalidate/);
+});
+
 test("retains the Phaser game while adding the Colyseus transport", async () => {
   const required = [
     "src/game/runtime/room/RoomGameScene.ts",

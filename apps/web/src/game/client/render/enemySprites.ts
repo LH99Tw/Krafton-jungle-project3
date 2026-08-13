@@ -24,9 +24,12 @@ export const UPGRADED_FIELD_ENEMY_TEXTURE_BY_ZONE: Readonly<Record<number, strin
 };
 
 export const HIDDEN_ENEMY_TEXTURE_BY_ZONE: Readonly<Record<number, string>> = {
-  1: "enemy-hidden-ent",
-  2: "enemy-hidden-stone-golem",
-  3: "enemy-hidden-dullahan",
+  // Keep the runtime keys versioned as well as the files. Phaser's global
+  // texture cache survives local HMR, so reusing the v1 keys can pair a
+  // cached 8-frame sheet with the v2 7-frame animation boundaries.
+  1: "enemy-hidden-ent-v2",
+  2: "enemy-hidden-stone-golem-v2",
+  3: "enemy-hidden-dullahan-v2",
 };
 
 export function hiddenEnemyTextureForZone(zone: number): string {
