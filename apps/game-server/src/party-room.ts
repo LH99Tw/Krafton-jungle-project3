@@ -92,7 +92,7 @@ export function replaceSchemaArray<T>(target: { length: number; splice(start: nu
   for (const value of values) target.push(value);
 }
 const WEBSOCKET_SIZE_SAMPLE_INTERVAL = 30;
-const DEFAULT_MAX_ACTIVE_GAMES = 8;
+const DEFAULT_MAX_ACTIVE_GAMES = 3;
 
 type PreviousTransform = { roomId: string; x: number; y: number; at: number; vx: number; vy: number };
 type EnemySchemaSnapshot = {

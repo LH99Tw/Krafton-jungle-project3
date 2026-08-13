@@ -168,7 +168,7 @@ PR과 main push는 다음을 수행한다.
 
 ## 11. 용량과 확장 기준
 
-단일 Lightsail MVP는 배포 workflow에서 `MAX_ACTIVE_GAMES=8`, `MAX_LIVE_INVADERS=15`를 사용한다. 부하 기준을 넘기면 새 기능보다 먼저 다음을 검토한다.
+단일 Lightsail MVP는 배포 workflow에서 `MAX_ACTIVE_GAMES=3`, `MAX_LIVE_INVADERS=15`를 사용한다. 게임 방이 3개 차면 새 방 생성을 거부하고, 부하 기준을 넘기면 새 기능보다 먼저 다음을 검토한다.
 
 현재 단일 호스트의 컨테이너 자원 배분은 실시간 시뮬레이션을 우선한다.
 
