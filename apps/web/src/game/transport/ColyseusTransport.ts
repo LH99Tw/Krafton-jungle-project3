@@ -327,7 +327,7 @@ class ColyseusTransport {
     this.send("equipment.equip", { dropId });
   }
 
-  specialCommand(type: "equipment.inventory-equip" | "equipment.inventory-discard" | "shrine.claim" | "checkpoint.set" | "altar.reroll", payload: Record<string, string | number> = {}): void {
+  specialCommand(type: "equipment.inventory-equip" | "equipment.inventory-discard" | "shrine.claim" | "altar.reroll", payload: Record<string, string | number> = {}): void {
     this.send(type, payload);
   }
 
@@ -870,7 +870,7 @@ function isHeroClass(value: string | undefined): value is HeroClassId {
 }
 
 function isNetworkPhase(value: string | undefined): value is NetworkWorldSnapshot["phase"] {
-  return value === "lobby" || value === "day" || value === "night" || value === "standby" || value === "boss" || value === "ended";
+  return value === "lobby" || value === "day" || value === "night" || value === "boss" || value === "ended";
 }
 
 function isNetworkResult(value: string | undefined): value is Exclude<NetworkWorldSnapshot["resultState"], null> {

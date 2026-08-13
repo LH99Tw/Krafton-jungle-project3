@@ -25,7 +25,7 @@ test("advances day phases deterministically", () => {
   const core = new GameCore({ mode: "prototype", difficulty: "normal", seed: "test", minimumPlayers: 1 });
   core.addPlayer({ userId: "u1", displayName: "용사", heroClass: "mage" });
   core.setReady("u1", true);
-  for (let index = 0; index < 601; index += 1) core.update(0.1);
+  for (let index = 0; index < 1301; index += 1) core.update(0.1);
   assert.equal(core.phase, "night");
 });
 
@@ -40,7 +40,7 @@ test("starts the next day immediately when night ends without a maintenance phas
 
   assert.equal(core.phase, "day");
   assert.equal(core.day, 2);
-  assert.equal(core.phaseRemaining, 60);
+  assert.equal(core.phaseRemaining, 130);
 });
 
 test("night reduces the authoritative player attack range", () => {

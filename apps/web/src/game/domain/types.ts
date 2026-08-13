@@ -4,7 +4,7 @@ import type { EditorMapDefinition } from "./mapEditor";
 export type HeroClassId = "swordsman" | "archer" | "mage";
 type SessionMode = "prototype" | "full";
 type PartyMode = "solo" | "coop";
-export type Phase = "day" | "night" | "standby" | "boss" | "ended";
+export type Phase = "day" | "night" | "boss" | "ended";
 export type BuildMode = "turret" | "wall" | "upgrade" | null;
 type ResultState = "victory" | "defeat";
 

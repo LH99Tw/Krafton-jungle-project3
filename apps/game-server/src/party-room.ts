@@ -312,7 +312,6 @@ export class PartyRoom extends Room<PartyRoomState> {
       "equipment.inventory-equip",
       "equipment.inventory-discard",
       "shrine.claim",
-      "checkpoint.set",
       "altar.reroll",
     ] as const) {
       this.onMessage(messageType, (client, message) => this.handleCommand(client, messageType, message));
@@ -530,10 +529,6 @@ export class PartyRoom extends Room<PartyRoomState> {
     }
     if (command.type === "shrine.claim") {
       if (!this.core.claimShrine(userId)) this.reject(client, "SHRINE_REJECTED");
-      return;
-    }
-    if (command.type === "checkpoint.set") {
-      if (!this.core.setCheckpoint(userId)) this.reject(client, "CHECKPOINT_REJECTED");
       return;
     }
     if (command.type === "altar.reroll") {

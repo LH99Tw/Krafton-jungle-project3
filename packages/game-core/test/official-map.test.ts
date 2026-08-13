@@ -130,7 +130,7 @@ test("advancing to zone two stops zone-one waves and only uses the zone-two gate
   const player = core.addPlayer({ userId: "player", displayName: "Player", heroClass: "swordsman" });
   core.setReady(player.userId, true);
   const updateInvaderSpawning = (core as unknown as { updateInvaderSpawning(delta: number): void }).updateInvaderSpawning.bind(core);
-  const waveInterval = 60 / 8;
+  const waveInterval = 20;
 
   for (let index = 0; index < 112; index += 1) core.update(0.1);
   const zoneOneInvaders = [...core.enemies.values()].filter((enemy) => enemy.kind === "invader");

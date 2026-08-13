@@ -115,7 +115,6 @@ type AuthoredMapRoom = {
 const PHASE_LABELS: Record<Phase, string> = {
   day: "낮 · 방 탐색",
   night: "밤 · 기지 공세",
-  standby: "정산 · 재정비",
   boss: "마왕전",
   ended: "원정 종료",
 };

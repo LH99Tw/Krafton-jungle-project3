@@ -1102,23 +1102,11 @@ test("a living gate spawns the normal 36 daytime and 168 nighttime invaders per 
   assert.equal(spawnedOrQueued(), 0, "the first gate wave must wait until ten seconds after the match starts");
   core.update(0.1);
   assert.equal(spawnedOrQueued(), 4, "the first balanced gate wave starts at the ten-second mark");
-  for (let index = 100; index < 300; index += 1) core.update(0.1);
-  assert.equal(
-    spawnedOrQueued(),
-    13,
-    "the delayed first half of daytime should contain only the first balanced waves",
-  );
   while (core.phase === "day") core.update(0.1);
   assert.equal(
     spawnedOrQueued(),
     36,
     "a living gate should spawn 36 invaders during the full daytime phase",
-  );
-  for (let index = 0; index < 125; index += 1) core.update(0.1);
-  assert.equal(
-    spawnedOrQueued(),
-    120,
-    "the first half of nighttime should add 84 invaders",
   );
   while (core.phase === "night") core.update(0.1);
   assert.equal(

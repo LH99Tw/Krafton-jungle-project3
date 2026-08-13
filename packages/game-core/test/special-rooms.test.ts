@@ -167,8 +167,7 @@ test("discovered checkpoint waypoints provide three-second personal fast travel"
   assert.equal(core.requestTravel(player.userId, baseWaypoint.id, checkpointWaypoint.id), false, "unexplored destinations stay unavailable");
 
   core.movePlayerToRoom(player.userId, checkpointRoomId);
-  assert.equal(core.setCheckpoint(player.userId), true);
-  assert.equal(checkpointWaypoint.active, true);
+  assert.equal(checkpointWaypoint.active, true, "discovering a checkpoint room activates its waypoint");
   assert.equal(core.requestTravel(player.userId, checkpointWaypoint.id, baseWaypoint.id), true);
   for (let index = 0; index < 29; index += 1) core.update(0.1);
   assert.equal(player.roomId, checkpointRoomId);
@@ -181,7 +180,6 @@ test("leaving a waypoint cancels personal fast travel", () => {
   const checkpointWaypoint = [...core.waypoints.values()].find((waypoint) => waypoint.kind === "checkpoint")!;
   const baseWaypoint = [...core.waypoints.values()].find((waypoint) => waypoint.kind === "start")!;
   core.movePlayerToRoom(player.userId, checkpointWaypoint.roomId);
-  assert.equal(core.setCheckpoint(player.userId), true);
   assert.equal(core.requestTravel(player.userId, checkpointWaypoint.id, baseWaypoint.id), true);
   core.update(1);
   player.x += 200;
@@ -200,14 +198,7 @@ test("shrine needs three seconds and waypoint rooms no longer replace the base r
   assert.ok(player.shrineBuff);
   core.movePlayerToRoom(player.userId, "editor:checkpoint" as AuthoredRoomId);
   const checkpoint = [...core.waypoints.values()].find((waypoint) => waypoint.kind === "checkpoint")!;
-  assert.equal(checkpoint.active, false, "discovering a checkpoint room must not activate it remotely");
-  player.x += 200;
-  assert.equal(core.setCheckpoint(player.userId), false, "activation requires standing on the center magic circle");
-  assert.equal(checkpoint.active, false);
-  player.x = checkpoint.x;
-  player.y = checkpoint.y;
-  assert.equal(core.setCheckpoint(player.userId), true);
-  assert.equal(checkpoint.active, true);
+  assert.equal(checkpoint.active, true, "discovering a checkpoint room activates its waypoint");
   core.damagePlayer(player, 1_000_000);
   for (let index = 0; index < 49; index += 1) core.update(0.1);
   assert.equal(player.alive, false);

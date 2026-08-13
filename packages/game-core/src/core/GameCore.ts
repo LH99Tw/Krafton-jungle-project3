@@ -609,7 +609,7 @@ export class GameCore {
     player.skillTargetY = targetY;
     player.skillRadius = radius;
     const baseDamage = (CLASS_COMBAT_RULES[player.heroClass].attackDamage + equipmentBonuses(player.equipment).attackBonus + augmentAttackBonus(player.upgrades))
-      * definition.damageMultiplier * skillPower;
+      * definition.damageMultiplier * skillPower * this.rangeAugmentDamageMultiplier(player.upgrades);
     for (const target of targets) {
       this.damageEnemy(userId, target.id, baseDamage);
       if (player.heroClass === "swordsman" && player.upgrades["swordsman-rupture"]) {
@@ -717,19 +717,6 @@ export class GameCore {
     if (!this.isNearRoomCenter(player, 115)) return false;
     state.shrineClaimingBy = userId;
     state.shrineClaimProgress = 0;
-    return true;
-  }
-
-  setCheckpoint(userId: string): boolean {
-    const player = this.players.get(userId);
-    const state = player ? this.specialRooms.get(player.roomId) : null;
-    if (!player || !player.connected || !player.alive || !state || state.kind !== "checkpoint") return false;
-    if (!this.isNearRoomCenter(player, 115)) return false;
-    const waypoint = [...this.waypoints.values()].find((candidate) => (
-      candidate.roomId === player.roomId && candidate.kind === "checkpoint"
-    ));
-    if (!waypoint) return false;
-    waypoint.active = true;
     return true;
   }
 
@@ -902,7 +889,7 @@ export class GameCore {
     const bladeRange = player.heroClass === "swordsman" ? augmentEffectValue(player.upgrades, "swordsman-blade", "range") : 0;
     return {
       attackDamage: (rules.attackDamage + equipment.attackBonus + augmentAttackBonus(player.upgrades))
-        * player.altarMultipliers.attack * this.shrineAttackMultiplier(shrine),
+        * player.altarMultipliers.attack * this.shrineAttackMultiplier(shrine) * this.rangeAugmentDamageMultiplier(player.upgrades),
       defense: equipment.defenseBonus,
       criticalChance: 100 * Math.min(1, BASE_CRITICAL_CHANCE + augmentEffectValue(player.upgrades, "precision", "points") / 100 + this.shrineCriticalChance(shrine)),
       criticalDamage: (150 + augmentEffectValue(player.upgrades, "ferocity", "percent")
@@ -1085,9 +1072,7 @@ export class GameCore {
     }
     if (roomId === this.bossRoomId()) return;
     for (const waypoint of this.waypoints.values()) {
-      if (waypoint.roomId === roomId && (waypoint.kind === "start" || waypoint.kind === "central")) {
-        waypoint.active = true;
-      }
+      if (waypoint.roomId === roomId) waypoint.active = true;
     }
   }
 
@@ -1321,6 +1306,18 @@ export class GameCore {
     return this.phase === "night" ? range * NIGHT_ATTACK_RANGE_MULTIPLIER : range;
   }
 
+  /**
+   * Range/area augments widen attacks and skills without raising raw damage, so
+   * each also grants a modest damage bonus to keep them from being a DPS loss.
+   */
+  private rangeAugmentDamageMultiplier(upgrades: CorePlayer["upgrades"]): number {
+    return 1 + (
+      augmentEffectValue(upgrades, "area-power", "damagePercent")
+      + augmentEffectValue(upgrades, "swordsman-whirlwind", "damagePercent")
+      + augmentEffectValue(upgrades, "mage-nova", "damagePercent")
+    ) / 100;
+  }
+
   private skillClusterScore(
     anchor: CoreEnemy,
     definition: ReturnType<typeof autoSkillDefinition>,
@@ -1331,7 +1328,7 @@ export class GameCore {
       && (enemy.x - anchor.x) ** 2 + (enemy.y - anchor.y) ** 2 <= radiusSquared).length;
   }
 
-  private transition(phase: "day" | "night" | "standby"): void {
+  private transition(phase: "day" | "night"): void {
     this.phase = phase;
     this.phaseRemaining = durations[this.options.mode][phase];
     this.invaderDirector.resetWaveProgress();
@@ -1341,7 +1338,7 @@ export class GameCore {
     const rules = CLASS_COMBAT_RULES[player.heroClass];
     const shrine = this.activeShrine(player);
     let damage = (rules.attackDamage + equipmentBonuses(player.equipment).attackBonus + augmentAttackBonus(player.upgrades))
-      * player.altarMultipliers.attack * this.shrineAttackMultiplier(shrine);
+      * player.altarMultipliers.attack * this.shrineAttackMultiplier(shrine) * this.rangeAugmentDamageMultiplier(player.upgrades);
     if (this.trapDebuff(player) === "attack") damage *= 0.5;
     const criticalChance = Math.min(1, BASE_CRITICAL_CHANCE + augmentEffectValue(player.upgrades, "precision", "points") / 100 + this.shrineCriticalChance(shrine));
     const critical = deterministicCombatRoll(this.options.seed, player.userId, player.attackCount) < criticalChance;

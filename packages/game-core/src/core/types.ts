@@ -14,7 +14,7 @@ import type {
   CoreWorldDefinition,
 } from "../v02/simulation";
 
-export type CorePhase = "lobby" | "day" | "night" | "standby" | "boss" | "ended";
+export type CorePhase = "lobby" | "day" | "night" | "boss" | "ended";
 export type CoreResult = "victory" | "defeat" | "abandoned";
 export type CoreNotice = Readonly<{
   userId: string | null;

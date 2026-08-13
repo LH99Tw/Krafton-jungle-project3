@@ -272,7 +272,6 @@ const specialRoomCommand = <TType extends string, T extends z.ZodRawShape>(type:
 export const equipmentInventoryEquipSchema = specialRoomCommand("equipment.inventory-equip", { inventoryIndex: z.number().int().min(0).max(5) });
 export const equipmentInventoryDiscardSchema = specialRoomCommand("equipment.inventory-discard", { inventoryIndex: z.number().int().min(0).max(5) });
 export const shrineClaimSchema = specialRoomCommand("shrine.claim", {});
-export const checkpointSetSchema = specialRoomCommand("checkpoint.set", {});
 export const altarRerollSchema = specialRoomCommand("altar.reroll", {});
 
 export const clientCommandSchema = z.discriminatedUnion("type", [
@@ -289,7 +288,6 @@ export const clientCommandSchema = z.discriminatedUnion("type", [
   equipmentInventoryEquipSchema,
   equipmentInventoryDiscardSchema,
   shrineClaimSchema,
-  checkpointSetSchema,
   altarRerollSchema,
 ]);
 

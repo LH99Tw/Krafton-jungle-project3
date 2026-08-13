@@ -10,11 +10,15 @@ export const LEVEL_XP_ROUNDING_UNIT = 10;
 export type AugmentRarity = "normal" | "rare" | "epic";
 export type AugmentPool = "general" | "milestone";
 
-/** High-rarity level-up choices are intentionally less frequent. */
+/**
+ * Rarity tier weights used by the tier-first draft draw. Higher rarities are
+ * intentionally rarer so a draft skews toward normal choices regardless of how
+ * many high-rarity definitions happen to exist in the pool.
+ */
 export const AUGMENT_RARITY_WEIGHTS: Readonly<Record<AugmentRarity, number>> = {
-  normal: 1,
-  rare: 0.5,
-  epic: 0.25,
+  normal: 0.6,
+  rare: 0.3,
+  epic: 0.1,
 };
 
 export type AugmentId =
@@ -69,92 +73,92 @@ export const GENERAL_AUGMENTS: readonly AugmentDefinition[] = [
   {
     id: "power",
     name: "무모한 연마",
-    description: "공격력 +1.5",
+    description: "공격력 +2.25",
     pool: "general",
     rarity: "normal",
     maxStacks: 4,
-    effect: { kind: "attack-flat", values: { amount: 1.5 } },
+    effect: { kind: "attack-flat", values: { amount: 2.25 } },
   },
   {
     id: "haste",
     name: "신속의 문장",
-    description: "자동 공격 속도 +4%",
+    description: "자동 공격 속도 +6%",
     pool: "general",
     rarity: "normal",
     maxStacks: 4,
-    effect: { kind: "attack-speed-percent", values: { percent: 4 } },
+    effect: { kind: "attack-speed-percent", values: { percent: 6 } },
   },
   {
     id: "multishot",
     name: "쌍둥이 별",
-    description: "원거리는 투사체 +1, 근접은 공격 범위 +10%",
+    description: "원거리는 투사체 +1, 근접은 공격 범위 +15%",
     pool: "general",
     rarity: "epic",
     maxStacks: 2,
-    effect: { kind: "class-adaptive-multishot", values: { projectileCount: 1, meleeRangePercent: 10 } },
+    effect: { kind: "class-adaptive-multishot", values: { projectileCount: 1, meleeRangePercent: 15 } },
   },
   {
     id: "skill-power",
     name: "불안정한 마력",
-    description: "스킬 위력 +9%",
+    description: "스킬 위력 +13.5%",
     pool: "general",
     rarity: "rare",
     maxStacks: 3,
-    effect: { kind: "skill-power-percent", values: { percent: 9 } },
+    effect: { kind: "skill-power-percent", values: { percent: 13.5 } },
   },
   {
     id: "precision",
     name: "매의 눈",
-    description: "치명타 확률 +2%p",
+    description: "치명타 확률 +3%p",
     pool: "general",
     rarity: "normal",
     maxStacks: 4,
-    effect: { kind: "critical-chance-points", values: { points: 2 } },
+    effect: { kind: "critical-chance-points", values: { points: 3 } },
   },
   {
     id: "ferocity",
     name: "잔혹한 예리함",
-    description: "치명타 피해 +8%",
+    description: "치명타 피해 +12%",
     pool: "general",
     rarity: "rare",
     maxStacks: 4,
-    effect: { kind: "critical-damage-percent", values: { percent: 8 } },
+    effect: { kind: "critical-damage-percent", values: { percent: 12 } },
   },
   {
     id: "boss-hunter",
     name: "거물 사냥꾼",
-    description: "엘리트·게이트·보스 피해 +4%",
+    description: "엘리트·게이트·보스 피해 +6%",
     pool: "general",
     rarity: "rare",
     maxStacks: 4,
-    effect: { kind: "major-target-damage-percent", values: { percent: 4 } },
+    effect: { kind: "major-target-damage-percent", values: { percent: 6 } },
   },
   {
     id: "skill-haste",
     name: "가속 각인",
-    description: "스킬 재사용 대기시간 -2%",
+    description: "스킬 재사용 대기시간 -3%",
     pool: "general",
     rarity: "rare",
     maxStacks: 4,
-    effect: { kind: "skill-cooldown-reduction-percent", values: { percent: 2 } },
+    effect: { kind: "skill-cooldown-reduction-percent", values: { percent: 3 } },
   },
   {
     id: "area-power",
     name: "확산하는 힘",
-    description: "공격 및 스킬 범위 +5%",
+    description: "공격 및 스킬 범위 +7.5%, 피해 +5%",
     pool: "general",
-    rarity: "rare",
+    rarity: "epic",
     maxStacks: 4,
-    effect: { kind: "attack-area-percent", values: { percent: 5 } },
+    effect: { kind: "attack-area-percent", values: { percent: 7.5, damagePercent: 5 } },
   },
   {
     id: "momentum",
     name: "끊임없는 공세",
-    description: "같은 대상을 연속 타격할 때 타격당 피해 +1.5%, 최대 +6%",
+    description: "같은 대상을 연속 타격할 때 타격당 피해 +2.25%, 최대 +9%",
     pool: "general",
     rarity: "rare",
     maxStacks: 4,
-    effect: { kind: "consecutive-hit-damage", values: { percentPerHit: 1.5, maxPercent: 6 } },
+    effect: { kind: "consecutive-hit-damage", values: { percentPerHit: 2.25, maxPercent: 9 } },
   },
 ] as const;
 
@@ -167,47 +171,47 @@ export const MILESTONE_AUGMENTS: readonly AugmentDefinition[] = [
     rarity: "epic",
     maxStacks: 1,
     classId: "swordsman",
-    effect: { kind: "blade-projectile", values: { range: 240, damagePercent: 50 } },
+    effect: { kind: "blade-projectile", values: { range: 240, damagePercent: 75 } },
   },
   {
     id: "swordsman-execution",
     name: "처형자",
-    description: "체력 30% 이하 적에게 주는 피해 +30%",
+    description: "체력 30% 이하 적에게 주는 피해 +45%",
     pool: "milestone",
     rarity: "rare",
     maxStacks: 1,
     classId: "swordsman",
-    effect: { kind: "execute-damage", values: { hpThresholdPercent: 30, damagePercent: 30 } },
+    effect: { kind: "execute-damage", values: { hpThresholdPercent: 30, damagePercent: 45 } },
   },
   {
     id: "swordsman-whirlwind",
     name: "회오리 검무",
-    description: "근접 자동 공격의 부채꼴 각도 +22.5%",
+    description: "근접 자동 공격의 부채꼴 각도 +33.75%, 피해 +12%",
     pool: "milestone",
     rarity: "epic",
     maxStacks: 1,
     classId: "swordsman",
-    effect: { kind: "melee-arc-percent", values: { percent: 22.5 } },
+    effect: { kind: "melee-arc-percent", values: { percent: 33.75, damagePercent: 12 } },
   },
   {
     id: "swordsman-combo",
     name: "삼연참",
-    description: "세 번째 자동 공격이 +50% 피해를 줍니다.",
+    description: "세 번째 자동 공격이 +75% 피해를 줍니다.",
     pool: "milestone",
     rarity: "rare",
     maxStacks: 1,
     classId: "swordsman",
-    effect: { kind: "nth-attack-damage", values: { attackNumber: 3, damagePercent: 50 } },
+    effect: { kind: "nth-attack-damage", values: { attackNumber: 3, damagePercent: 75 } },
   },
   {
     id: "swordsman-rupture",
     name: "갑주 파쇄",
-    description: "스킬 적중 시 3초간 대상이 받는 피해 +7.5%",
+    description: "스킬 적중 시 3초간 대상이 받는 피해 +11.25%",
     pool: "milestone",
     rarity: "rare",
     maxStacks: 1,
     classId: "swordsman",
-    effect: { kind: "vulnerability-on-skill", values: { durationMs: 3_000, damagePercent: 7.5 } },
+    effect: { kind: "vulnerability-on-skill", values: { durationMs: 3_000, damagePercent: 11.25 } },
   },
   {
     id: "archer-volley",
@@ -222,12 +226,12 @@ export const MILESTONE_AUGMENTS: readonly AugmentDefinition[] = [
   {
     id: "archer-sniper",
     name: "명사수",
-    description: "거리에 따라 피해가 증가해 최대 +27.5%가 됩니다.",
+    description: "거리에 따라 피해가 증가해 최대 +41.25%가 됩니다.",
     pool: "milestone",
     rarity: "rare",
     maxStacks: 1,
     classId: "archer",
-    effect: { kind: "distance-damage", values: { startDistance: 180, maxDistance: 460, maxPercent: 27.5 } },
+    effect: { kind: "distance-damage", values: { startDistance: 180, maxDistance: 460, maxPercent: 41.25 } },
   },
   {
     id: "archer-piercing",
@@ -242,72 +246,72 @@ export const MILESTONE_AUGMENTS: readonly AugmentDefinition[] = [
   {
     id: "archer-ricochet",
     name: "되튐 사격",
-    description: "첫 적중 후 다른 적 1명에게 32.5% 피해로 도탄합니다.",
+    description: "첫 적중 후 다른 적 1명에게 48.75% 피해로 도탄합니다.",
     pool: "milestone",
     rarity: "epic",
     maxStacks: 1,
     classId: "archer",
-    effect: { kind: "projectile-ricochet", values: { targets: 1, damagePercent: 32.5 } },
+    effect: { kind: "projectile-ricochet", values: { targets: 1, damagePercent: 48.75 } },
   },
   {
     id: "archer-mark",
     name: "사냥감 표식",
-    description: "스킬 적중 시 5초간 자동 공격 피해 +12.5% 표식을 남깁니다.",
+    description: "스킬 적중 시 5초간 자동 공격 피해 +18.75% 표식을 남깁니다.",
     pool: "milestone",
     rarity: "rare",
     maxStacks: 1,
     classId: "archer",
-    effect: { kind: "mark-on-skill", values: { durationMs: 5_000, autoAttackDamagePercent: 12.5 } },
+    effect: { kind: "mark-on-skill", values: { durationMs: 5_000, autoAttackDamagePercent: 18.75 } },
   },
   {
     id: "mage-nova",
     name: "파괴술사",
-    description: "마력탄과 룬의 폭발 범위 +27.5%",
+    description: "마력탄과 룬의 폭발 범위 +41.25%, 피해 +15%",
     pool: "milestone",
     rarity: "epic",
     maxStacks: 1,
     classId: "mage",
-    effect: { kind: "magic-area-percent", values: { percent: 27.5 } },
+    effect: { kind: "magic-area-percent", values: { percent: 41.25, damagePercent: 15 } },
   },
   {
     id: "mage-tempo",
     name: "시공술사",
-    description: "스킬 재사용 대기시간 -12.5%",
+    description: "스킬 재사용 대기시간 -18.75%",
     pool: "milestone",
     rarity: "rare",
     maxStacks: 1,
     classId: "mage",
-    effect: { kind: "skill-cooldown-reduction-percent", values: { percent: 12.5 } },
+    effect: { kind: "skill-cooldown-reduction-percent", values: { percent: 18.75 } },
   },
   {
     id: "mage-chain",
     name: "연쇄 붕괴",
-    description: "폭발이 다른 적 1명에게 30% 피해로 연쇄됩니다.",
+    description: "폭발이 다른 적 1명에게 45% 피해로 연쇄됩니다.",
     pool: "milestone",
     rarity: "epic",
     maxStacks: 1,
     classId: "mage",
-    effect: { kind: "magic-chain", values: { targets: 1, damagePercent: 30 } },
+    effect: { kind: "magic-chain", values: { targets: 1, damagePercent: 45 } },
   },
   {
     id: "mage-overcharge",
     name: "과충전",
-    description: "네 번째 자동 공격이 +60% 피해를 줍니다.",
+    description: "네 번째 자동 공격이 +90% 피해를 줍니다.",
     pool: "milestone",
     rarity: "rare",
     maxStacks: 1,
     classId: "mage",
-    effect: { kind: "nth-attack-damage", values: { attackNumber: 4, damagePercent: 60 } },
+    effect: { kind: "nth-attack-damage", values: { attackNumber: 4, damagePercent: 90 } },
   },
   {
     id: "mage-echo",
     name: "주문 메아리",
-    description: "Q/E 스킬이 0.35초 뒤 27.5% 위력으로 한 번 반복됩니다.",
+    description: "Q/E 스킬이 0.35초 뒤 41.25% 위력으로 한 번 반복됩니다.",
     pool: "milestone",
     rarity: "rare",
     maxStacks: 1,
     classId: "mage",
-    effect: { kind: "skill-echo", values: { delayMs: 350, damagePercent: 27.5 } },
+    effect: { kind: "skill-echo", values: { delayMs: 350, damagePercent: 41.25 } },
   },
 ] as const;
 
@@ -402,16 +406,30 @@ export function createAugmentDraft(input: AugmentDraftInput): readonly AugmentDe
   const choices: AugmentDefinition[] = [];
   const remaining = [...pool];
   while (choices.length < 3) {
-    const totalWeight = remaining.reduce((sum, definition) => sum + AUGMENT_RARITY_WEIGHTS[definition.rarity], 0);
-    let roll = random.next() * totalWeight;
-    const selectedIndex = remaining.findIndex((definition) => {
-      roll -= AUGMENT_RARITY_WEIGHTS[definition.rarity];
-      return roll < 0;
-    });
-    const index = selectedIndex >= 0 ? selectedIndex : remaining.length - 1;
-    choices.push(remaining.splice(index, 1)[0] as AugmentDefinition);
+    const rarity = rollRarity(remaining, random);
+    const candidates = remaining.filter((definition) => definition.rarity === rarity);
+    const index = Math.floor(random.next() * candidates.length);
+    const picked = candidates[index]!;
+    choices.push(picked);
+    remaining.splice(remaining.indexOf(picked), 1);
   }
   return choices;
+}
+
+function rollRarity(
+  remaining: readonly AugmentDefinition[],
+  random: ReturnType<typeof createSeededRandom>,
+): AugmentRarity {
+  const present = (["normal", "rare", "epic"] as const).filter((rarity) => (
+    remaining.some((definition) => definition.rarity === rarity)
+  ));
+  const totalWeight = present.reduce((sum, rarity) => sum + AUGMENT_RARITY_WEIGHTS[rarity], 0);
+  let roll = random.next() * totalWeight;
+  for (const rarity of present) {
+    roll -= AUGMENT_RARITY_WEIGHTS[rarity];
+    if (roll < 0) return rarity;
+  }
+  return present.at(-1)!;
 }
 
 export function addAugmentStack(stacks: AugmentStacks, id: AugmentId): AugmentStacks {

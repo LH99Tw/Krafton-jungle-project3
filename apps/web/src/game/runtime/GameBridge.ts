@@ -59,7 +59,7 @@ export type GameCommand =
   | { type: "return-base" }
   | { type: "interact"; targetId: string }
   | { type: "travel"; waypointId: string; destinationId: string }
-  | { type: "special-room"; action: "equipment.inventory-equip" | "equipment.inventory-discard" | "shrine.claim" | "checkpoint.set" | "altar.reroll"; payload?: Record<string, string | number> }
+  | { type: "special-room"; action: "equipment.inventory-equip" | "equipment.inventory-discard" | "shrine.claim" | "altar.reroll"; payload?: Record<string, string | number> }
   | { type: "restart" };
 
 export const gameBridge = new GameBridge();

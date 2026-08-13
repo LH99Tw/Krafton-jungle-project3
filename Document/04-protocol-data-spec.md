@@ -65,7 +65,6 @@
 | `equipment.inventory-equip` | `{ inventoryIndex }` | 구현 |
 | `equipment.inventory-discard` | `{ inventoryIndex }` | 구현 |
 | `shrine.claim` | `{}` | 구현 |
-| `checkpoint.set` | `{}` | 구현 |
 | `altar.reroll` | `{}` | 구현 |
 | `build.place` | `{ buildingId, gridX, gridY }` | `BUILD_NOT_READY` |
 | `build.upgrade` | `{ structureId }` | `BUILD_NOT_READY` |

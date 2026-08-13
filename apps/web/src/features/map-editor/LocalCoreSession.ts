@@ -136,7 +136,6 @@ export class LocalCoreSession {
     if (type === "equipment.inventory-equip") return core.equipInventoryItem(this.localUserId, Number(payload.inventoryIndex));
     if (type === "equipment.inventory-discard") return core.discardInventoryItem(this.localUserId, Number(payload.inventoryIndex));
     if (type === "shrine.claim") return core.claimShrine(this.localUserId);
-    if (type === "checkpoint.set") return core.setCheckpoint(this.localUserId);
     if (type === "altar.reroll") return core.rerollAltar(this.localUserId) !== null;
     return false;
   }
