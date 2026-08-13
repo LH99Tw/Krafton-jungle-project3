@@ -193,7 +193,7 @@ jobs:
           upsert_env .env.game FASTLANE_CERT_PATH /run/secrets/fastlane/tls.crt
           upsert_env .env.game FASTLANE_KEY_PATH /run/secrets/fastlane/tls.key
           upsert_env .env.game FASTLANE_MAINTENANCE_MS 10000
-          upsert_env .env.game MAX_ACTIVE_GAMES 8
+          upsert_env .env.game MAX_ACTIVE_GAMES 3
           upsert_env .env.game MAX_LIVE_INVADERS 15
           upsert_env .env.game INVADER_MULTIRATE_PERCENT 10
           upsert_env .env.game INVADER_SCHEDULER_DISABLED false

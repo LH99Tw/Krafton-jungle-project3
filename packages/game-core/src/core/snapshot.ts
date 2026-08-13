@@ -22,7 +22,11 @@ export function createCoreViewSnapshot(core: GameCore): CoreViewSnapshot {
       core.discoveredRooms.has(enemy.roomId) || core.activatedEnemyRooms.has(enemy.roomId)
     )),
     drops: [...core.drops.values()],
-    waypoints: [...core.waypoints.values()].filter((waypoint) => core.discoveredRooms.has(waypoint.roomId)),
+    waypoints: [...core.waypoints.values()]
+      .filter((waypoint) => core.discoveredRooms.has(waypoint.roomId))
+      .map((waypoint) => core.discoveredRooms.has(waypoint.roomId)
+        ? { ...waypoint, active: true }
+        : waypoint),
     specialRooms: [...core.specialRooms.values()].filter((room) => core.discoveredRooms.has(room.roomId)),
   };
 }

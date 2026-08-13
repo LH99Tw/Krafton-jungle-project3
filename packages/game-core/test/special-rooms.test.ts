@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GameCore, type AuthoredRoomId, type CoreWorldDefinition } from "../src/index";
+import { createCoreViewSnapshot, GameCore, type AuthoredRoomId, type CoreWorldDefinition } from "../src/index";
 
 const room = (id: string, kind: CoreWorldDefinition["rooms"][number]["kind"], zone: 1 | 2 | 3, x: number) => ({
   id: `editor:${id}` as AuthoredRoomId, zone, kind, rect: { x, y: 0, width: 1_000, height: 700 }, mapX: x / 1_000,
@@ -168,6 +168,13 @@ test("discovered checkpoint waypoints provide three-second personal fast travel"
 
   core.movePlayerToRoom(player.userId, checkpointRoomId);
   assert.equal(checkpointWaypoint.active, true, "discovering a checkpoint room activates its waypoint");
+  checkpointWaypoint.active = false;
+  assert.equal(
+    createCoreViewSnapshot(core).waypoints.find((waypoint) => waypoint.id === checkpointWaypoint.id)?.active,
+    true,
+    "discovered checkpoint waypoints stay active in the authoritative snapshot",
+  );
+  checkpointWaypoint.active = true;
   assert.equal(core.requestTravel(player.userId, checkpointWaypoint.id, baseWaypoint.id), true);
   for (let index = 0; index < 29; index += 1) core.update(0.1);
   assert.equal(player.roomId, checkpointRoomId);

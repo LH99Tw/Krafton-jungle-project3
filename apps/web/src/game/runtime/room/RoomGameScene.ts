@@ -891,7 +891,10 @@ export class RoomGameScene extends Phaser.Scene {
   }
 
   private activeWaypointRooms(snapshot: NetworkWorldSnapshot): Set<string> {
-    return new Set(snapshot.waypoints.filter((waypoint) => waypoint.active).map((waypoint) => waypoint.roomId));
+    const discoveredRooms = new Set(snapshot.rooms.filter((room) => room.visited).map((room) => room.id));
+    return new Set(snapshot.waypoints
+      .filter((waypoint) => waypoint.active || discoveredRooms.has(waypoint.roomId))
+      .map((waypoint) => waypoint.roomId));
   }
 
   private waypointRenderKey(snapshot: NetworkWorldSnapshot): string {
