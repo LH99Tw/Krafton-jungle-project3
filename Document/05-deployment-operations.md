@@ -170,6 +170,15 @@ PR과 main push는 다음을 수행한다.
 
 단일 Lightsail MVP는 배포 workflow에서 `MAX_ACTIVE_GAMES=8`, `MAX_LIVE_INVADERS=15`를 사용한다. 부하 기준을 넘기면 새 기능보다 먼저 다음을 검토한다.
 
+현재 단일 호스트의 컨테이너 자원 배분은 실시간 시뮬레이션을 우선한다.
+
+| 서비스 | CPU 상한 | 메모리 상한 |
+|---|---:|---:|
+| web | 0.6 vCPU | 384MB |
+| game-server | 1.4 vCPU | 576MB |
+
+웹과 게임 서버의 애플리케이션 자원 비율은 CPU 30:70, 메모리 40:60이다. PostgreSQL·Caddy 자원은 별도 상한으로 유지하며, 게임 서버의 event-loop 지연이 지속되면 게임 서버를 별도 인스턴스로 분리한다.
+
 1. PostgreSQL을 RDS로 분리한다.
 2. Redis 기반 Colyseus presence/driver와 공유 rate limit을 추가한다.
 3. web과 game server를 독립 확장한다.

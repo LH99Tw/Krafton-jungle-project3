@@ -85,7 +85,8 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    mem_limit: 512m
+    cpus: "0.6"
+    mem_limit: 384m
 
   game-server:
     image: ${GAME_IMAGE:-five-days-game-server:local}
@@ -115,7 +116,8 @@ services:
       postgres:
         condition: service_healthy
     restart: unless-stopped
-    mem_limit: 512m
+    cpus: "1.4"
+    mem_limit: 576m
 
   migrate:
     image: ${GAME_IMAGE:-five-days-game-server:local}
