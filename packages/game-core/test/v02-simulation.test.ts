@@ -1388,6 +1388,22 @@ test("same-room invaders at 900px stay Near while contact-range invaders are Com
   assert.equal(core.invaderSimulationTiers.hot, 1);
 });
 
+test("night vision radius keeps distant same-room invaders cold while combat remains hot", () => {
+  const core = startedCore("night-vision-tier");
+  const player = core.players.get("p1")!;
+  const invader = core.spawnInvader(1);
+  core.phase = "night";
+  core.movePlayerToRoom(player.userId, invader.roomId);
+  player.x = invader.x + 2_000;
+  player.y = invader.y;
+  core.update(1 / 60);
+  assert.equal(core.invaderSimulationTiers.cold, 1);
+
+  player.x = invader.x + 300;
+  core.update(0.1);
+  assert.equal(core.invaderSimulationTiers.hot, 1);
+});
+
 test("cold multirate movement remains within the promised 100ms arrival error", () => {
   const create = (rates: { warmHz: number; coldHz: number }) => {
     const core = new GameCore({

@@ -1,3 +1,4 @@
+import { NIGHT_PLAYER_VISION_RADIUS, PLAYER_VISION_RADIUS } from "@five-days/protocol";
 import { createSeededRandom, hashSeed } from "../../v02/random";
 import {
   createInvaderEnemy,
@@ -296,21 +297,24 @@ export class InvaderDirector {
     const playerTargets = this.playerTargetScratch;
     const playerRooms = this.playerRoomsScratch;
     const warmRooms = this.invaderWarmRooms(playerRooms);
+    const visionRadius = this.core.phase === "night" ? NIGHT_PLAYER_VISION_RADIUS : PLAYER_VISION_RADIUS;
     let hotCount = 0;
     let warmCount = 0;
     let coldCount = 0;
     for (const enemy of this.core.enemies.values()) {
       if (!enemy.alive || enemy.behavior !== "invader") continue;
       const playerTarget = playerTargets.get(enemy.id) ?? null;
-      const playerDistance = playerTarget && playerTarget.roomId === enemy.roomId
-        ? Math.hypot(playerTarget.x - enemy.x, playerTarget.y - enemy.y)
-        : Number.POSITIVE_INFINITY;
+      const playerDistance = this.nearestPlayerDistanceInRoom(enemy);
       const baseDestination = this.invaderBaseDestination(enemy);
       const baseCenter = enemy.roomId === baseDestination ? this.core.roomWorldCenterOf(baseDestination) : null;
       const baseDistance = baseCenter ? Math.hypot(baseCenter.x - enemy.x, baseCenter.y - enemy.y) : Number.POSITIVE_INFINITY;
       const hot = playerDistance <= Math.max(INVADER_COMBAT_RADIUS, enemy.attackRange + enemy.speed * 0.1)
         || baseDistance <= Math.max(INVADER_COMBAT_RADIUS, INVADER_BASE_RADIUS + enemy.speed * 0.1);
-      const warm = !hot && (Boolean(playerTarget) || playerRooms.has(enemy.roomId) || warmRooms.has(enemy.roomId));
+      const warm = !hot && (
+        Boolean(playerTarget)
+        || playerDistance <= visionRadius
+        || (this.core.phase !== "night" && (playerRooms.has(enemy.roomId) || warmRooms.has(enemy.roomId)))
+      );
       if (hot) hotCount += 1;
       else if (warm) warmCount += 1;
       else coldCount += 1;
@@ -343,6 +347,15 @@ export class InvaderDirector {
       warm: this.invaderTierCounts.warm - (currentTier === "warm" ? 1 : 0),
       cold: this.invaderTierCounts.cold - (currentTier === "cold" ? 1 : 0),
     };
+  }
+
+  private nearestPlayerDistanceInRoom(enemy: CoreEnemy): number {
+    let nearest = Number.POSITIVE_INFINITY;
+    for (const player of this.core.players.values()) {
+      if (!player.alive || !player.connected || player.roomId !== enemy.roomId) continue;
+      nearest = Math.min(nearest, Math.hypot(player.x - enemy.x, player.y - enemy.y));
+    }
+    return nearest;
   }
 
   private processInvader(
